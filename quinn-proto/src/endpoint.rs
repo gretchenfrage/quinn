@@ -406,6 +406,8 @@ impl Endpoint {
         crypto: &Keys,
         buf: &mut BytesMut,
     ) -> Option<DatagramEvent> {
+        // ensure initial packet
+        // leave this as normal
         let (src_cid, dst_cid, token, packet_number, version) = match packet.header {
             Header::Initial {
                 src_cid,
@@ -419,6 +421,8 @@ impl Endpoint {
         };
         let packet_number = packet_number.expand(0);
 
+        // validate crypto signing whatever
+        // leave this as normal
         if crypto
             .packet
             .remote
@@ -429,13 +433,19 @@ impl Endpoint {
             return None;
         };
 
+        // validate something else or something about the packet
+        // leave this as normal
         if !packet.reserved_bits_valid() {
             debug!("dropping connection attempt with invalid reserved bits");
             return None;
         }
 
+        // get the server config
+        // leave this as normal
         let server_config = self.server_config.as_ref().unwrap().clone();
 
+        // validate haven't reached connection limit
+        // HM... leave this for now? but we could move it later
         if self.connections.len() >= server_config.concurrent_connections as usize || self.is_full()
         {
             debug!("refusing connection");
@@ -449,8 +459,13 @@ impl Endpoint {
             )));
         }
 
+        // validate that the dst connection ID is sufficiently long
+        // but allow it to be extra short if it may have been a connection ID that we facking
+        // generated and sent back to it in a retry packet that it's now just complying with
+        //
+        // leave this as is
         if dst_cid.len() < 8
-            && (!server_config.use_retry || dst_cid.len() != self.local_cid_generator.cid_len())
+            && !(server_config.use_retry != UseRetry::No && dst_cid.len() == self.local_cid_generator.cid_len())
         {
             debug!(
                 "rejecting connection due to invalid DCID length {}",
@@ -466,43 +481,19 @@ impl Endpoint {
             )));
         }
 
+        // if we have retrying enabled, if the thing doesn't have a token, early return with sending it back
+        // a retry packet, and if it does have the token, assign the details of it to these variables, unless
+        // its token is issues from a NEW_TOKEN frame or whatever and is expired or invalid or something, in
+        // which case close the connection
+        //
+        // what we want to do:
+        // probably we want to factor out some sort of inner method that starts getting called at this point
+        // that either sends it back an initial close response if it's invalid and returns none, or even returns
+        // a result incoming connection and if it's error the caller uses the error value to send it back an
+        // initial close, and this calls that  and branches on the retry policy to decide what to do with it
         let (retry_src_cid, orig_dst_cid) = if server_config.use_retry {
             if token.is_empty() {
-                // First Initial
-                let mut random_bytes = vec![0u8; RetryToken::RANDOM_BYTES_LEN];
-                self.rng.fill_bytes(&mut random_bytes);
-                // The peer will use this as the DCID of its following Initials. Initial DCIDs are
-                // looked up separately from Handshake/Data DCIDs, so there is no risk of collision
-                // with established connections. In the unlikely event that a collision occurs
-                // between two connections in the initial phase, both will fail fast and may be
-                // retried by the application layer.
-                let loc_cid = self.local_cid_generator.generate_cid();
-
-                let token = RetryToken {
-                    orig_dst_cid: dst_cid,
-                    issued: SystemTime::now(),
-                    random_bytes: &random_bytes,
-                }
-                .encode(&*server_config.token_key, &addresses.remote, &loc_cid);
-
-                let header = Header::Retry {
-                    src_cid: loc_cid,
-                    dst_cid: src_cid,
-                    version,
-                };
-
-                let encode = header.encode(buf);
-                buf.put_slice(&token);
-                buf.extend_from_slice(&server_config.crypto.retry_tag(version, &dst_cid, buf));
-                encode.finish(buf, &*crypto.header.local, None);
-
-                return Some(DatagramEvent::Response(Transmit {
-                    destination: addresses.remote,
-                    ecn: None,
-                    size: buf.len(),
-                    segment_size: None,
-                    src_ip: addresses.local_ip,
-                }));
+                
             }
 
             match RetryToken::from_bytes(
@@ -532,52 +523,8 @@ impl Endpoint {
             (None, dst_cid)
         };
 
-        let ch = ConnectionHandle(self.connections.vacant_key());
-        let loc_cid = self.new_cid(ch);
-        let mut params = TransportParameters::new(
-            &server_config.transport,
-            &self.config,
-            self.local_cid_generator.as_ref(),
-            loc_cid,
-            Some(&server_config),
-        );
-        params.stateless_reset_token = Some(ResetToken::new(&*self.config.reset_key, &loc_cid));
-        params.original_dst_cid = Some(orig_dst_cid);
-        params.retry_src_cid = retry_src_cid;
-
-        let tls = server_config.crypto.clone().start_session(version, &params);
-        let transport_config = server_config.transport.clone();
-        let mut conn = self.add_connection(
-            ch,
-            version,
-            dst_cid,
-            loc_cid,
-            src_cid,
-            addresses,
-            now,
-            tls,
-            Some(server_config),
-            transport_config,
-        );
-        if dst_cid.len() != 0 {
-            self.index.insert_initial(dst_cid, ch);
-        }
-        match conn.handle_first_packet(now, addresses.remote, ecn, packet_number, packet, rest) {
-            Ok(()) => {
-                trace!(id = ch.0, icid = %dst_cid, "connection incoming");
-                Some(DatagramEvent::NewConnection(ch, conn))
-            }
-            Err(e) => {
-                debug!("handshake failed: {}", e);
-                self.handle_event(ch, EndpointEvent(EndpointEventInner::Drained));
-                match e {
-                    ConnectionError::TransportError(e) => Some(DatagramEvent::Response(
-                        self.initial_close(version, addresses, crypto, &src_cid, e, buf),
-                    )),
-                    _ => None,
-                }
-            }
-        }
+        // at this point we're like committed to creating the connection and we do so :)
+        
     }
 
     fn add_connection(
@@ -858,9 +805,175 @@ pub enum DatagramEvent {
     /// The datagram is redirected to its `Connection`
     ConnectionEvent(ConnectionHandle, ConnectionEvent),
     /// The datagram has resulted in starting a new `Connection`
+    ///
+    /// This will never be emitted if the server config's retry policy is manual. 
     NewConnection(ConnectionHandle, Connection),
+    /// The datagram may result in starting a new `Connection`, but the app must
+    /// accept/reject/retry it.
+    ///
+    /// This will only be emitted if the server config's retry policy is manual.
+    IncomingConnection(IncomingConnection),
     /// Response generated directly by the endpoint
     Response(Transmit),
+}
+
+/// An incoming connection for which the server has not yet begun its part of the handshake.
+// TODO make debug
+pub struct IncomingConnection {
+    addresses: FourTuple,
+    ecn: Option<EcnCodepoint>,
+    packet: Packet,
+    rest: Option<BytesMut>,
+    crypto:
+    src_cid: ConnectionId,
+    dst_cid: ConnectionId,
+    packet_number: u64,
+    version: u32,
+    retry_src_cid: Option<ConnectionId>,
+    orig_dst_cid: ConnectionId,
+    may_retry: bool,
+}
+
+impl IncomingConnection {
+    /// Whether the socket address that is initiating this connection has been validated.
+    ///
+    /// This means that the sender of the initial packet has proved that they can receive traffic
+    /// sent to `self.remote_address()`.
+    pub fn is_validated(&self) -> bool {
+        self.retry_src_cid.is_some()
+    }
+
+    /// The purported socket address that is initiating this connection.
+    pub fn remote_address(&self) -> SocketAddr {
+        self.addresses.remote
+    }
+
+    /// Whether it is legal to require the client to retry.
+    ///
+    /// If `is_validated` is false, `may_retry` is necessarily true.
+    pub fn may_retry(&self) -> bool {
+        self.may_retry
+    }
+
+    /// Attempt to accept this incoming connection (an error may still occur).
+    pub fn accept(
+        self,
+        endpoint: &mut Endpoint,
+        now: Instant,
+        buf: &mut BytesMut,
+    ) -> Option<DatagramEvent> {
+        let server_config = self.server_config.as_ref().unwrap().clone();
+
+        let ch = ConnectionHandle(endpoint.connections.vacant_key());
+        let loc_cid = endpoint.new_cid(ch);
+        let mut params = TransportParameters::new(
+            &server_config.transport,
+            &endpoint.config,
+            endpoint.local_cid_generator.as_ref(),
+            loc_cid,
+            Some(&server_config),
+        );
+        params.stateless_reset_token = Some(ResetToken::new(&*endpoint.config.reset_key, &loc_cid));
+        params.original_dst_cid = Some(self.orig_dst_cid);
+        params.retry_src_cid = self.retry_src_cid;
+
+        let tls = server_config.crypto.clone().start_session(self.version, &params);
+        let transport_config = server_config.transport.clone();
+        let mut conn = endpoint.add_connection(
+            ch,
+            self.version,
+            self.dst_cid,
+            loc_cid,
+            self.src_cid,
+            self.addresses,
+            now,
+            tls,
+            Some(server_config),
+            transport_config,
+        );
+        if self.dst_cid.len() != 0 {
+            endpoint.index.insert_initial(self.dst_cid, ch);
+        }
+        match conn.handle_first_packet(
+            now,
+            self.addresses.remote,
+            self.ecn,
+            self.packet_number,
+            self.packet,
+            self.rest,
+        ) {
+            Ok(()) => {
+                trace!(id = ch.0, icid = %dst_cid, "connection incoming");
+                Some(DatagramEvent::NewConnection(ch, conn))
+            }
+            Err(e) => {
+                debug!("handshake failed: {}", e);
+                endpoint.handle_event(ch, EndpointEvent(EndpointEventInner::Drained));
+                match e {
+                    ConnectionError::TransportError(e) => Some(DatagramEvent::Response( // TODO crypto
+                        endpoint.initial_close(self.version, self.addresses, crypto, &self.src_cid, e, buf),
+                    )),
+                    _ => None,
+                }
+            }
+        }
+    }
+
+    /// Reject this incoming connection attempt.
+    pub fn reject(self, endpoint: &mut Endpoint) -> Transmit {
+        endpoint.initial_close(
+            self.version,
+            self.addresses,
+            crypto, // TODO
+            &self.src_cid,
+            TransportError::CONNECTION_REFUSED(""), // TODO customizable error?
+            buf,
+        )
+    }
+
+    /// Respond with a retry packet, requiring the client to retry with address validation.
+    ///
+    /// Panics if `may_retry` is false.
+    pub fn retry(self, endpoint: &mut Endpoint, buf: &mut BytesMut) -> Transmit {
+        assert!(self.may_retry(), "retry on IncomingConnection with may_retry == false");        
+        let server_config = self.server_config.as_ref().unwrap().clone();
+
+        // First Initial
+        let mut random_bytes = vec![0u8; RetryToken::RANDOM_BYTES_LEN];
+        endpoint.rng.fill_bytes(&mut random_bytes);
+        // The peer will use this as the DCID of its following Initials. Initial DCIDs are
+        // looked up separately from Handshake/Data DCIDs, so there is no risk of collision
+        // with established connections. In the unlikely event that a collision occurs
+        // between two connections in the initial phase, both will fail fast and may be
+        // retried by the application layer.
+        let loc_cid = endpoint.local_cid_generator.generate_cid();
+
+        let token = RetryToken {
+            orig_dst_cid: self.dst_cid,
+            issued: SystemTime::now(),
+            random_bytes: &random_bytes,
+        }
+            .encode(&*server_config.token_key, &self.addresses.remote, &loc_cid);
+
+        let header = Header::Retry {
+            src_cid: loc_cid,
+            dst_cid: self.src_cid,
+            self.version,
+        };
+
+        let encode = header.encode(buf);
+        buf.put_slice(&token);
+        buf.extend_from_slice(&server_config.crypto.retry_tag(self.version, &self.dst_cid, buf)); // TODO: crypto
+        encode.finish(buf, &*crypto.header.local, None);
+
+        Transmit {
+            destination: self.addresses.remote,
+            ecn: None,
+            size: buf.len(),
+            segment_size: None,
+            src_ip: self.addresses.local_ip,
+        }
+    }
 }
 
 /// Errors in the parameters being used to create a new connection

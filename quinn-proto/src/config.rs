@@ -741,10 +741,10 @@ pub struct ServerConfig {
     /// Used to generate one-time AEAD keys to protect handshake tokens
     pub(crate) token_key: Arc<dyn HandshakeTokenKey>,
 
-    /// Whether to require clients to prove ownership of an address before committing resources.
+    /// When to require clients to prove ownership of an address before committing resources.
     ///
     /// Introduces an additional round-trip to the handshake to make denial of service attacks more difficult.
-    pub(crate) use_retry: bool,
+    pub(crate) retry_policy: RetryPolicy,
     /// Microseconds after a stateless retry token was issued for which it's considered valid.
     pub(crate) retry_token_lifetime: Duration,
 
@@ -756,6 +756,21 @@ pub struct ServerConfig {
     /// Improves behavior for clients that move between different internet connections or suffer NAT
     /// rebinding. Enabled by default.
     pub(crate) migration: bool,
+}
+
+/// Configuration governing when the server responds to incoming connections with retry packets.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum RetryPolicy {
+    /// Do not use retries. Connections are automatically accepted without requiring their
+    /// addresses to be validated immediately.
+    Never,
+    /// Do use retries. Connection connects without address validation are automatically responded
+    /// to with retry packets.
+    Always,
+    /// Require the application to manually decide for each incoming connection whether to
+    /// accept/reject/retry. The application can take advantage of this to do logic based on its
+    /// IP address before proceeding.
+    Manual,
 }
 
 impl ServerConfig {
