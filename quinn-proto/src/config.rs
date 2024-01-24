@@ -764,13 +764,19 @@ pub enum RetryPolicy {
     /// Do not use retries. Connections are automatically accepted without requiring their
     /// addresses to be validated immediately.
     Never,
-    /// Do use retries. Connection connects without address validation are automatically responded
-    /// to with retry packets.
+    /// Automatically use retries. Connection attempts without address validation are automatically
+    /// responded to with retry packets.
     Always,
     /// Require the application to manually decide for each incoming connection whether to
     /// accept/reject/retry. The application can take advantage of this to do logic based on its
-    /// IP address before proceeding.
+    /// IP address before allocating state for it.
     Manual,
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        RetryPolicy::Never
+    }
 }
 
 impl ServerConfig {
@@ -784,7 +790,7 @@ impl ServerConfig {
             crypto,
 
             token_key,
-            use_retry: false,
+            retry_policy: RetryPolicy::default(),
             retry_token_lifetime: Duration::from_secs(15),
 
             concurrent_connections: 100_000,
@@ -805,11 +811,11 @@ impl ServerConfig {
         self
     }
 
-    /// Whether to require clients to prove ownership of an address before committing resources.
+    /// When to require clients to prove ownership of an address before committing resources.
     ///
     /// Introduces an additional round-trip to the handshake to make denial of service attacks more difficult.
-    pub fn use_retry(&mut self, value: bool) -> &mut Self {
-        self.use_retry = value;
+    pub fn retry_policy(&mut self, value: RetryPolicy) -> &mut Self {
+        self.retry_policy = value;
         self
     }
 
@@ -873,7 +879,7 @@ impl fmt::Debug for ServerConfig {
             .field("transport", &self.transport)
             .field("crypto", &"ServerConfig { elided }")
             .field("token_key", &"[ elided ]")
-            .field("use_retry", &self.use_retry)
+            .field("retry_policy", &self.retry_policy)
             .field("retry_token_lifetime", &self.retry_token_lifetime)
             .field("concurrent_connections", &self.concurrent_connections)
             .field("migration", &self.migration)

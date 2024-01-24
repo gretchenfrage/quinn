@@ -465,7 +465,10 @@ impl Endpoint {
         //
         // leave this as is
         if dst_cid.len() < 8
-            && !(server_config.use_retry != UseRetry::No && dst_cid.len() == self.local_cid_generator.cid_len())
+            && !(
+                server_config.retry_policy != RetryPolicy::Never
+                && dst_cid.len() == self.local_cid_generator.cid_len()
+            )
         {
             debug!(
                 "rejecting connection due to invalid DCID length {}",
@@ -935,7 +938,7 @@ impl IncomingConnection {
     ///
     /// Panics if `may_retry` is false.
     pub fn retry(self, endpoint: &mut Endpoint, buf: &mut BytesMut) -> Transmit {
-        assert!(self.may_retry(), "retry on IncomingConnection with may_retry == false");        
+        assert!(self.may_retry(), "retry on IncomingConnection with may_retry == false");
         let server_config = self.server_config.as_ref().unwrap().clone();
 
         // First Initial

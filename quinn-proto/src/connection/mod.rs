@@ -269,6 +269,9 @@ impl Connection {
             client_hello: None,
         });
         let mut rng = StdRng::from_seed(rng_seed);
+        // connection path validates is set to true if this is a client endpoint or if the
+        // server config is set up to use retry... HM, but what if we're a server endpoint
+        // and we're set up to not use retry but the endpoint is the client of this endpoint?
         let path_validated = server_config.as_ref().map_or(true, |c| c.use_retry);
         let mut this = Self {
             endpoint_config,
