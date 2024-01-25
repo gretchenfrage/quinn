@@ -18,7 +18,7 @@ use tracing::{debug, error, trace, warn};
 use crate::{
     cid_generator::{ConnectionIdGenerator, RandomConnectionIdGenerator},
     coding::BufMutExt,
-    config::{ClientConfig, EndpointConfig, ServerConfig},
+    config::{ClientConfig, EndpointConfig, ServerConfig, RetryPolicy},
     connection::{Connection, ConnectionError},
     crypto::{self, Keys, UnsupportedVersion},
     frame,
@@ -216,6 +216,7 @@ impl Endpoint {
                 return None;
             }
 
+            // to make these independent structs we gotta factor this out? or?
             let crypto = match server_config
                 .crypto
                 .initial_keys(version, dst_cid, Side::Server)
@@ -233,7 +234,7 @@ impl Endpoint {
             };
             return match first_decode.finish(Some(&*crypto.header.remote)) {
                 Ok(packet) => {
-                    self.handle_first_packet(now, addresses, ecn, packet, remaining, &crypto, buf)
+                    self.handle_first_packet(now, addresses, ecn, packet, remaining, crypto, buf)
                 }
                 Err(e) => {
                     trace!("unable to decode initial packet: {}", e);
@@ -358,6 +359,7 @@ impl Endpoint {
             tls,
             None,
             config.transport,
+            true,
         );
         Ok((ch, conn))
     }
@@ -401,11 +403,43 @@ impl Endpoint {
         now: Instant,
         addresses: FourTuple,
         ecn: Option<EcnCodepoint>,
-        mut packet: Packet,
+        packet: Packet,
         rest: Option<BytesMut>,
-        crypto: &Keys,
+        crypto: Keys,
         buf: &mut BytesMut,
     ) -> Option<DatagramEvent> {
+        match self.first_packet_to_incoming(
+            addresses,
+            ecn,
+            packet,
+            rest,
+            crypto,
+            buf,
+        ) {
+            Ok(incoming) => match self.server_config.as_ref().unwrap().retry_policy {
+                RetryPolicy::Never => incoming.accept(self, now, buf),
+                RetryPolicy::Always => {
+                    if incoming.is_validated() {
+                        incoming.accept(self, now, buf)
+                    } else {
+                        Some(DatagramEvent::Response(incoming.retry(self, buf)))
+                    }
+                }
+                RetryPolicy::Manual => Some(DatagramEvent::IncomingConnection(incoming)),
+            }
+            Err(err_response) => err_response.map(DatagramEvent::Response),
+        }
+    }
+
+    fn first_packet_to_incoming(
+        &mut self,
+        addresses: FourTuple,
+        ecn: Option<EcnCodepoint>,
+        mut packet: Packet,
+        rest: Option<BytesMut>,
+        crypto: Keys,
+        buf: &mut BytesMut,
+    ) -> Result<IncomingConnection, Option<Transmit>> {
         // ensure initial packet
         // leave this as normal
         let (src_cid, dst_cid, token, packet_number, version) = match packet.header {
@@ -417,7 +451,7 @@ impl Endpoint {
                 version,
                 ..
             } => (src_cid, dst_cid, token.clone(), number, version),
-            _ => panic!("non-initial packet in handle_first_packet()"),
+            _ => panic!("non-initial packet in first_packet_to_incoming()"),
         };
         let packet_number = packet_number.expand(0);
 
@@ -430,34 +464,30 @@ impl Endpoint {
             .is_err()
         {
             debug!(packet_number, "failed to authenticate initial packet");
-            return None;
+            return Err(None);
         };
 
         // validate something else or something about the packet
         // leave this as normal
         if !packet.reserved_bits_valid() {
             debug!("dropping connection attempt with invalid reserved bits");
-            return None;
+            return Err(None);
+        }
+
+        // validate haven't reached connection limit
+        if let Some(initial_close) = self.connection_refuse_if_connection_limit(
+            version,
+            addresses,
+            &crypto,
+            &src_cid,
+            buf,
+        ) {
+            return Err(Some(initial_close));
         }
 
         // get the server config
         // leave this as normal
-        let server_config = self.server_config.as_ref().unwrap().clone();
-
-        // validate haven't reached connection limit
-        // HM... leave this for now? but we could move it later
-        if self.connections.len() >= server_config.concurrent_connections as usize || self.is_full()
-        {
-            debug!("refusing connection");
-            return Some(DatagramEvent::Response(self.initial_close(
-                version,
-                addresses,
-                crypto,
-                &src_cid,
-                TransportError::CONNECTION_REFUSED(""),
-                buf,
-            )));
-        }
+        let server_config = self.server_config.as_ref().unwrap();
 
         // validate that the dst connection ID is sufficiently long
         // but allow it to be extra short if it may have been a connection ID that we facking
@@ -474,10 +504,10 @@ impl Endpoint {
                 "rejecting connection due to invalid DCID length {}",
                 dst_cid.len()
             );
-            return Some(DatagramEvent::Response(self.initial_close(
+            return Err(Some(self.initial_close(
                 version,
                 addresses,
-                crypto,
+                &crypto,
                 &src_cid,
                 TransportError::PROTOCOL_VIOLATION("invalid destination CID length"),
                 buf,
@@ -494,11 +524,10 @@ impl Endpoint {
         // that either sends it back an initial close response if it's invalid and returns none, or even returns
         // a result incoming connection and if it's error the caller uses the error value to send it back an
         // initial close, and this calls that  and branches on the retry policy to decide what to do with it
-        let (retry_src_cid, orig_dst_cid) = if server_config.use_retry {
-            if token.is_empty() {
-                
-            }
-
+        
+        let (retry_src_cid, orig_dst_cid) = if token.is_empty() {
+            (None, dst_cid)
+        } else {
             match RetryToken::from_bytes(
                 &*server_config.token_key,
                 &addresses.remote,
@@ -512,22 +541,32 @@ impl Endpoint {
                 }
                 _ => {
                     debug!("rejecting invalid stateless retry token");
-                    return Some(DatagramEvent::Response(self.initial_close(
+                    return Err(Some(self.initial_close(
                         version,
                         addresses,
-                        crypto,
+                        &crypto,
                         &src_cid,
                         TransportError::INVALID_TOKEN(""),
                         buf,
                     )));
                 }
             }
-        } else {
-            (None, dst_cid)
         };
-
         // at this point we're like committed to creating the connection and we do so :)
         
+        Ok(IncomingConnection {
+            addresses,
+            ecn,
+            packet,
+            rest,
+            crypto,
+            src_cid,
+            dst_cid,
+            packet_number,
+            version,
+            retry_src_cid,
+            orig_dst_cid,
+        })
     }
 
     fn add_connection(
@@ -542,6 +581,7 @@ impl Endpoint {
         tls: Box<dyn crypto::Session>,
         server_config: Option<Arc<ServerConfig>>,
         transport_config: Arc<TransportConfig>,
+        path_validated: bool,
     ) -> Connection {
         let mut rng_seed = [0; 32];
         self.rng.fill_bytes(&mut rng_seed);
@@ -560,6 +600,7 @@ impl Endpoint {
             version,
             self.allow_mtud,
             rng_seed,
+            path_validated,
         );
 
         let id = self.connections.insert(ConnectionMeta {
@@ -574,6 +615,31 @@ impl Endpoint {
         self.index.insert_conn(addresses, loc_cid, ch);
 
         conn
+    }
+
+    fn connection_refuse_if_connection_limit(
+        &mut self,
+        version: u32,
+        addresses: FourTuple,
+        crypto: &Keys,
+        src_cid: &ConnectionId,
+        buf: &mut BytesMut,
+    ) -> Option<Transmit> {
+        let server_config = self.server_config.as_ref().unwrap();
+        if self.connections.len() >= server_config.concurrent_connections as usize || self.is_full()
+        {
+            debug!("refusing connection");
+            Some(self.initial_close(
+                version,
+                addresses,
+                crypto,
+                src_cid,
+                TransportError::CONNECTION_REFUSED(""),
+                buf,
+            ))
+        } else {
+            None
+        }
     }
 
     fn initial_close(
@@ -809,7 +875,7 @@ pub enum DatagramEvent {
     ConnectionEvent(ConnectionHandle, ConnectionEvent),
     /// The datagram has resulted in starting a new `Connection`
     ///
-    /// This will never be emitted if the server config's retry policy is manual. 
+    /// This will never be emitted if the server config's retry policy is manual.
     NewConnection(ConnectionHandle, Connection),
     /// The datagram may result in starting a new `Connection`, but the app must
     /// accept/reject/retry it.
@@ -827,14 +893,13 @@ pub struct IncomingConnection {
     ecn: Option<EcnCodepoint>,
     packet: Packet,
     rest: Option<BytesMut>,
-    crypto:
+    crypto: Keys,
     src_cid: ConnectionId,
     dst_cid: ConnectionId,
     packet_number: u64,
     version: u32,
     retry_src_cid: Option<ConnectionId>,
     orig_dst_cid: ConnectionId,
-    may_retry: bool,
 }
 
 impl IncomingConnection {
@@ -855,7 +920,11 @@ impl IncomingConnection {
     ///
     /// If `is_validated` is false, `may_retry` is necessarily true.
     pub fn may_retry(&self) -> bool {
-        self.may_retry
+        // Currently, we do not produce retry tokens in a way that allows us to tell the difference
+        // between ones minted for a retry packet versus for a NEW_TOKEN frame, so to be safe we
+        // must simply never respond with a retry packet to an initial packet with a token in it.
+        // However, the QUIC protocol would allow for such a distinction to be implemented.
+        !self.is_validated()
     }
 
     /// Attempt to accept this incoming connection (an error may still occur).
@@ -865,7 +934,17 @@ impl IncomingConnection {
         now: Instant,
         buf: &mut BytesMut,
     ) -> Option<DatagramEvent> {
-        let server_config = self.server_config.as_ref().unwrap().clone();
+        if let Some(initial_close) = endpoint.connection_refuse_if_connection_limit(
+            self.version,
+            self.addresses,
+            &self.crypto,
+            &self.src_cid,
+            buf,
+        ) {
+            return Some(DatagramEvent::Response(initial_close));
+        }
+
+        let server_config = endpoint.server_config.as_ref().unwrap().clone();
 
         let ch = ConnectionHandle(endpoint.connections.vacant_key());
         let loc_cid = endpoint.new_cid(ch);
@@ -893,6 +972,7 @@ impl IncomingConnection {
             tls,
             Some(server_config),
             transport_config,
+            self.retry_src_cid.is_some(),
         );
         if self.dst_cid.len() != 0 {
             endpoint.index.insert_initial(self.dst_cid, ch);
@@ -906,15 +986,15 @@ impl IncomingConnection {
             self.rest,
         ) {
             Ok(()) => {
-                trace!(id = ch.0, icid = %dst_cid, "connection incoming");
+                trace!(id = ch.0, icid = %self.dst_cid, "new connection");
                 Some(DatagramEvent::NewConnection(ch, conn))
             }
             Err(e) => {
                 debug!("handshake failed: {}", e);
                 endpoint.handle_event(ch, EndpointEvent(EndpointEventInner::Drained));
                 match e {
-                    ConnectionError::TransportError(e) => Some(DatagramEvent::Response( // TODO crypto
-                        endpoint.initial_close(self.version, self.addresses, crypto, &self.src_cid, e, buf),
+                    ConnectionError::TransportError(e) => Some(DatagramEvent::Response(
+                        endpoint.initial_close(self.version, self.addresses, &self.crypto, &self.src_cid, e, buf),
                     )),
                     _ => None,
                 }
@@ -923,11 +1003,11 @@ impl IncomingConnection {
     }
 
     /// Reject this incoming connection attempt.
-    pub fn reject(self, endpoint: &mut Endpoint) -> Transmit {
+    pub fn reject(self, endpoint: &mut Endpoint, buf: &mut BytesMut) -> Transmit {
         endpoint.initial_close(
             self.version,
             self.addresses,
-            crypto, // TODO
+            &self.crypto,
             &self.src_cid,
             TransportError::CONNECTION_REFUSED(""), // TODO customizable error?
             buf,
@@ -938,8 +1018,8 @@ impl IncomingConnection {
     ///
     /// Panics if `may_retry` is false.
     pub fn retry(self, endpoint: &mut Endpoint, buf: &mut BytesMut) -> Transmit {
-        assert!(self.may_retry(), "retry on IncomingConnection with may_retry == false");
-        let server_config = self.server_config.as_ref().unwrap().clone();
+        assert!(self.may_retry(), "retry() with may_retry == false");
+        let server_config = endpoint.server_config.as_ref().unwrap();
 
         // First Initial
         let mut random_bytes = vec![0u8; RetryToken::RANDOM_BYTES_LEN];
@@ -961,13 +1041,13 @@ impl IncomingConnection {
         let header = Header::Retry {
             src_cid: loc_cid,
             dst_cid: self.src_cid,
-            self.version,
+            version: self.version,
         };
 
         let encode = header.encode(buf);
         buf.put_slice(&token);
-        buf.extend_from_slice(&server_config.crypto.retry_tag(self.version, &self.dst_cid, buf)); // TODO: crypto
-        encode.finish(buf, &*crypto.header.local, None);
+        buf.extend_from_slice(&server_config.crypto.retry_tag(self.version, &self.dst_cid, buf));
+        encode.finish(buf, &*self.crypto.header.local, None);
 
         Transmit {
             destination: self.addresses.remote,

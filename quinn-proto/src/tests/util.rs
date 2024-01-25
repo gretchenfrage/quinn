@@ -357,6 +357,7 @@ impl TestEndpoint {
                         self.outbound
                             .extend(split_transmit(transmit, buf.split_to(size).freeze()));
                     }
+                    DatagramEvent::IncomingConnection(_incoming) => unreachable!()
                 }
             }
         }
