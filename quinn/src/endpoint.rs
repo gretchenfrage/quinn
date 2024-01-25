@@ -458,10 +458,12 @@ impl State {
                                     self.incoming.push_back(PortableGenericIncoming::Accepted(conn));
                                 }
                                 Some(DatagramEvent::IncomingConnection(incoming_conn)) => {
-                                    self.incoming.push_back(PortableGenericIncoming::NotAccepted {
-                                        inner: incoming_conn,
-                                        response_buffer,
-                                    });
+                                    self.incoming.push_back(PortableGenericIncoming::NotAccepted(
+                                        PortableIncomingConnection {
+                                            inner: incoming_conn,
+                                            response_buffer,
+                                        }
+                                    ));
                                 }
                                 Some(DatagramEvent::ConnectionEvent(handle, event)) => {
                                     // Ignoring errors from dropped connections that haven't yet been cleaned up
@@ -695,10 +697,18 @@ impl<'a> Future for Accept<'a> {
                 return Poll::Ready(None);
             }
             if let Some(gen_incoming) = endpoint.incoming.pop_front() {
-                if let Some(conn) = gen_incoming.with_endpoint(this.endpoint).accept() {
-                    return Poll::Ready(Some(conn));
-                } else {
-                    continue;
+                tracing::debug!("yay tryiong to accept");
+                match gen_incoming {
+                    PortableGenericIncoming::Accepted(conn) => {
+                        return Poll::Ready(Some(conn))
+                    }
+                    PortableGenericIncoming::NotAccepted(incoming_conn) => {
+                        if let Some(conn) = incoming_conn.accept(endpoint) {
+                            return Poll::Ready(Some(conn));
+                        } else {
+                            continue;
+                        }
+                    }
                 }
             }
             if endpoint.connections.close.is_some() {
@@ -737,7 +747,14 @@ impl<'a> Future for NextIncoming<'a> {
             return Poll::Ready(None);
         }
         if let Some(gen_incoming) = endpoint.incoming.pop_front() {
-            return Poll::Ready(Some(gen_incoming.with_endpoint(this.endpoint)));
+            return Poll::Ready(Some(match gen_incoming {
+                PortableGenericIncoming::Accepted(conn) => GenericIncoming::Accepted(conn),
+                PortableGenericIncoming::NotAccepted(incoming_conn) =>
+                    GenericIncoming::NotAccepted(IncomingConnection {
+                        portable: incoming_conn,
+                        endpoint: IncomingConnectionEndpointRef::Borrowed(&this.endpoint.inner),
+                    })
+            }));
         }
         if endpoint.connections.close.is_some() {
             return Poll::Ready(None);
@@ -766,14 +783,44 @@ pub enum GenericIncoming<'a> {
     NotAccepted(IncomingConnection<'a>),
 }
 
-impl<'a> GenericIncoming<'a> {
+impl<'a> GenericIncoming<'a> {/*
     /// Attempt to accept this incoming connection (an error may still occur for the manual variant)
+    ///
+    /// `Accepted` variant is simply unwrapped.
     pub fn accept(self) -> Option<Connecting> {
         match self {
             GenericIncoming::Accepted(conn) => Some(conn),
             GenericIncoming::NotAccepted(incoming_conn) => incoming_conn.accept(),
         }
     }
+
+    /// Reject this incoming connection
+    ///
+    /// `Accepted` variant is simply dropped.
+    pub fn reject(self) {
+        match self {
+            GenericIncoming::Accepted(_) => (),
+            GenericIncoming
+        }
+    }
+
+    TODO random API wishlist
+    accept
+    reject
+    retry
+    remote_address
+    is_validated
+        ^-- this requires is_validated to be added to connection, which is now a thing we can
+            implement
+    may_retry
+
+    ^-- on this
+    
+    consider renaming GenericIncoming to something else
+
+    also maybe auto-reject incoming connection if dropped
+
+    */
 
     /// Convert into a `'static` version of self.
     pub fn into_owned(self) -> GenericIncoming<'static> {
@@ -783,40 +830,43 @@ impl<'a> GenericIncoming<'a> {
                 GenericIncoming::NotAccepted(incoming_conn.into_owned()),
         }
     }
+
+    /// Expect the `Accepted` variant, which occurs for `retry_policy != RetryPolicy::Manual`
+    pub fn into_accepted(self) -> Result<Connecting, IncomingConnection<'a>> {
+        match self {
+            GenericIncoming::Accepted(conn) => Ok(conn),
+            GenericIncoming::NotAccepted(incoming_conn) => Err(incoming_conn),
+        }
+    }
+
+    /// Expect the `NotAccepted` variant, which occurs for `retry_policy == RetryPolicy::Manual`
+    pub fn into_not_accepted(self) -> Result<IncomingConnection<'a>, Connecting> {
+        match self {
+            GenericIncoming::NotAccepted(incoming_conn) => Ok(incoming_conn),
+            GenericIncoming::Accepted(conn) => Err(conn),
+        }
+    }
 }
 
 // GenericIncoming minus the &Endpoint
 #[derive(Debug)]
 enum PortableGenericIncoming {
     Accepted(Connecting),
-    NotAccepted {
-        inner: proto::IncomingConnection,
-        response_buffer: BytesMut,
-    }
-}
-
-impl PortableGenericIncoming {
-    fn with_endpoint(self, endpoint: &Endpoint) -> GenericIncoming<'_> {
-        match self {
-            PortableGenericIncoming::Accepted(conn) => GenericIncoming::Accepted(conn),
-            PortableGenericIncoming::NotAccepted {
-                inner,
-                response_buffer,
-            } => GenericIncoming::NotAccepted(IncomingConnection {
-                inner,
-                response_buffer,
-                endpoint: IncomingConnectionEndpointRef::Borrowed(&endpoint.inner),
-            }),
-        }
-    }
+    NotAccepted(PortableIncomingConnection)
 }
 
 /// An incoming connection for which the server has not yet begun its part of the handshake
 #[derive(Debug)]
 pub struct IncomingConnection<'a> {
+    portable: PortableIncomingConnection,
+    endpoint: IncomingConnectionEndpointRef<'a>,
+}
+
+// IncomingConnection minus the &Endpoint
+#[derive(Debug)]
+struct PortableIncomingConnection {
     inner: proto::IncomingConnection,
     response_buffer: BytesMut,
-    endpoint: IncomingConnectionEndpointRef<'a>,
 }
 
 #[derive(Debug)]
@@ -841,24 +891,71 @@ impl<'a> IncomingConnection<'a> {
     /// This means that the sender of the initial packet has proved that they can receive traffic
     /// sent to `self.remote_address()`.
     pub fn is_validated(&self) -> bool {
-        self.inner.is_validated()
+        self.portable.inner.is_validated()
     }
 
     /// The purported socket address that is initiating this connection
     pub fn remote_address(&self) -> SocketAddr {
-        self.inner.remote_address()
+        self.portable.inner.remote_address()
     }
 
     /// Whether it is legal to require the client to retry
     ///
     /// If `is_validated` is false, `may_retry` is necessarily true.
     pub fn may_retry(&self) -> bool {
-        self.inner.may_retry()
+        self.portable.inner.may_retry()
     }
 
     /// Attempt to accept this incoming connection (an error may still occur)
-    pub fn accept(mut self) -> Option<Connecting> {
+    pub fn accept(self) -> Option<Connecting> {
         let mut endpoint = self.endpoint.0.state.lock().unwrap();
+        self.portable.accept(&mut *endpoint)
+    }
+
+    /// Reject this incoming connection attempt
+    pub fn reject(mut self) {
+        let mut endpoint = self.endpoint.0.state.lock().unwrap();
+        let transmit = self.portable.inner.reject(&mut endpoint.inner, &mut self.portable.response_buffer);
+        let thing = &mut *endpoint;
+        State::respond(
+            &mut thing.transmit_queue_contents_len,
+            &mut thing.outgoing,
+            transmit,
+            self.portable.response_buffer,
+        );
+    }
+
+    /// Respond with a retry packet, requiring the client to retry with address validation
+    ///
+    /// Panics if `may_retry` is false.
+    pub fn retry(mut self) {
+        let mut endpoint = self.endpoint.0.state.lock().unwrap();
+        let transmit = self.portable.inner.retry(&mut endpoint.inner, &mut self.portable.response_buffer);
+        let thing = &mut *endpoint;
+        State::respond(
+            &mut thing.transmit_queue_contents_len,
+            &mut thing.outgoing,
+            transmit,
+            self.portable.response_buffer,
+        );
+    }
+
+    /// Convert into a `'static` version of self.
+    pub fn into_owned(self) -> IncomingConnection<'static> {
+        IncomingConnection {
+            portable: self.portable,
+            endpoint: match self.endpoint {
+                IncomingConnectionEndpointRef::Borrowed(inner) =>
+                    IncomingConnectionEndpointRef::Owned(inner.clone()),
+                IncomingConnectionEndpointRef::Owned(inner) =>
+                    IncomingConnectionEndpointRef::Owned(inner),
+            },
+        }
+    }
+}
+
+impl PortableIncomingConnection {
+    fn accept(mut self, endpoint: &mut State) -> Option<Connecting> {
         match self.inner.accept(&mut endpoint.inner, Instant::now(), &mut self.response_buffer) {
             Ok((handle, conn)) => {
                 let socket = endpoint.socket.clone();
@@ -877,48 +974,6 @@ impl<'a> IncomingConnection<'a> {
                 }
                 None
             }
-        }
-    }
-
-    /// Reject this incoming connection attempt
-    pub fn reject(mut self) {
-        let mut endpoint = self.endpoint.0.state.lock().unwrap();
-        let transmit = self.inner.reject(&mut endpoint.inner, &mut self.response_buffer);
-        let thing = &mut *endpoint;
-        State::respond(
-            &mut thing.transmit_queue_contents_len,
-            &mut thing.outgoing,
-            transmit,
-            self.response_buffer,
-        );
-    }
-
-    /// Respond with a retry packet, requiring the client to retry with address validation
-    ///
-    /// Panics if `may_retry` is false.
-    pub fn retry(mut self) {
-        let mut endpoint = self.endpoint.0.state.lock().unwrap();
-        let transmit = self.inner.retry(&mut endpoint.inner, &mut self.response_buffer);
-        let thing = &mut *endpoint;
-        State::respond(
-            &mut thing.transmit_queue_contents_len,
-            &mut thing.outgoing,
-            transmit,
-            self.response_buffer,
-        );
-    }
-
-    /// Convert into a `'static` version of self.
-    pub fn into_owned(self) -> IncomingConnection<'static> {
-        IncomingConnection {
-            inner: self.inner,
-            response_buffer: self.response_buffer,
-            endpoint: match self.endpoint {
-                IncomingConnectionEndpointRef::Borrowed(inner) =>
-                    IncomingConnectionEndpointRef::Owned(inner.clone()),
-                IncomingConnectionEndpointRef::Owned(inner) =>
-                    IncomingConnectionEndpointRef::Owned(inner),
-            },
         }
     }
 }
