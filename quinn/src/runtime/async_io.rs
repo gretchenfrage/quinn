@@ -11,24 +11,61 @@ use async_io::{Async, Timer};
 
 use super::{AsyncTimer, AsyncUdpSocket, Runtime};
 
-/// A Quinn runtime for async-std
-#[derive(Debug)]
-pub struct AsyncStdRuntime;
+#[cfg(feature = "smol")]
+pub use self::smol::SmolRuntime;
 
-impl Runtime for AsyncStdRuntime {
-    fn new_timer(&self, t: Instant) -> Pin<Box<dyn AsyncTimer>> {
-        Box::pin(Timer::at(t))
+#[cfg(feature = "smol")]
+mod smol {
+    use super::*;
+
+    /// A Quinn runtime for smol
+    #[derive(Debug)]
+    pub struct SmolRuntime;
+
+    impl Runtime for SmolRuntime {
+        fn new_timer(&self, t: Instant) -> Pin<Box<dyn AsyncTimer>> {
+            Box::pin(Timer::at(t))
+        }
+
+        fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
+            ::smol::spawn(future).detach();
+        }
+
+        fn wrap_udp_socket(
+            &self,
+            sock: std::net::UdpSocket,
+        ) -> io::Result<Arc<dyn AsyncUdpSocket>> {
+            Ok(Arc::new(UdpSocket::new(sock)?))
+        }
     }
+}
 
-    fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
-        async_std::task::spawn(future);
-    }
+#[cfg(feature = "async-std")]
+pub use self::async_std::AsyncStdRuntime;
 
-    fn wrap_udp_socket(&self, sock: std::net::UdpSocket) -> io::Result<Arc<dyn AsyncUdpSocket>> {
-        Ok(Arc::new(UdpSocket {
-            inner: udp::UdpSocketState::new((&sock).into())?,
-            io: Async::new(sock)?,
-        }))
+#[cfg(feature = "async-std")]
+mod async_std {
+    use super::*;
+
+    /// A Quinn runtime for async-std
+    #[derive(Debug)]
+    pub struct AsyncStdRuntime;
+
+    impl Runtime for AsyncStdRuntime {
+        fn new_timer(&self, t: Instant) -> Pin<Box<dyn AsyncTimer>> {
+            Box::pin(Timer::at(t))
+        }
+
+        fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
+            ::async_std::task::spawn(future);
+        }
+
+        fn wrap_udp_socket(
+            &self,
+            sock: std::net::UdpSocket,
+        ) -> io::Result<Arc<dyn AsyncUdpSocket>> {
+            Ok(Arc::new(UdpSocket::new(sock)?))
+        }
     }
 }
 
@@ -46,6 +83,15 @@ impl AsyncTimer for Timer {
 struct UdpSocket {
     io: Async<std::net::UdpSocket>,
     inner: udp::UdpSocketState,
+}
+
+impl UdpSocket {
+    fn new(sock: std::net::UdpSocket) -> io::Result<Self> {
+        Ok(Self {
+            inner: udp::UdpSocketState::new((&sock).into())?,
+            io: Async::new(sock)?,
+        })
+    }
 }
 
 impl AsyncUdpSocket for UdpSocket {
