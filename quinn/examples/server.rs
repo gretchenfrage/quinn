@@ -133,7 +133,7 @@ async fn run(options: Opt) -> Result<()> {
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
     transport_config.max_concurrent_uni_streams(0_u8.into());
     if options.stateless_retry {
-        server_config.use_retry(true);
+        server_config.retry_policy(quinn::RetryPolicy::Always);
     }
 
     let root = Arc::<Path>::from(options.root.clone());

@@ -416,18 +416,21 @@ impl Endpoint {
             crypto,
             buf,
         ) {
-            Ok(incoming) => match self.server_config.as_ref().unwrap().retry_policy {
-                RetryPolicy::Never => incoming.accept(self, now, buf),
-                RetryPolicy::Always => {
-                    if incoming.is_validated() {
-                        incoming.accept(self, now, buf)
-                    } else {
+            Ok(incoming) => {
+                match self.server_config.as_ref().unwrap().retry_policy {
+                    RetryPolicy::Always if !incoming.is_validated() => {
                         Some(DatagramEvent::Response(incoming.retry(self, buf)))
                     }
+                    RetryPolicy::Manual => {
+                        Some(DatagramEvent::IncomingConnection(incoming))
+                    }
+                    _ => match incoming.accept(self, now, buf) {
+                        Ok((handle, conn)) => Some(DatagramEvent::NewConnection(handle, conn)),
+                        Err(response) => response.map(DatagramEvent::Response),
+                    }
                 }
-                RetryPolicy::Manual => Some(DatagramEvent::IncomingConnection(incoming)),
             }
-            Err(err_response) => err_response.map(DatagramEvent::Response),
+            Err(response) => response.map(DatagramEvent::Response),
         }
     }
 
@@ -887,7 +890,6 @@ pub enum DatagramEvent {
 }
 
 /// An incoming connection for which the server has not yet begun its part of the handshake.
-// TODO make debug
 pub struct IncomingConnection {
     addresses: FourTuple,
     ecn: Option<EcnCodepoint>,
@@ -933,7 +935,7 @@ impl IncomingConnection {
         endpoint: &mut Endpoint,
         now: Instant,
         buf: &mut BytesMut,
-    ) -> Option<DatagramEvent> {
+    ) -> Result<(ConnectionHandle, Connection), Option<Transmit>> {
         if let Some(initial_close) = endpoint.connection_refuse_if_connection_limit(
             self.version,
             self.addresses,
@@ -941,7 +943,7 @@ impl IncomingConnection {
             &self.src_cid,
             buf,
         ) {
-            return Some(DatagramEvent::Response(initial_close));
+            return Err(Some(initial_close));
         }
 
         let server_config = endpoint.server_config.as_ref().unwrap().clone();
@@ -987,16 +989,16 @@ impl IncomingConnection {
         ) {
             Ok(()) => {
                 trace!(id = ch.0, icid = %self.dst_cid, "new connection");
-                Some(DatagramEvent::NewConnection(ch, conn))
+                Ok((ch, conn))
             }
             Err(e) => {
                 debug!("handshake failed: {}", e);
                 endpoint.handle_event(ch, EndpointEvent(EndpointEventInner::Drained));
                 match e {
-                    ConnectionError::TransportError(e) => Some(DatagramEvent::Response(
+                    ConnectionError::TransportError(e) => Err(Some(
                         endpoint.initial_close(self.version, self.addresses, &self.crypto, &self.src_cid, e, buf),
                     )),
-                    _ => None,
+                    _ => Err(None),
                 }
             }
         }
@@ -1056,6 +1058,12 @@ impl IncomingConnection {
             segment_size: None,
             src_ip: self.addresses.local_ip,
         }
+    }
+}
+
+impl fmt::Debug for IncomingConnection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("IncomingConnecion { TODO }")
     }
 }
 
