@@ -154,11 +154,11 @@ async fn run(options: Opt) -> Result<()> {
             let incoming_conn = incoming_conn
                 .into_not_accepted()
                 .unwrap_or_else(|_| unreachable!());
-            if incoming_conn.is_validated() {
-                if incoming_conn.remote_address() == block {
-                    info!("rejecting blocked client IP address");
-                    incoming_conn.reject();
-                } else if let Some(conn) = incoming_conn.accept() {
+            if incoming_conn.remote_address() == block {
+                info!("rejecting blocked client IP address");
+                incoming_conn.reject();
+            } else if incoming_conn.is_validated() {
+                if let Some(conn) = incoming_conn.accept() {
                     spawn_handle_connection_fut(&root, conn);
                 }
             } else {
