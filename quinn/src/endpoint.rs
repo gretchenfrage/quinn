@@ -10,6 +10,7 @@ use std::{
     sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
     time::Instant,
+    ops,
 };
 
 use crate::runtime::{default_runtime, AsyncUdpSocket, Runtime};
@@ -773,6 +774,15 @@ impl<'a> GenericIncoming<'a> {
             GenericIncoming::NotAccepted(incoming_conn) => incoming_conn.accept(),
         }
     }
+
+    /// Convert into a `'static` version of self.
+    pub fn into_owned(self) -> GenericIncoming<'static> {
+        match self {
+            GenericIncoming::Accepted(conn) => GenericIncoming::Accepted(conn),
+            GenericIncoming::NotAccepted(incoming_conn) =>
+                GenericIncoming::NotAccepted(incoming_conn.into_owned()),
+        }
+    }
 }
 
 // GenericIncoming minus the &Endpoint
@@ -792,17 +802,37 @@ impl PortableGenericIncoming {
             PortableGenericIncoming::NotAccepted {
                 inner,
                 response_buffer,
-            } => GenericIncoming::NotAccepted(IncomingConnection { inner, response_buffer, endpoint }),
+            } => GenericIncoming::NotAccepted(IncomingConnection {
+                inner,
+                response_buffer,
+                endpoint: IncomingConnectionEndpointRef::Borrowed(&endpoint.inner),
+            }),
         }
     }
 }
 
 /// An incoming connection for which the server has not yet begun its part of the handshake
-#[derive(Debug)] // TODO: make this capable of becoming static
+#[derive(Debug)]
 pub struct IncomingConnection<'a> {
     inner: proto::IncomingConnection,
     response_buffer: BytesMut,
-    endpoint: &'a Endpoint,
+    endpoint: IncomingConnectionEndpointRef<'a>,
+}
+
+#[derive(Debug)]
+enum IncomingConnectionEndpointRef<'a> {
+    Borrowed(&'a EndpointRef),
+    Owned(EndpointRef),
+}
+
+impl<'a> ops::Deref for IncomingConnectionEndpointRef<'a> {
+    type Target = EndpointRef;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            &IncomingConnectionEndpointRef::Borrowed(inner) => inner,
+            &IncomingConnectionEndpointRef::Owned(ref inner) => inner,
+        }
+    }
 }
 
 impl<'a> IncomingConnection<'a> {
@@ -828,7 +858,7 @@ impl<'a> IncomingConnection<'a> {
 
     /// Attempt to accept this incoming connection (an error may still occur)
     pub fn accept(mut self) -> Option<Connecting> {
-        let mut endpoint = self.endpoint.inner.0.state.lock().unwrap();
+        let mut endpoint = self.endpoint.0.state.lock().unwrap();
         match self.inner.accept(&mut endpoint.inner, Instant::now(), &mut self.response_buffer) {
             Ok((handle, conn)) => {
                 let socket = endpoint.socket.clone();
@@ -852,7 +882,7 @@ impl<'a> IncomingConnection<'a> {
 
     /// Reject this incoming connection attempt
     pub fn reject(mut self) {
-        let mut endpoint = self.endpoint.inner.0.state.lock().unwrap();
+        let mut endpoint = self.endpoint.0.state.lock().unwrap();
         let transmit = self.inner.reject(&mut endpoint.inner, &mut self.response_buffer);
         let thing = &mut *endpoint;
         State::respond(
@@ -867,7 +897,7 @@ impl<'a> IncomingConnection<'a> {
     ///
     /// Panics if `may_retry` is false.
     pub fn retry(mut self) {
-        let mut endpoint = self.endpoint.inner.0.state.lock().unwrap();
+        let mut endpoint = self.endpoint.0.state.lock().unwrap();
         let transmit = self.inner.retry(&mut endpoint.inner, &mut self.response_buffer);
         let thing = &mut *endpoint;
         State::respond(
@@ -876,6 +906,20 @@ impl<'a> IncomingConnection<'a> {
             transmit,
             self.response_buffer,
         );
+    }
+
+    /// Convert into a `'static` version of self.
+    pub fn into_owned(self) -> IncomingConnection<'static> {
+        IncomingConnection {
+            inner: self.inner,
+            response_buffer: self.response_buffer,
+            endpoint: match self.endpoint {
+                IncomingConnectionEndpointRef::Borrowed(inner) =>
+                    IncomingConnectionEndpointRef::Owned(inner.clone()),
+                IncomingConnectionEndpointRef::Owned(inner) =>
+                    IncomingConnectionEndpointRef::Owned(inner),
+            },
+        }
     }
 }
 
