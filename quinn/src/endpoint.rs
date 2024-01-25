@@ -454,10 +454,10 @@ impl State {
                                         self.socket.clone(),
                                         self.runtime.clone(),
                                     );
-                                    self.incoming.push_back(PortableGenericIncoming::Automatic(conn));
+                                    self.incoming.push_back(PortableGenericIncoming::Accepted(conn));
                                 }
                                 Some(DatagramEvent::IncomingConnection(incoming_conn)) => {
-                                    self.incoming.push_back(PortableGenericIncoming::Manual {
+                                    self.incoming.push_back(PortableGenericIncoming::NotAccepted {
                                         inner: incoming_conn,
                                         response_buffer,
                                     });
@@ -694,17 +694,10 @@ impl<'a> Future for Accept<'a> {
                 return Poll::Ready(None);
             }
             if let Some(gen_incoming) = endpoint.incoming.pop_front() {
-                match gen_incoming.with_endpoint(this.endpoint) {
-                    GenericIncoming::Automatic(conn) => {
-                        return Poll::Ready(Some(conn));
-                    },
-                    GenericIncoming::Manual(incoming_conn) => {
-                        if let Some(conn) = incoming_conn.accept() {
-                            return Poll::Ready(Some(conn));
-                        } else {
-                            continue;
-                        }
-                    }
+                if let Some(conn) = gen_incoming.with_endpoint(this.endpoint).accept() {
+                    return Poll::Ready(Some(conn));
+                } else {
+                    continue;
                 }
             }
             if endpoint.connections.close.is_some() {
@@ -762,17 +755,31 @@ impl<'a> Future for NextIncoming<'a> {
 }
 
 /// Value yielded from [`Endpoint::next_incoming`]
+///
+/// An incoming connection attempt that the server may or may not have already begun accepting.
 #[derive(Debug)]
 pub enum GenericIncoming<'a> {
-    Automatic(Connecting),
-    Manual(IncomingConnection<'a>),
+    /// An incoming connection attempt that the server has already begun accepting
+    Accepted(Connecting),
+    /// An incoming connection attempt that the server has not yet begun accepting
+    NotAccepted(IncomingConnection<'a>),
+}
+
+impl<'a> GenericIncoming<'a> {
+    /// Attempt to accept this incoming connection (an error may still occur for the manual variant)
+    pub fn accept(self) -> Option<Connecting> {
+        match self {
+            GenericIncoming::Accepted(conn) => Some(conn),
+            GenericIncoming::NotAccepted(incoming_conn) => incoming_conn.accept(),
+        }
+    }
 }
 
 // GenericIncoming minus the &Endpoint
 #[derive(Debug)]
 enum PortableGenericIncoming {
-    Automatic(Connecting),
-    Manual {
+    Accepted(Connecting),
+    NotAccepted {
         inner: proto::IncomingConnection,
         response_buffer: BytesMut,
     }
@@ -781,11 +788,11 @@ enum PortableGenericIncoming {
 impl PortableGenericIncoming {
     fn with_endpoint(self, endpoint: &Endpoint) -> GenericIncoming<'_> {
         match self {
-            PortableGenericIncoming::Automatic(conn) => GenericIncoming::Automatic(conn),
-            PortableGenericIncoming::Manual {
+            PortableGenericIncoming::Accepted(conn) => GenericIncoming::Accepted(conn),
+            PortableGenericIncoming::NotAccepted {
                 inner,
                 response_buffer,
-            } => GenericIncoming::Manual(IncomingConnection { inner, response_buffer, endpoint }),
+            } => GenericIncoming::NotAccepted(IncomingConnection { inner, response_buffer, endpoint }),
         }
     }
 }
