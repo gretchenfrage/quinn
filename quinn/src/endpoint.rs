@@ -10,7 +10,6 @@ use std::{
     sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
     time::Instant,
-    ops,
 };
 
 use crate::runtime::{default_runtime, AsyncUdpSocket, Runtime};
@@ -136,33 +135,12 @@ impl Endpoint {
         })
     }
 
-    /// Get the next incoming connection attempt from a client.
+    /// Get the next incoming connection attempt from a client
     ///
     /// Yields [`Connecting`] futures that must be `await`ed to obtain the final `Connection`, or
     /// `None` if the endpoint is [`close`](Self::close)d.
-    ///
-    /// If the server config's retry policy is set to manual, thus causing this method to encounter
-    /// an incoming connection attempt which the server has not yet accepted, this method will
-    /// simply automatically accept it. See `next_incoming` for an API that allows further
-    /// deferring allocation of server resources to incoming connection attempts.
     pub fn accept(&self) -> Accept<'_> {
         Accept {
-            endpoint: self,
-            notify: self.inner.shared.incoming.notified(),
-        }
-    }
-
-    /// Get the next incoming connection attempt from a client without the server necessarily
-    /// having begun its half of the handshake.
-    ///
-    /// Yields [`GenericIncoming`] enums. If the server config's retry policy is set to "manual",
-    /// these will contain `IncomingConnection`s, which can be used to accept, reject, or retry the
-    /// connection attempt.
-    ///
-    /// This can be useful for increasing the effectiveness of IP blocking against
-    /// denial-of-service attacks. If you don't need that, see `accept` for a simpler API.
-    pub fn next_incoming(&self) -> NextIncoming<'_> {
-        NextIncoming {
             endpoint: self,
             notify: self.inner.shared.incoming.notified(),
         }
@@ -392,8 +370,8 @@ pub(crate) struct EndpointInner {
 pub(crate) struct State {
     socket: Arc<dyn AsyncUdpSocket>,
     inner: proto::Endpoint,
-    outgoing: VecDeque<udp::Transmit>,
-    incoming: VecDeque<PortableGenericIncoming>,
+    transmit_state: TransmitState,
+    incoming: VecDeque<(proto::IncomingConnection, BytesMut)>,
     driver: Option<Waker>,
     ipv6: bool,
     connections: ConnectionSet,
@@ -405,8 +383,32 @@ pub(crate) struct State {
     recv_buf: Box<[u8]>,
     send_limiter: WorkLimiter,
     runtime: Arc<dyn Runtime>,
+    
+}
+
+#[derive(Debug)]
+struct TransmitState {
+    outgoing: VecDeque<udp::Transmit>,
     /// The aggregateed contents length of the packets in the transmit queue
     transmit_queue_contents_len: usize,
+}
+
+impl TransmitState {
+    fn respond(&mut self, transmit: proto::Transmit, mut response_buffer: BytesMut) {
+        // Limiting the memory usage for items queued in the outgoing queue from endpoint
+        // generated packets. Otherwise, we may see a build-up of the queue under test with
+        // flood of initial packets against the endpoint. The sender with the sender-limiter
+        // may not keep up the pace of these packets queued into the queue.
+        if self.transmit_queue_contents_len < MAX_TRANSMIT_QUEUE_CONTENTS_LEN {
+            let contents_len = transmit.size;
+            self.outgoing.push_back(udp_transmit(
+                transmit,
+                response_buffer.split_to(contents_len).freeze(),
+            ));
+            self.transmit_queue_contents_len = self.transmit_queue_contents_len
+                .saturating_add(contents_len);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -439,7 +441,6 @@ impl State {
                         while !data.is_empty() {
                             let buf = data.split_to(meta.stride.min(data.len()));
                             let mut response_buffer = BytesMut::new();
-                            // this is where we call that
                             match self.inner.handle(
                                 now,
                                 meta.addr,
@@ -448,22 +449,8 @@ impl State {
                                 buf,
                                 &mut response_buffer,
                             ) {
-                                Some(DatagramEvent::NewConnection(handle, conn)) => {
-                                    let conn = self.connections.insert(
-                                        handle,
-                                        conn,
-                                        self.socket.clone(),
-                                        self.runtime.clone(),
-                                    );
-                                    self.incoming.push_back(PortableGenericIncoming::Accepted(conn));
-                                }
-                                Some(DatagramEvent::IncomingConnection(incoming_conn)) => {
-                                    self.incoming.push_back(PortableGenericIncoming::NotAccepted(
-                                        PortableIncomingConnection {
-                                            inner: incoming_conn,
-                                            response_buffer,
-                                        }
-                                    ));
+                                Some(DatagramEvent::IncomingConnection(incoming)) => {
+                                    self.incoming.push_back((incoming, response_buffer));
                                 }
                                 Some(DatagramEvent::ConnectionEvent(handle, event)) => {
                                     // Ignoring errors from dropped connections that haven't yet been cleaned up
@@ -475,12 +462,7 @@ impl State {
                                         .send(ConnectionEvent::Proto(event));
                                 }
                                 Some(DatagramEvent::Response(transmit)) => {
-                                    Self::respond(
-                                        &mut self.transmit_queue_contents_len,
-                                        &mut self.outgoing,
-                                        transmit,
-                                        response_buffer,
-                                    );
+                                    self.transmit_state.respond(transmit, response_buffer);
                                 }
                                 None => {}
                             }
@@ -509,32 +491,11 @@ impl State {
         Ok(false)
     }
 
-    fn respond( // TODO: factor the relevant sub-selves into sub-struct
-        transmit_queue_contents_len: &mut usize,
-        outgoing: &mut VecDeque<udp::Transmit>,
-        transmit: proto::Transmit,
-        mut response_buffer: BytesMut,
-    ) {
-        // Limiting the memory usage for items queued in the outgoing queue from endpoint
-        // generated packets. Otherwise, we may see a build-up of the queue under test with
-        // flood of initial packets against the endpoint. The sender with the sender-limiter
-        // may not keep up the pace of these packets queued into the queue.
-        if *transmit_queue_contents_len < MAX_TRANSMIT_QUEUE_CONTENTS_LEN {
-            let contents_len = transmit.size;
-            outgoing.push_back(udp_transmit(
-                transmit,
-                response_buffer.split_to(contents_len).freeze(),
-            ));
-            *transmit_queue_contents_len = transmit_queue_contents_len
-                .saturating_add(contents_len);
-        }
-    }
-
     fn drive_send(&mut self, cx: &mut Context) -> Result<bool, io::Error> {
         self.send_limiter.start_cycle();
 
         let result = loop {
-            if self.outgoing.is_empty() {
+            if self.transmit_state.outgoing.is_empty() {
                 break Ok(false);
             }
 
@@ -542,12 +503,12 @@ impl State {
                 break Ok(true);
             }
 
-            match self.socket.poll_send(cx, self.outgoing.as_slices().0) {
+            match self.socket.poll_send(cx, self.transmit_state.outgoing.as_slices().0) {
                 Poll::Ready(Ok(n)) => {
                     let contents_len: usize =
-                        self.outgoing.drain(..n).map(|t| t.contents.len()).sum();
-                    self.transmit_queue_contents_len = self
-                        .transmit_queue_contents_len
+                        self.transmit_state.outgoing.drain(..n).map(|t| t.contents.len()).sum();
+                    self.transmit_state.transmit_queue_contents_len = self
+                        .transmit_state.transmit_queue_contents_len
                         .saturating_sub(contents_len);
                     // We count transmits instead of `poll_send` calls since the cost
                     // of a `sendmmsg` still linearly increases with number of packets.
@@ -590,10 +551,9 @@ impl State {
                     }
                     Transmit(t, buf) => {
                         let contents_len = buf.len();
-                        self.outgoing.push_back(udp_transmit(t, buf));
-                        self.transmit_queue_contents_len = self
-                            .transmit_queue_contents_len
-                            .saturating_add(contents_len);
+                        self.transmit_state.outgoing.push_back(udp_transmit(t, buf));
+                        self.transmit_state.transmit_queue_contents_len = self
+                            .transmit_state.transmit_queue_contents_len.saturating_add(contents_len);
                     }
                 },
                 Poll::Ready(None) => unreachable!("EndpointInner owns one sender"),
@@ -663,7 +623,7 @@ impl ConnectionSet {
             .unwrap();
         }
         self.senders.insert(handle, send);
-        Connecting::new(handle, conn, self.sender.clone(), recv, socket, runtime)
+        Connecting::new_handshaking(handle, conn, self.sender.clone(), recv, socket, runtime)
     }
 
     fn is_empty(&self) -> bool {
@@ -692,69 +652,15 @@ impl<'a> Future for Accept<'a> {
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
         let endpoint = &mut *this.endpoint.inner.state.lock().unwrap();
-        loop {
-            if endpoint.driver_lost {
-                return Poll::Ready(None);
-            }
-            if let Some(gen_incoming) = endpoint.incoming.pop_front() {
-                tracing::debug!("yay tryiong to accept");
-                match gen_incoming {
-                    PortableGenericIncoming::Accepted(conn) => {
-                        return Poll::Ready(Some(conn))
-                    }
-                    PortableGenericIncoming::NotAccepted(incoming_conn) => {
-                        if let Some(conn) = incoming_conn.accept(endpoint) {
-                            return Poll::Ready(Some(conn));
-                        } else {
-                            continue;
-                        }
-                    }
-                }
-            }
-            if endpoint.connections.close.is_some() {
-                return Poll::Ready(None);
-            }
-            break;
-        }
-        loop {
-            match this.notify.as_mut().poll(ctx) {
-                // `state` lock ensures we didn't race with readiness
-                Poll::Pending => return Poll::Pending,
-                // Spurious wakeup, get a new future
-                Poll::Ready(()) => this
-                    .notify
-                    .set(this.endpoint.inner.shared.incoming.notified()),
-            }
-        }
-    }
-}
-
-pin_project! {
-    /// Future produced by [`Endpoint::next_incoming`]
-    pub struct NextIncoming<'a> {
-        endpoint: &'a Endpoint,
-        #[pin]
-        notify: Notified<'a>,
-    }
-}
-
-impl<'a> Future for NextIncoming<'a> {
-    type Output = Option<GenericIncoming<'a>>;
-    fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut this = self.project();
-        let endpoint = &mut *this.endpoint.inner.state.lock().unwrap();
         if endpoint.driver_lost {
             return Poll::Ready(None);
         }
-        if let Some(gen_incoming) = endpoint.incoming.pop_front() {
-            return Poll::Ready(Some(match gen_incoming {
-                PortableGenericIncoming::Accepted(conn) => GenericIncoming::Accepted(conn),
-                PortableGenericIncoming::NotAccepted(incoming_conn) =>
-                    GenericIncoming::NotAccepted(IncomingConnection {
-                        portable: incoming_conn,
-                        endpoint: IncomingConnectionEndpointRef::Borrowed(&this.endpoint.inner),
-                    })
-            }));
+        if let Some((incoming, response_buffer)) = endpoint.incoming.pop_front() {
+            return Poll::Ready(Some(Connecting::new_incoming(
+                incoming,
+                this.endpoint.inner.clone(),
+                response_buffer,
+            )));
         }
         if endpoint.connections.close.is_some() {
             return Poll::Ready(None);
@@ -767,212 +673,6 @@ impl<'a> Future for NextIncoming<'a> {
                 Poll::Ready(()) => this
                     .notify
                     .set(this.endpoint.inner.shared.incoming.notified()),
-            }
-        }
-    }
-}
-
-/// Value yielded from [`Endpoint::next_incoming`]
-///
-/// An incoming connection attempt that the server may or may not have already begun accepting.
-#[derive(Debug)]
-pub enum GenericIncoming<'a> {
-    /// An incoming connection attempt that the server has already begun accepting
-    Accepted(Connecting),
-    /// An incoming connection attempt that the server has not yet begun accepting
-    NotAccepted(IncomingConnection<'a>),
-}
-
-impl<'a> GenericIncoming<'a> {/*
-    /// Attempt to accept this incoming connection (an error may still occur for the manual variant)
-    ///
-    /// `Accepted` variant is simply unwrapped.
-    pub fn accept(self) -> Option<Connecting> {
-        match self {
-            GenericIncoming::Accepted(conn) => Some(conn),
-            GenericIncoming::NotAccepted(incoming_conn) => incoming_conn.accept(),
-        }
-    }
-
-    /// Reject this incoming connection
-    ///
-    /// `Accepted` variant is simply dropped.
-    pub fn reject(self) {
-        match self {
-            GenericIncoming::Accepted(_) => (),
-            GenericIncoming
-        }
-    }
-
-    TODO random API wishlist
-    accept
-    reject
-    retry
-    remote_address
-    is_validated
-        ^-- this requires is_validated to be added to connection, which is now a thing we can
-            implement
-    may_retry
-
-    ^-- on this
-    
-    consider renaming GenericIncoming to something else
-
-    also maybe auto-reject incoming connection if dropped
-
-    */
-
-    /// Convert into a `'static` version of self.
-    pub fn into_owned(self) -> GenericIncoming<'static> {
-        match self {
-            GenericIncoming::Accepted(conn) => GenericIncoming::Accepted(conn),
-            GenericIncoming::NotAccepted(incoming_conn) =>
-                GenericIncoming::NotAccepted(incoming_conn.into_owned()),
-        }
-    }
-
-    /// Expect the `Accepted` variant, which occurs for `retry_policy != RetryPolicy::Manual`
-    pub fn into_accepted(self) -> Result<Connecting, IncomingConnection<'a>> {
-        match self {
-            GenericIncoming::Accepted(conn) => Ok(conn),
-            GenericIncoming::NotAccepted(incoming_conn) => Err(incoming_conn),
-        }
-    }
-
-    /// Expect the `NotAccepted` variant, which occurs for `retry_policy == RetryPolicy::Manual`
-    pub fn into_not_accepted(self) -> Result<IncomingConnection<'a>, Connecting> {
-        match self {
-            GenericIncoming::NotAccepted(incoming_conn) => Ok(incoming_conn),
-            GenericIncoming::Accepted(conn) => Err(conn),
-        }
-    }
-}
-
-// GenericIncoming minus the &Endpoint
-#[derive(Debug)]
-enum PortableGenericIncoming {
-    Accepted(Connecting),
-    NotAccepted(PortableIncomingConnection)
-}
-
-/// An incoming connection for which the server has not yet begun its part of the handshake
-#[derive(Debug)]
-pub struct IncomingConnection<'a> {
-    portable: PortableIncomingConnection,
-    endpoint: IncomingConnectionEndpointRef<'a>,
-}
-
-// IncomingConnection minus the &Endpoint
-#[derive(Debug)]
-struct PortableIncomingConnection {
-    inner: proto::IncomingConnection,
-    response_buffer: BytesMut,
-}
-
-#[derive(Debug)]
-enum IncomingConnectionEndpointRef<'a> {
-    Borrowed(&'a EndpointRef),
-    Owned(EndpointRef),
-}
-
-impl<'a> ops::Deref for IncomingConnectionEndpointRef<'a> {
-    type Target = EndpointRef;
-    fn deref(&self) -> &Self::Target {
-        match self {
-            &IncomingConnectionEndpointRef::Borrowed(inner) => inner,
-            &IncomingConnectionEndpointRef::Owned(ref inner) => inner,
-        }
-    }
-}
-
-impl<'a> IncomingConnection<'a> {
-    /// Whether the socket address that is initiating this connection has been validated
-    ///
-    /// This means that the sender of the initial packet has proved that they can receive traffic
-    /// sent to `self.remote_address()`.
-    pub fn is_validated(&self) -> bool {
-        self.portable.inner.is_validated()
-    }
-
-    /// The purported socket address that is initiating this connection
-    pub fn remote_address(&self) -> SocketAddr {
-        self.portable.inner.remote_address()
-    }
-
-    /// Whether it is legal to require the client to retry
-    ///
-    /// If `is_validated` is false, `may_retry` is necessarily true.
-    pub fn may_retry(&self) -> bool {
-        self.portable.inner.may_retry()
-    }
-
-    /// Attempt to accept this incoming connection (an error may still occur)
-    pub fn accept(self) -> Option<Connecting> {
-        let mut endpoint = self.endpoint.0.state.lock().unwrap();
-        self.portable.accept(&mut *endpoint)
-    }
-
-    /// Reject this incoming connection attempt
-    pub fn reject(mut self) {
-        let mut endpoint = self.endpoint.0.state.lock().unwrap();
-        let transmit = self.portable.inner.reject(&mut endpoint.inner, &mut self.portable.response_buffer);
-        let thing = &mut *endpoint;
-        State::respond(
-            &mut thing.transmit_queue_contents_len,
-            &mut thing.outgoing,
-            transmit,
-            self.portable.response_buffer,
-        );
-    }
-
-    /// Respond with a retry packet, requiring the client to retry with address validation
-    ///
-    /// Panics if `may_retry` is false.
-    pub fn retry(mut self) {
-        let mut endpoint = self.endpoint.0.state.lock().unwrap();
-        let transmit = self.portable.inner.retry(&mut endpoint.inner, &mut self.portable.response_buffer);
-        let thing = &mut *endpoint;
-        State::respond(
-            &mut thing.transmit_queue_contents_len,
-            &mut thing.outgoing,
-            transmit,
-            self.portable.response_buffer,
-        );
-    }
-
-    /// Convert into a `'static` version of self.
-    pub fn into_owned(self) -> IncomingConnection<'static> {
-        IncomingConnection {
-            portable: self.portable,
-            endpoint: match self.endpoint {
-                IncomingConnectionEndpointRef::Borrowed(inner) =>
-                    IncomingConnectionEndpointRef::Owned(inner.clone()),
-                IncomingConnectionEndpointRef::Owned(inner) =>
-                    IncomingConnectionEndpointRef::Owned(inner),
-            },
-        }
-    }
-}
-
-impl PortableIncomingConnection {
-    fn accept(mut self, endpoint: &mut State) -> Option<Connecting> {
-        match self.inner.accept(&mut endpoint.inner, Instant::now(), &mut self.response_buffer) {
-            Ok((handle, conn)) => {
-                let socket = endpoint.socket.clone();
-                let runtime = endpoint.runtime.clone();
-                Some(endpoint.connections.insert(handle, conn, socket, runtime))
-            },
-            Err(response) => {
-                if let Some(transmit) = response {
-                    let thing = &mut *endpoint;
-                    State::respond(
-                        &mut thing.transmit_queue_contents_len,
-                        &mut thing.outgoing,
-                        transmit,
-                        self.response_buffer,
-                    );
-                }
-                None
             }
         }
     }
@@ -1005,7 +705,10 @@ impl EndpointRef {
                 inner,
                 ipv6,
                 events,
-                outgoing: VecDeque::new(),
+                transmit_state: TransmitState {
+                    outgoing: VecDeque::new(),
+                    transmit_queue_contents_len: 0,
+                },
                 incoming: VecDeque::new(),
                 driver: None,
                 connections: ConnectionSet {
@@ -1019,7 +722,6 @@ impl EndpointRef {
                 recv_limiter: WorkLimiter::new(RECV_TIME_BOUND),
                 send_limiter: WorkLimiter::new(SEND_TIME_BOUND),
                 runtime,
-                transmit_queue_contents_len: 0,
             }),
         }))
     }
@@ -1052,5 +754,48 @@ impl std::ops::Deref for EndpointRef {
     type Target = EndpointInner;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl EndpointInner {
+    pub(crate) fn accept(
+        &self,
+        incoming: proto::IncomingConnection,
+        mut response_buffer: BytesMut,
+    ) -> Option<Connecting> {
+        let mut state = self.state.lock().unwrap();
+        match incoming.accept(&mut state.inner, Instant::now(), &mut response_buffer) {
+            Ok((handle, conn)) => {
+                let socket = state.socket.clone();
+                let runtime = state.runtime.clone();
+                Some(state.connections.insert(handle, conn, socket, runtime))
+            }
+            Err(response) => {
+                if let Some(transmit) = response {
+                    state.transmit_state.respond(transmit, response_buffer);
+                }
+                None
+            }
+        }
+    }
+
+    pub(crate) fn reject(
+        &self,
+        incoming: proto::IncomingConnection,
+        mut response_buffer: BytesMut,
+    ) {
+        let mut state = self.state.lock().unwrap();
+        let transmit = incoming.reject(&mut state.inner, &mut response_buffer);
+        state.transmit_state.respond(transmit, response_buffer);
+    }
+
+    pub(crate) fn retry(
+        &self,
+        incoming: proto::IncomingConnection,
+        mut response_buffer: BytesMut,
+    ) {
+        let mut state = self.state.lock().unwrap();
+        let transmit = incoming.retry(&mut state.inner, &mut response_buffer);
+        state.transmit_state.respond(transmit, response_buffer);
     }
 }

@@ -741,10 +741,6 @@ pub struct ServerConfig {
     /// Used to generate one-time AEAD keys to protect handshake tokens
     pub(crate) token_key: Arc<dyn HandshakeTokenKey>,
 
-    /// When to require clients to prove ownership of an address before committing resources.
-    ///
-    /// Introduces an additional round-trip to the handshake to make denial of service attacks more difficult.
-    pub(crate) retry_policy: RetryPolicy,
     /// Microseconds after a stateless retry token was issued for which it's considered valid.
     pub(crate) retry_token_lifetime: Duration,
 
@@ -758,27 +754,6 @@ pub struct ServerConfig {
     pub(crate) migration: bool,
 }
 
-/// Configuration governing when the server responds to incoming connections with retry packets.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum RetryPolicy {
-    /// Do not use retries. Connections are automatically accepted without requiring their
-    /// addresses to be validated immediately.
-    Never,
-    /// Automatically use retries. Connection attempts without address validation are automatically
-    /// responded to with retry packets.
-    Always,
-    /// Require the application to manually decide for each incoming connection whether to
-    /// accept/reject/retry. The application can take advantage of this to do logic based on its
-    /// IP address before allocating state for it.
-    Manual,
-}
-
-impl Default for RetryPolicy {
-    fn default() -> Self {
-        RetryPolicy::Never
-    }
-}
-
 impl ServerConfig {
     /// Create a default config with a particular handshake token key
     pub fn new(
@@ -790,7 +765,6 @@ impl ServerConfig {
             crypto,
 
             token_key,
-            retry_policy: RetryPolicy::default(),
             retry_token_lifetime: Duration::from_secs(15),
 
             concurrent_connections: 100_000,
@@ -808,14 +782,6 @@ impl ServerConfig {
     /// Private key used to authenticate data included in handshake tokens.
     pub fn token_key(&mut self, value: Arc<dyn HandshakeTokenKey>) -> &mut Self {
         self.token_key = value;
-        self
-    }
-
-    /// When to require clients to prove ownership of an address before committing resources.
-    ///
-    /// Introduces an additional round-trip to the handshake to make denial of service attacks more difficult.
-    pub fn retry_policy(&mut self, value: RetryPolicy) -> &mut Self {
-        self.retry_policy = value;
         self
     }
 
@@ -879,7 +845,6 @@ impl fmt::Debug for ServerConfig {
             .field("transport", &self.transport)
             .field("crypto", &"ServerConfig { elided }")
             .field("token_key", &"[ elided ]")
-            .field("retry_policy", &self.retry_policy)
             .field("retry_token_lifetime", &self.retry_token_lifetime)
             .field("concurrent_connections", &self.concurrent_connections)
             .field("migration", &self.migration)

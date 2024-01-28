@@ -64,7 +64,7 @@ use bytes::Bytes;
 pub use proto::{
     congestion, crypto, AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ConfigError,
     ConnectError, ConnectionClose, ConnectionError, EndpointConfig, IdleTimeout,
-    MtuDiscoveryConfig, ServerConfig, RetryPolicy, StreamId, Transmit, TransportConfig, VarInt,
+    MtuDiscoveryConfig, ServerConfig, StreamId, Transmit, TransportConfig, VarInt,
 };
 #[cfg(feature = "tls-rustls")]
 pub use rustls;
@@ -74,7 +74,7 @@ pub use crate::connection::{
     AcceptBi, AcceptUni, Connecting, Connection, OpenBi, OpenUni, ReadDatagram, SendDatagramError,
     UnknownStream, ZeroRttAccepted,
 };
-pub use crate::endpoint::{Accept, Endpoint, GenericIncoming, IncomingConnection, NextIncoming};
+pub use crate::endpoint::{Accept, Endpoint};
 pub use crate::recv_stream::{ReadError, ReadExactError, ReadToEndError, RecvStream};
 #[cfg(feature = "runtime-async-std")]
 pub use crate::runtime::AsyncStdRuntime;

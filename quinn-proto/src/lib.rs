@@ -51,7 +51,7 @@ pub use crate::connection::{
 mod config;
 pub use config::{
     AckFrequencyConfig, ClientConfig, ConfigError, EndpointConfig, IdleTimeout, MtuDiscoveryConfig,
-    ServerConfig, RetryPolicy, TransportConfig,
+    ServerConfig, TransportConfig,
 };
 
 pub mod crypto;
