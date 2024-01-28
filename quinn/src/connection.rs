@@ -119,7 +119,7 @@ impl Connecting {
             &mut ConnectingState::Incoming(_) => unreachable!(),
         }
     }
-    
+
     /// Convert into a 0-RTT or 0.5-RTT connection at the cost of weakened security
     ///
     /// Opens up the connection for use before the handshake finishes, allowing the API user to
