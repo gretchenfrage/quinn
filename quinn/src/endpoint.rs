@@ -651,11 +651,13 @@ impl<'a> Future for Accept<'a> {
     type Output = Option<Connecting>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
-        let endpoint = &mut *this.endpoint.inner.state.lock().unwrap();
+        let mut endpoint = this.endpoint.inner.state.lock().unwrap();
         if endpoint.driver_lost {
             return Poll::Ready(None);
         }
         if let Some((incoming, response_buffer)) = endpoint.incoming.pop_front() {
+            // Release the mutex lock on endpoint so cloning it doesn't deadlock
+            drop(endpoint);
             return Poll::Ready(Some(Connecting::new_incoming(
                 incoming,
                 this.endpoint.inner.clone(),

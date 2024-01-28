@@ -135,11 +135,6 @@ async fn run(options: Opt) -> Result<()> {
     let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
     transport_config.max_concurrent_uni_streams(0_u8.into());
-    if options.block.is_some() {
-        server_config.retry_policy(quinn::RetryPolicy::Manual);
-    } else if options.stateless_retry {
-        server_config.retry_policy(quinn::RetryPolicy::Always);
-    }
 
     let root = Arc::<Path>::from(options.root.clone());
     if !root.exists() {
@@ -149,40 +144,25 @@ async fn run(options: Opt) -> Result<()> {
     let endpoint = quinn::Endpoint::server(server_config, options.listen)?;
     eprintln!("listening on {}", endpoint.local_addr()?);
 
-    if let Some(block) = options.block {
-        while let Some(incoming_conn) = endpoint.next_incoming().await {
-            let incoming_conn = incoming_conn
-                .into_not_accepted()
-                .unwrap_or_else(|_| unreachable!());
-            if incoming_conn.remote_address() == block {
-                info!("rejecting blocked client IP address");
-                incoming_conn.reject();
-            } else if incoming_conn.is_validated() {
-                if let Some(conn) = incoming_conn.accept() {
-                    spawn_handle_connection_fut(&root, conn);
+    while let Some(conn) = endpoint.accept().await {
+        if Some(conn.remote_address()) == options.block {
+            info!("rejecting blocked client IP address");
+            conn.reject();
+        } else if options.stateless_retry && !conn.is_validated() {
+            info!("requiring connection to validate its address");
+            conn.retry();
+        } else {
+            info!("accepting connection");
+            let fut = handle_connection(root.clone(), conn);
+            tokio::spawn(async move {
+                if let Err(e) = fut.await {
+                    error!("connection failed: {reason}", reason = e.to_string())
                 }
-            } else {
-                info!("responding to incoming conn with retry");
-                incoming_conn.retry();
-            }
-        }
-    } else {
-        while let Some(conn) = endpoint.accept().await {
-            spawn_handle_connection_fut(&root, conn);
+            });
         }
     }
 
     Ok(())
-}
-
-fn spawn_handle_connection_fut(root: &Arc<Path>, conn: quinn::Connecting) {
-    info!("connection incoming");
-    let fut = handle_connection(root.clone(), conn);
-    tokio::spawn(async move {
-        if let Err(e) = fut.await {
-            error!("connection failed: {reason}", reason = e.to_string())
-        }
-    });
 }
 
 async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<()> {

@@ -488,7 +488,7 @@ impl Endpoint {
                 }
             }
         };
-        
+
         Some(DatagramEvent::IncomingConnection(IncomingConnection {
             addresses,
             ecn,
