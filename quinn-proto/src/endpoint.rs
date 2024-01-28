@@ -489,7 +489,7 @@ impl Endpoint {
             }
         };
 
-        Some(DatagramEvent::IncomingConnection(IncomingConnection {
+        Some(DatagramEvent::NewConnection(IncomingConnection {
             addresses,
             ecn,
             packet,
@@ -809,7 +809,7 @@ pub enum DatagramEvent {
     /// The datagram is redirected to its `Connection`
     ConnectionEvent(ConnectionHandle, ConnectionEvent),
     /// The datagram may result in starting a new `Connection`.
-    IncomingConnection(IncomingConnection),
+    NewConnection(IncomingConnection),
     /// Response generated directly by the endpoint
     Response(Transmit),
 }

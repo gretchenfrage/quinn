@@ -449,7 +449,7 @@ impl State {
                                 buf,
                                 &mut response_buffer,
                             ) {
-                                Some(DatagramEvent::IncomingConnection(incoming)) => {
+                                Some(DatagramEvent::NewConnection(incoming)) => {
                                     self.incoming.push_back((incoming, response_buffer));
                                 }
                                 Some(DatagramEvent::ConnectionEvent(handle, event)) => {

@@ -185,18 +185,31 @@ impl Pair {
         }
     }
 
-    pub(super) fn connect(&mut self) -> (ConnectionHandle, ConnectionHandle) {
-        self.connect_with(client_config())
+    pub(super) fn connect(&mut self, retry: bool) -> (ConnectionHandle, ConnectionHandle) {
+        self.connect_with(client_config(), retry)
     }
 
     pub(super) fn connect_with(
         &mut self,
         config: ClientConfig,
+        retry: bool,
     ) -> (ConnectionHandle, ConnectionHandle) {
         info!("connecting");
         let client_ch = self.begin_connect(config);
+        let server_ch = loop {
+            self.drive();
+            if retry {
+                let incoming = self.server.assert_incoming();
+                if incoming.is_validated() {
+                    break self.server.accept(incoming, self.time);
+                } else {
+                    self.server.retry(incoming);
+                }
+            } else {
+                break self.server.accept_incoming(self.time);
+            };
+        };
         self.drive();
-        let server_ch = self.server.assert_accept();
         self.finish_connect(client_ch, server_ch);
         (client_ch, server_ch)
     }
@@ -287,7 +300,7 @@ pub(super) struct TestEndpoint {
     pub(super) outbound: VecDeque<(Transmit, Bytes)>,
     delayed: VecDeque<(Transmit, Bytes)>,
     pub(super) inbound: VecDeque<(Instant, Option<EcnCodepoint>, BytesMut)>,
-    accepted: Option<ConnectionHandle>,
+    incoming: Option<IncomingConnection>,
     pub(super) connections: HashMap<ConnectionHandle, Connection>,
     conn_events: HashMap<ConnectionHandle, VecDeque<ConnectionEvent>>,
     pub(super) captured_packets: Vec<Vec<u8>>,
@@ -313,7 +326,7 @@ impl TestEndpoint {
             outbound: VecDeque::new(),
             delayed: VecDeque::new(),
             inbound: VecDeque::new(),
-            accepted: None,
+            incoming: None,
             connections: HashMap::default(),
             conn_events: HashMap::default(),
             captured_packets: Vec::new(),
@@ -340,9 +353,8 @@ impl TestEndpoint {
                 .handle(recv_time, remote, None, ecn, packet, &mut buf)
             {
                 match event {
-                    DatagramEvent::NewConnection(ch, conn) => {
-                        self.connections.insert(ch, conn);
-                        self.accepted = Some(ch);
+                    DatagramEvent::NewConnection(incoming) => {
+                        self.incoming = Some(incoming);
                     }
                     DatagramEvent::ConnectionEvent(ch, event) => {
                         if self.capture_inbound_packets {
@@ -357,7 +369,6 @@ impl TestEndpoint {
                         self.outbound
                             .extend(split_transmit(transmit, buf.split_to(size).freeze()));
                     }
-                    DatagramEvent::IncomingConnection(_incoming) => unreachable!()
                 }
             }
         }
@@ -419,12 +430,32 @@ impl TestEndpoint {
         self.outbound.extend(self.delayed.drain(..));
     }
 
-    pub(super) fn assert_accept(&mut self) -> ConnectionHandle {
-        self.accepted.take().expect("server didn't connect")
+    pub(super) fn assert_incoming(&mut self) -> IncomingConnection {
+        self.incoming.take().expect("no incoming in server")
     }
 
-    pub(super) fn assert_no_accept(&self) {
-        assert!(self.accepted.is_none(), "server did unexpectedly connect")
+    pub(super) fn assert_no_incoming(&self) {
+        assert!(self.incoming.is_none(), "unexpected incoming in server")
+    }
+
+    pub(super) fn accept(&mut self, incoming: IncomingConnection, now: Instant) -> ConnectionHandle {
+        let (ch, conn) = incoming
+            .accept(&mut self.endpoint, now, &mut BytesMut::new())
+            .expect("error accepting incoming");
+        self.connections.insert(ch, conn);
+        ch
+    }
+
+    pub(super) fn retry(&mut self, incoming: IncomingConnection) {
+        let mut buf = BytesMut::new();
+        let transmit = incoming.retry(&mut self.endpoint, &mut buf);
+        let size = transmit.size;
+        self.outbound.extend(split_transmit(transmit, buf.split_to(size).freeze()));
+    }
+
+    pub(super) fn accept_incoming(&mut self, now: Instant) -> ConnectionHandle {
+        let incoming = self.assert_incoming();
+        self.accept(incoming, now)
     }
 }
 
