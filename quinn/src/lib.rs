@@ -72,7 +72,7 @@ pub use udp;
 
 pub use crate::connection::{
     AcceptBi, AcceptUni, Connecting, Connection, OpenBi, OpenUni, ReadDatagram, SendDatagramError,
-    UnknownStream, ZeroRttAccepted,
+    UnknownStream, ZeroRttAccepted, Into0RttError,
 };
 pub use crate::endpoint::{Accept, Endpoint};
 pub use crate::recv_stream::{ReadError, ReadExactError, ReadToEndError, RecvStream};

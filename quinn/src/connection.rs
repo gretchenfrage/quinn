@@ -144,7 +144,10 @@ impl Connecting {
     /// a previous connection to the same server is available, and includes a 0-RTT key. If no such
     /// ticket is found, `self` is returned unmodified.
     ///
-    /// For incoming connections, a 0.5-RTT connection will always be successfully constructed.
+    /// For incoming connections, a 0.5-RTT connection will always be successfully constructed,
+    /// unless an error occurs attempting to accept the connection which had not already been
+    /// caught but which would have happened upon attempting to accept this connection attempt
+    /// regardless of calling `into_0rtt`.
     pub fn into_0rtt(mut self) -> Result<(Connection, ZeroRttAccepted), Into0RttError> {
         let _ = self.accept();
         match self.0.unwrap() {
@@ -227,7 +230,7 @@ impl Connecting {
     ///
     /// If `is_validated` is false, `may_retry` is necessarily true.
     ///
-    /// Will panic if called when the handshake has already begun.
+    /// Will panic if called when the handshake has already begun or if `may_retry` is false.
     pub fn may_retry(&self) -> bool {
         self.unwrap_incoming_ref("is_validated").inner.is_validated()        
     }
@@ -256,7 +259,7 @@ impl Connecting {
     }
 }
 
-/// Error returned from [`into_0rtt`]
+/// Error returned from [`Connecting::into_0rtt`]
 #[derive(Debug)]
 pub enum Into0RttError {
     /// May occur for outgoing connections. No cryptographic session ticket cached from a previous
