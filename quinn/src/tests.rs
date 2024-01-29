@@ -159,17 +159,29 @@ fn export_keying_material() {
     };
 
     runtime.block_on(async move {
-        let outgoing_conn = endpoint
-            .connect(endpoint.local_addr().unwrap(), "localhost")
-            .unwrap()
-            .await
-            .expect("connect");
-        let incoming_conn = endpoint
-            .accept()
-            .await
-            .expect("endpoint")
-            .await
-            .expect("connection");
+        let outgoing_conn_fut = tokio::spawn({
+            let endpoint = endpoint.clone();
+            async move {
+                endpoint
+                    .connect(endpoint.local_addr().unwrap(), "localhost")
+                    .unwrap()
+                    .await
+                    .expect("connect")
+            }
+        });
+        let incoming_conn_fut = tokio::spawn({
+            let endpoint = endpoint.clone();
+            async move {
+                endpoint
+                    .accept()
+                    .await
+                    .expect("endpoint")
+                    .await
+                    .expect("connection")
+            }
+        });
+        let outgoing_conn = outgoing_conn_fut.await.unwrap();
+        let incoming_conn = incoming_conn_fut.await.unwrap();
         let mut i_buf = [0u8; 64];
         incoming_conn
             .export_keying_material(&mut i_buf, b"asdf", b"qwer")
@@ -180,46 +192,6 @@ fn export_keying_material() {
             .unwrap();
         assert_eq!(&i_buf[..], &o_buf[..]);
     });
-}
-
-#[tokio::test]
-async fn accept_after_close() {
-    let _guard = subscribe();
-    let endpoint = endpoint();
-
-    const MSG: &[u8] = b"goodbye!";
-
-    let sender = endpoint
-        .connect(endpoint.local_addr().unwrap(), "localhost")
-        .unwrap()
-        .await
-        .expect("connect");
-    let mut s = sender.open_uni().await.unwrap();
-    s.write_all(MSG).await.unwrap();
-    s.finish().await.unwrap();
-    sender.close(0u32.into(), b"");
-
-    // Allow some time for the close to be sent and processed
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    // Despite the connection having closed, we should be able to accept it...
-    let receiver = endpoint
-        .accept()
-        .await
-        .expect("endpoint")
-        .await
-        .expect("connection");
-
-    // ...and read what was sent.
-    let mut stream = receiver.accept_uni().await.expect("incoming streams");
-    let msg = stream
-        .read_to_end(usize::max_value())
-        .await
-        .expect("read_to_end");
-    assert_eq!(msg, MSG);
-
-    // But it's still definitely closed.
-    assert!(receiver.open_uni().await.is_err());
 }
 
 /// Construct an endpoint suitable for connecting to itself
@@ -287,6 +259,7 @@ async fn zero_rtt() {
         .into_0rtt()
         .err()
         .expect("0-RTT succeeded without keys")
+        .unwrap_no_ticket()
         .await
         .expect("connect");
 

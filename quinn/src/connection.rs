@@ -270,6 +270,24 @@ pub enum Into0RttError {
     AcceptError(ConnectionError),
 }
 
+impl Into0RttError {
+    /// Unwrap the `NoTicket` variant. This will succeed if the connection was outgoing.
+    pub fn unwrap_no_ticket(self) -> Connecting {
+        match self {
+            Into0RttError::NoTicket(connecting) => connecting,
+            Into0RttError::AcceptError(_) => panic!("expected Into0RttError::NoTicket")
+        }
+    }
+
+    /// Unwrap the `NoTicket` variant. This will succeed if the connection was incoming.
+    pub fn unwrap_accept_error(self) -> ConnectionError {
+        match self {
+            Into0RttError::AcceptError(error) => error,
+            Into0RttError::NoTicket(_) => panic!("expected Into0RttError::AcceptError"),
+        }
+    }
+}
+
 impl Future for Connecting {
     type Output = Result<Connection, ConnectionError>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
