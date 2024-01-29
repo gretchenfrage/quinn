@@ -21,6 +21,13 @@ use super::*;
 
 pub(super) const DEFAULT_MTU: usize = 1452;
 
+#[derive(Copy, Clone, Debug)]
+pub(super) enum Retry {
+    Yes,
+    No,
+    Manual,
+}
+
 pub(super) struct Pair {
     pub(super) server: TestEndpoint,
     pub(super) client: TestEndpoint,
@@ -84,9 +91,9 @@ impl Pair {
     }
 
     /// Returns whether the connection is not idle
-    pub(super) fn step(&mut self) -> bool {
+    pub(super) fn step(&mut self, retry: Retry) -> bool {
         self.drive_client();
-        self.drive_server();
+        self.drive_server(retry);
         if self.client.is_idle() && self.server.is_idle() {
             return false;
         }
@@ -114,17 +121,17 @@ impl Pair {
     }
 
     /// Advance time until both connections are idle
-    pub(super) fn drive(&mut self) {
-        while self.step() {}
+    pub(super) fn drive(&mut self, retry: Retry) {
+        while self.step(retry) {}
     }
 
     /// Advance time until both connections are idle, or after 100 steps have been executed
     ///
     /// Returns true if the amount of steps exceeds the bounds, because the connections never became
     /// idle
-    pub(super) fn drive_bounded(&mut self) -> bool {
+    pub(super) fn drive_bounded(&mut self, retry: Retry) -> bool {
         for _ in 0..100 {
-            if !self.step() {
+            if !self.step(retry) {
                 return false;
             }
         }
@@ -135,7 +142,7 @@ impl Pair {
     pub(super) fn drive_client(&mut self) {
         let span = info_span!("client");
         let _guard = span.enter();
-        self.client.drive(self.time, self.server.addr);
+        self.client.drive(self.time, self.server.addr, Retry::No);
         for (packet, buffer) in self.client.outbound.drain(..) {
             let packet_size = packet_size(&packet, &buffer);
             if packet_size > self.mtu {
@@ -161,10 +168,10 @@ impl Pair {
         }
     }
 
-    pub(super) fn drive_server(&mut self) {
+    pub(super) fn drive_server(&mut self, retry: Retry) {
         let span = info_span!("server");
         let _guard = span.enter();
-        self.server.drive(self.time, self.client.addr);
+        self.server.drive(self.time, self.client.addr, retry);
         for (packet, buffer) in self.server.outbound.drain(..) {
             let packet_size = packet_size(&packet, &buffer);
             if packet_size > self.mtu {
@@ -185,31 +192,19 @@ impl Pair {
         }
     }
 
-    pub(super) fn connect(&mut self, retry: bool) -> (ConnectionHandle, ConnectionHandle) {
+    pub(super) fn connect(&mut self, retry: Retry) -> (ConnectionHandle, ConnectionHandle) {
         self.connect_with(client_config(), retry)
     }
 
     pub(super) fn connect_with(
         &mut self,
         config: ClientConfig,
-        retry: bool,
+        retry: Retry,
     ) -> (ConnectionHandle, ConnectionHandle) {
         info!("connecting");
         let client_ch = self.begin_connect(config);
-        let server_ch = loop {
-            self.drive();
-            if retry {
-                let incoming = self.server.assert_incoming();
-                if incoming.is_validated() {
-                    break self.server.accept(incoming, self.time);
-                } else {
-                    self.server.retry(incoming);
-                }
-            } else {
-                break self.server.accept_incoming(self.time);
-            };
-        };
-        self.drive();
+        self.drive(retry);
+        let server_ch = self.server.assert_accept();
         self.finish_connect(client_ch, server_ch);
         (client_ch, server_ch)
     }
@@ -301,6 +296,7 @@ pub(super) struct TestEndpoint {
     delayed: VecDeque<(Transmit, Bytes)>,
     pub(super) inbound: VecDeque<(Instant, Option<EcnCodepoint>, BytesMut)>,
     incoming: Option<IncomingConnection>,
+    accepted: Option<ConnectionHandle>,
     pub(super) connections: HashMap<ConnectionHandle, Connection>,
     conn_events: HashMap<ConnectionHandle, VecDeque<ConnectionEvent>>,
     pub(super) captured_packets: Vec<Vec<u8>>,
@@ -327,6 +323,7 @@ impl TestEndpoint {
             delayed: VecDeque::new(),
             inbound: VecDeque::new(),
             incoming: None,
+            accepted: None,
             connections: HashMap::default(),
             conn_events: HashMap::default(),
             captured_packets: Vec::new(),
@@ -334,7 +331,7 @@ impl TestEndpoint {
         }
     }
 
-    pub(super) fn drive(&mut self, now: Instant, remote: SocketAddr) {
+    pub(super) fn drive(&mut self, now: Instant, remote: SocketAddr, retry: Retry) {
         if let Some(ref socket) = self.socket {
             loop {
                 let mut buf = [0; 8192];
@@ -353,8 +350,20 @@ impl TestEndpoint {
                 .handle(recv_time, remote, None, ecn, packet, &mut buf)
             {
                 match event {
-                    DatagramEvent::NewConnection(incoming) => {
-                        self.incoming = Some(incoming);
+                    DatagramEvent::NewConnection(incoming) => match retry {
+                        Retry::Yes => {
+                            if incoming.is_validated() {
+                                self.try_accept(incoming, now);
+                            } else {
+                                self.retry(incoming);
+                            }
+                        }
+                        Retry::No => {
+                            self.try_accept(incoming, now);
+                        },
+                        Retry::Manual => {
+                            self.incoming = Some(incoming);
+                        }
                     }
                     DatagramEvent::ConnectionEvent(ch, event) => {
                         if self.capture_inbound_packets {
@@ -438,12 +447,27 @@ impl TestEndpoint {
         assert!(self.incoming.is_none(), "unexpected incoming in server")
     }
 
+    pub(super) fn try_accept(&mut self, incoming: IncomingConnection, now: Instant) -> Option<ConnectionHandle> {
+        let mut buf = BytesMut::new();
+        match incoming.accept(&mut self.endpoint, now, &mut buf) {
+            Ok((ch, conn)) => {
+                self.connections.insert(ch, conn);
+                self.accepted = Some(ch);
+                Some(ch)
+            }
+            Err(transmit) => {
+                if let Some(transmit) = transmit {
+                    let size = transmit.size;
+                    self.outbound
+                        .extend(split_transmit(transmit, buf.split_to(size).freeze()));
+                }
+                None
+            }
+        }
+    }
+
     pub(super) fn accept(&mut self, incoming: IncomingConnection, now: Instant) -> ConnectionHandle {
-        let (ch, conn) = incoming
-            .accept(&mut self.endpoint, now, &mut BytesMut::new())
-            .expect("error accepting incoming");
-        self.connections.insert(ch, conn);
-        ch
+        self.try_accept(incoming, now).expect("failure accepting")
     }
 
     pub(super) fn retry(&mut self, incoming: IncomingConnection) {
@@ -456,6 +480,14 @@ impl TestEndpoint {
     pub(super) fn accept_incoming(&mut self, now: Instant) -> ConnectionHandle {
         let incoming = self.assert_incoming();
         self.accept(incoming, now)
+    }
+
+    pub(super) fn assert_accept(&mut self) -> ConnectionHandle {
+        self.accepted.take().expect("server didn't connect")
+    }
+
+    pub(super) fn assert_no_accept(&self) {
+        assert!(self.accepted.is_none(), "server did unexpectedly connect")
     }
 }
 
