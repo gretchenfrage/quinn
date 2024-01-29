@@ -1432,7 +1432,7 @@ fn finish_stream_flow_control_reordered() {
     const MSG: &[u8] = b"hello";
     pair.client_send(client_ch, s).write(MSG).unwrap();
     pair.drive_client(); // Send stream data
-    pair.client.drive(pair.time, pair.server.addr, Retry::No); // Receive
+    pair.server.drive(pair.time, pair.client.addr, Retry::No); // Receive
 
     // Issue flow control credit
     let mut recv = pair.server_recv(server_ch, s);
@@ -1443,12 +1443,12 @@ fn finish_stream_flow_control_reordered() {
     );
     let _ = chunks.finalize();
 
-    pair.client.drive(pair.time, pair.server.addr, Retry::No);
+    pair.server.drive(pair.time, pair.client.addr, Retry::No);
     pair.server.delay_outbound(); // Delay it
 
     pair.client_send(client_ch, s).finish().unwrap();
     pair.drive_client(); // Send FIN
-    pair.client.drive(pair.time, pair.server.addr, Retry::No); // Acknowledge
+    pair.server.drive(pair.time, pair.client.addr, Retry::No); // Acknowledge
     pair.server.finish_delay(); // Add flow control packets after
     pair.drive(Retry::No);
 
