@@ -383,7 +383,6 @@ pub(crate) struct State {
     recv_buf: Box<[u8]>,
     send_limiter: WorkLimiter,
     runtime: Arc<dyn Runtime>,
-    
 }
 
 #[derive(Debug)]

@@ -21,13 +21,6 @@ use super::*;
 
 pub(super) const DEFAULT_MTU: usize = 1452;
 
-#[derive(Copy, Clone, Debug)]
-pub(super) enum Retry {
-    Yes,
-    No,
-    Manual,
-}
-
 pub(super) struct Pair {
     pub(super) server: TestEndpoint,
     pub(super) client: TestEndpoint,
@@ -91,9 +84,9 @@ impl Pair {
     }
 
     /// Returns whether the connection is not idle
-    pub(super) fn step(&mut self, retry: Retry) -> bool {
+    pub(super) fn step(&mut self) -> bool {
         self.drive_client();
-        self.drive_server(retry);
+        self.drive_server();
         if self.client.is_idle() && self.server.is_idle() {
             return false;
         }
@@ -121,17 +114,17 @@ impl Pair {
     }
 
     /// Advance time until both connections are idle
-    pub(super) fn drive(&mut self, retry: Retry) {
-        while self.step(retry) {}
+    pub(super) fn drive(&mut self) {
+        while self.step() {}
     }
 
     /// Advance time until both connections are idle, or after 100 steps have been executed
     ///
     /// Returns true if the amount of steps exceeds the bounds, because the connections never became
     /// idle
-    pub(super) fn drive_bounded(&mut self, retry: Retry) -> bool {
+    pub(super) fn drive_bounded(&mut self) -> bool {
         for _ in 0..100 {
-            if !self.step(retry) {
+            if !self.step() {
                 return false;
             }
         }
@@ -142,7 +135,7 @@ impl Pair {
     pub(super) fn drive_client(&mut self) {
         let span = info_span!("client");
         let _guard = span.enter();
-        self.client.drive(self.time, self.server.addr, Retry::No);
+        self.client.drive(self.time, self.server.addr);
         for (packet, buffer) in self.client.outbound.drain(..) {
             let packet_size = packet_size(&packet, &buffer);
             if packet_size > self.mtu {
@@ -168,10 +161,10 @@ impl Pair {
         }
     }
 
-    pub(super) fn drive_server(&mut self, retry: Retry) {
+    pub(super) fn drive_server(&mut self) {
         let span = info_span!("server");
         let _guard = span.enter();
-        self.server.drive(self.time, self.client.addr, retry);
+        self.server.drive(self.time, self.client.addr);
         for (packet, buffer) in self.server.outbound.drain(..) {
             let packet_size = packet_size(&packet, &buffer);
             if packet_size > self.mtu {
@@ -192,18 +185,17 @@ impl Pair {
         }
     }
 
-    pub(super) fn connect(&mut self, retry: Retry) -> (ConnectionHandle, ConnectionHandle) {
-        self.connect_with(client_config(), retry)
+    pub(super) fn connect(&mut self) -> (ConnectionHandle, ConnectionHandle) {
+        self.connect_with(client_config())
     }
 
     pub(super) fn connect_with(
         &mut self,
         config: ClientConfig,
-        retry: Retry,
     ) -> (ConnectionHandle, ConnectionHandle) {
         info!("connecting");
         let client_ch = self.begin_connect(config);
-        self.drive(retry);
+        self.drive();
         let server_ch = self.server.assert_accept();
         self.finish_connect(client_ch, server_ch);
         (client_ch, server_ch)
@@ -295,12 +287,37 @@ pub(super) struct TestEndpoint {
     pub(super) outbound: VecDeque<(Transmit, Bytes)>,
     delayed: VecDeque<(Transmit, Bytes)>,
     pub(super) inbound: VecDeque<(Instant, Option<EcnCodepoint>, BytesMut)>,
-    incoming: Option<IncomingConnection>,
     accepted: Option<ConnectionHandle>,
     pub(super) connections: HashMap<ConnectionHandle, Connection>,
     conn_events: HashMap<ConnectionHandle, VecDeque<ConnectionEvent>>,
     pub(super) captured_packets: Vec<Vec<u8>>,
     pub(super) capture_inbound_packets: bool,
+    pub(super) retry_policy: RetryPolicy,
+}
+
+pub(super) struct RetryPolicy(pub(super) Box<dyn Fn(&IncomingConnection) -> IncomingConnectionResponse>);
+
+impl RetryPolicy {
+    pub(super) fn no() -> Self {
+        RetryPolicy(Box::new(|_| IncomingConnectionResponse::Accept))
+    }
+
+    pub(super) fn yes() -> Self {
+        RetryPolicy(Box::new(|incoming| {
+            if incoming.is_validated() {
+                IncomingConnectionResponse::Accept
+            } else {
+                IncomingConnectionResponse::Retry
+            }
+        }))
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub(super) enum IncomingConnectionResponse {
+    Accept,
+    Reject,
+    Retry,
 }
 
 impl TestEndpoint {
@@ -322,16 +339,16 @@ impl TestEndpoint {
             outbound: VecDeque::new(),
             delayed: VecDeque::new(),
             inbound: VecDeque::new(),
-            incoming: None,
             accepted: None,
             connections: HashMap::default(),
             conn_events: HashMap::default(),
             captured_packets: Vec::new(),
             capture_inbound_packets: false,
+            retry_policy: RetryPolicy::no(),
         }
     }
 
-    pub(super) fn drive(&mut self, now: Instant, remote: SocketAddr, retry: Retry) {
+    pub(super) fn drive(&mut self, now: Instant, remote: SocketAddr) {
         if let Some(ref socket) = self.socket {
             loop {
                 let mut buf = [0; 8192];
@@ -350,19 +367,15 @@ impl TestEndpoint {
                 .handle(recv_time, remote, None, ecn, packet, &mut buf)
             {
                 match event {
-                    DatagramEvent::NewConnection(incoming) => match retry {
-                        Retry::Yes => {
-                            if incoming.is_validated() {
-                                self.try_accept(incoming, now);
-                            } else {
-                                self.retry(incoming);
-                            }
-                        }
-                        Retry::No => {
+                    DatagramEvent::NewConnection(incoming) => match (self.retry_policy.0)(&incoming) {
+                        IncomingConnectionResponse::Accept => {
                             self.try_accept(incoming, now);
-                        },
-                        Retry::Manual => {
-                            self.incoming = Some(incoming);
+                        }
+                        IncomingConnectionResponse::Reject => {
+                            self.reject(incoming);
+                        }
+                        IncomingConnectionResponse::Retry => {
+                            self.retry(incoming);
                         }
                     }
                     DatagramEvent::ConnectionEvent(ch, event) => {
@@ -439,14 +452,6 @@ impl TestEndpoint {
         self.outbound.extend(self.delayed.drain(..));
     }
 
-    pub(super) fn assert_incoming(&mut self) -> IncomingConnection {
-        self.incoming.take().expect("no incoming in server")
-    }
-
-    pub(super) fn assert_no_incoming(&self) {
-        assert!(self.incoming.is_none(), "unexpected incoming in server")
-    }
-
     pub(super) fn try_accept(&mut self, incoming: IncomingConnection, now: Instant) -> Option<ConnectionHandle> {
         let mut buf = BytesMut::new();
         match incoming.accept(&mut self.endpoint, now, &mut buf) {
@@ -466,10 +471,6 @@ impl TestEndpoint {
         }
     }
 
-    pub(super) fn accept(&mut self, incoming: IncomingConnection, now: Instant) -> ConnectionHandle {
-        self.try_accept(incoming, now).expect("failure accepting")
-    }
-
     pub(super) fn retry(&mut self, incoming: IncomingConnection) {
         let mut buf = BytesMut::new();
         let transmit = incoming.retry(&mut self.endpoint, &mut buf);
@@ -477,9 +478,11 @@ impl TestEndpoint {
         self.outbound.extend(split_transmit(transmit, buf.split_to(size).freeze()));
     }
 
-    pub(super) fn accept_incoming(&mut self, now: Instant) -> ConnectionHandle {
-        let incoming = self.assert_incoming();
-        self.accept(incoming, now)
+    pub(super) fn reject(&mut self, incoming: IncomingConnection) {
+        let mut buf = BytesMut::new();
+        let transmit = incoming.reject(&mut self.endpoint, &mut buf);
+        let size = transmit.size;
+        self.outbound.extend(split_transmit(transmit, buf.split_to(size).freeze()));
     }
 
     pub(super) fn assert_accept(&mut self) -> ConnectionHandle {

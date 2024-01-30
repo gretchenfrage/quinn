@@ -808,7 +808,7 @@ impl IndexMut<ConnectionHandle> for Slab<ConnectionMeta> {
 pub enum DatagramEvent {
     /// The datagram is redirected to its `Connection`
     ConnectionEvent(ConnectionHandle, ConnectionEvent),
-    /// The datagram may result in starting a new `Connection`.
+    /// The datagram may result in starting a new `Connection`
     NewConnection(IncomingConnection),
     /// Response generated directly by the endpoint
     Response(Transmit),
@@ -843,7 +843,7 @@ impl IncomingConnection {
     ///
     /// This has the same behavior as [`Connection::local_ip`]
     pub fn local_ip(&self) -> Option<IpAddr> {
-        self.addresses.local_ip        
+        self.addresses.local_ip
     }
 
     /// The peer's UDP address.
@@ -939,12 +939,13 @@ impl IncomingConnection {
 
     /// Reject this incoming connection attempt.
     pub fn reject(self, endpoint: &mut Endpoint, buf: &mut BytesMut) -> Transmit {
+        debug!("going full connection_refuse on this motherfukerrrrrr");
         endpoint.initial_close(
             self.version,
             self.addresses,
             &self.crypto,
             &self.src_cid,
-            TransportError::CONNECTION_REFUSED(""), // TODO customizable error?
+            TransportError::CONNECTION_REFUSED(""),
             buf,
         )
     }

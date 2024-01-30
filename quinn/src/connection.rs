@@ -104,7 +104,6 @@ impl Connecting {
                 *self = handshaking;
             } else {
                 self.0 = Some(ConnectingState::AcceptError(ConnectionError::TransportError(
-                    // TODO
                     proto::TransportError {
                         code: proto::TransportErrorCode::PROTOCOL_VIOLATION,
                         frame: None,
@@ -150,7 +149,7 @@ impl Connecting {
     /// regardless of calling `into_0rtt`.
     pub fn into_0rtt(mut self) -> Result<(Connection, ZeroRttAccepted), Into0RttError> {
         let _ = self.accept();
-        match self.0.unwrap() {
+        match self.0.take().unwrap() {
             ConnectingState::Handshaking(handshaking) => handshaking.into_0rtt()
                 .map_err(|handshaking|
                     Into0RttError::NoTicket(Connecting(Some(
@@ -232,11 +231,11 @@ impl Connecting {
     ///
     /// Will panic if called when the handshake has already begun or if `may_retry` is false.
     pub fn may_retry(&self) -> bool {
-        self.unwrap_incoming_ref("is_validated").inner.is_validated()        
+        self.unwrap_incoming_ref("is_validated").inner.is_validated()
     }
 
-    fn unwrap_incoming(self, caller: &str) -> ConnectingIncoming {
-        match self.0.unwrap() {
+    fn unwrap_incoming(mut self, caller: &str) -> ConnectingIncoming {
+        match self.0.take().unwrap() {
             ConnectingState::Incoming(incoming) => incoming,
             _ => panic!("{} called after already started handshake", caller),
         }
@@ -394,6 +393,15 @@ impl ConnectingHandshaking {
     fn remote_address(&self) -> SocketAddr {
         let conn_ref: &ConnectionRef = self.conn.as_ref().expect("used after yielding Ready");
         conn_ref.state.lock("remote_address").inner.remote_address()
+    }
+}
+
+impl Drop for Connecting {
+    fn drop(&mut self) {
+        // Implicit reject, similar to Connection's implicit close
+        if let Some(ConnectingState::Incoming(incoming)) = self.0.take() {
+            incoming.endpoint.reject(incoming.inner, incoming.response_buffer);
+        }
     }
 }
 
