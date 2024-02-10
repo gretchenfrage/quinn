@@ -454,7 +454,7 @@ impl TestEndpoint {
 
     pub(super) fn try_accept(&mut self, incoming: IncomingConnection, now: Instant) -> Option<ConnectionHandle> {
         let mut buf = BytesMut::new();
-        match incoming.accept(&mut self.endpoint, now, &mut buf) {
+        match self.endpoint.accept(incoming, now, &mut buf) {
             Ok((ch, conn)) => {
                 self.connections.insert(ch, conn);
                 self.accepted = Some(ch);
@@ -473,14 +473,14 @@ impl TestEndpoint {
 
     pub(super) fn retry(&mut self, incoming: IncomingConnection) {
         let mut buf = BytesMut::new();
-        let transmit = incoming.retry(&mut self.endpoint, &mut buf);
+        let transmit = self.endpoint.retry(incoming, &mut buf);
         let size = transmit.size;
         self.outbound.extend(split_transmit(transmit, buf.split_to(size).freeze()));
     }
 
     pub(super) fn reject(&mut self, incoming: IncomingConnection) {
         let mut buf = BytesMut::new();
-        let transmit = incoming.reject(&mut self.endpoint, &mut buf);
+        let transmit = self.endpoint.reject(incoming, &mut buf);
         let size = transmit.size;
         self.outbound.extend(split_transmit(transmit, buf.split_to(size).freeze()));
     }

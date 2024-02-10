@@ -767,7 +767,7 @@ impl EndpointInner {
         mut response_buffer: BytesMut,
     ) -> Option<ConnectingHandshaking> {
         let mut state = self.state.lock().unwrap();
-        match incoming.accept(&mut state.inner, Instant::now(), &mut response_buffer) {
+        match state.inner.accept(incoming, Instant::now(), &mut response_buffer) {
             Ok((handle, conn)) => {
                 let socket = state.socket.clone();
                 let runtime = state.runtime.clone();
@@ -788,7 +788,7 @@ impl EndpointInner {
         mut response_buffer: BytesMut,
     ) {
         let mut state = self.state.lock().unwrap();
-        let transmit = incoming.reject(&mut state.inner, &mut response_buffer);
+        let transmit = state.inner.reject(incoming, &mut response_buffer);
         state.transmit_state.respond(transmit, response_buffer);
     }
 
@@ -798,7 +798,7 @@ impl EndpointInner {
         mut response_buffer: BytesMut,
     ) {
         let mut state = self.state.lock().unwrap();
-        let transmit = incoming.retry(&mut state.inner, &mut response_buffer);
+        let transmit = state.inner.retry(incoming, &mut response_buffer);
         state.transmit_state.respond(transmit, response_buffer);
     }
 }

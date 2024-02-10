@@ -504,6 +504,145 @@ impl Endpoint {
         }))
     }
 
+    /// Attempt to accept this incoming connection (an error may still occur).
+    pub fn accept(
+        &mut self,
+        incoming: IncomingConnection,
+        now: Instant,
+        buf: &mut BytesMut,
+    ) -> Result<(ConnectionHandle, Connection), Option<Transmit>> {
+
+        if let Some(initial_close) = self.connection_refuse_if_connection_limit(
+            incoming.version,
+            incoming.addresses,
+            &incoming.crypto,
+            &incoming.src_cid,
+            buf,
+        ) {
+            return Err(Some(initial_close));
+        }
+
+        let server_config = self.server_config.as_ref().unwrap().clone();
+
+        let ch = ConnectionHandle(self.connections.vacant_key());
+        let loc_cid = self.new_cid(ch);
+        let mut params = TransportParameters::new(
+            &server_config.transport,
+            &self.config,
+            self.local_cid_generator.as_ref(),
+            loc_cid,
+            Some(&server_config),
+        );
+        params.stateless_reset_token = Some(ResetToken::new(&*self.config.reset_key, &loc_cid));
+        params.original_dst_cid = Some(incoming.orig_dst_cid);
+        params.retry_src_cid = incoming.retry_src_cid;
+
+        let tls = server_config.crypto.clone().start_session(incoming.version, &params);
+        let transport_config = server_config.transport.clone();
+        let mut conn = self.add_connection(
+            ch,
+            incoming.version,
+            incoming.dst_cid,
+            loc_cid,
+            incoming.src_cid,
+            incoming.addresses,
+            now,
+            tls,
+            Some(server_config),
+            transport_config,
+            incoming.retry_src_cid.is_some(),
+        );
+        if incoming.dst_cid.len() != 0 {
+            self.index.insert_initial(incoming.dst_cid, ch);
+        }
+        match conn.handle_first_packet(
+            now,
+            incoming.addresses.remote,
+            incoming.ecn,
+            incoming.packet_number,
+            incoming.packet,
+            incoming.rest,
+        ) {
+            Ok(()) => {
+                trace!(id = ch.0, icid = %incoming.dst_cid, "new connection");
+                Ok((ch, conn))
+            }
+            Err(e) => {
+                debug!("handshake failed: {}", e);
+                self.handle_event(ch, EndpointEvent(EndpointEventInner::Drained));
+                match e {
+                    ConnectionError::TransportError(e) => Err(Some(
+                        self.initial_close(
+                            incoming.version,
+                            incoming.addresses,
+                            &incoming.crypto,
+                            &incoming.src_cid,
+                            e,
+                            buf,
+                        ),
+                    )),
+                    _ => Err(None),
+                }
+            }
+        }
+    }
+
+    /// Reject this incoming connection attempt.
+    pub fn reject(&mut self, incoming: IncomingConnection, buf: &mut BytesMut) -> Transmit {
+        self.initial_close(
+            incoming.version,
+            incoming.addresses,
+            &incoming.crypto,
+            &incoming.src_cid,
+            TransportError::CONNECTION_REFUSED(""),
+            buf,
+        )
+    }
+
+    /// Respond with a retry packet, requiring the client to retry with address validation.
+    ///
+    /// Panics if `may_retry` is false.
+    pub fn retry(&mut self, incoming: IncomingConnection, buf: &mut BytesMut) -> Transmit {
+        assert!(incoming.may_retry(), "retry() with may_retry == false");
+        let server_config = self.server_config.as_ref().unwrap();
+
+        // First Initial
+        let mut random_bytes = vec![0u8; RetryToken::RANDOM_BYTES_LEN];
+        self.rng.fill_bytes(&mut random_bytes);
+        // The peer will use this as the DCID of its following Initials. Initial DCIDs are
+        // looked up separately from Handshake/Data DCIDs, so there is no risk of collision
+        // with established connections. In the unlikely event that a collision occurs
+        // between two connections in the initial phase, both will fail fast and may be
+        // retried by the application layer.
+        let loc_cid = self.local_cid_generator.generate_cid();
+
+        let token = RetryToken {
+            orig_dst_cid: incoming.dst_cid,
+            issued: SystemTime::now(),
+            random_bytes: &random_bytes,
+        }
+            .encode(&*server_config.token_key, &incoming.addresses.remote, &loc_cid);
+
+        let header = Header::Retry {
+            src_cid: loc_cid,
+            dst_cid: incoming.src_cid,
+            version: incoming.version,
+        };
+
+        let encode = header.encode(buf);
+        buf.put_slice(&token);
+        buf.extend_from_slice(&server_config.crypto.retry_tag(incoming.version, &incoming.dst_cid, buf));
+        encode.finish(buf, &*incoming.crypto.header.local, None);
+
+        Transmit {
+            destination: incoming.addresses.remote,
+            ecn: None,
+            size: buf.len(),
+            segment_size: None,
+            src_ip: incoming.addresses.local_ip,
+        }
+    }
+
     fn add_connection(
         &mut self,
         ch: ConnectionHandle,
@@ -860,138 +999,6 @@ impl IncomingConnection {
         // must simply never respond with a retry packet to an initial packet with a token in it.
         // However, the QUIC protocol would allow for such a distinction to be implemented.
         !self.is_validated()
-    }
-
-    /// Attempt to accept this incoming connection (an error may still occur).
-    pub fn accept(
-        self,
-        endpoint: &mut Endpoint,
-        now: Instant,
-        buf: &mut BytesMut,
-    ) -> Result<(ConnectionHandle, Connection), Option<Transmit>> {
-        if let Some(initial_close) = endpoint.connection_refuse_if_connection_limit(
-            self.version,
-            self.addresses,
-            &self.crypto,
-            &self.src_cid,
-            buf,
-        ) {
-            return Err(Some(initial_close));
-        }
-
-        let server_config = endpoint.server_config.as_ref().unwrap().clone();
-
-        let ch = ConnectionHandle(endpoint.connections.vacant_key());
-        let loc_cid = endpoint.new_cid(ch);
-        let mut params = TransportParameters::new(
-            &server_config.transport,
-            &endpoint.config,
-            endpoint.local_cid_generator.as_ref(),
-            loc_cid,
-            Some(&server_config),
-        );
-        params.stateless_reset_token = Some(ResetToken::new(&*endpoint.config.reset_key, &loc_cid));
-        params.original_dst_cid = Some(self.orig_dst_cid);
-        params.retry_src_cid = self.retry_src_cid;
-
-        let tls = server_config.crypto.clone().start_session(self.version, &params);
-        let transport_config = server_config.transport.clone();
-        let mut conn = endpoint.add_connection(
-            ch,
-            self.version,
-            self.dst_cid,
-            loc_cid,
-            self.src_cid,
-            self.addresses,
-            now,
-            tls,
-            Some(server_config),
-            transport_config,
-            self.retry_src_cid.is_some(),
-        );
-        if self.dst_cid.len() != 0 {
-            endpoint.index.insert_initial(self.dst_cid, ch);
-        }
-        match conn.handle_first_packet(
-            now,
-            self.addresses.remote,
-            self.ecn,
-            self.packet_number,
-            self.packet,
-            self.rest,
-        ) {
-            Ok(()) => {
-                trace!(id = ch.0, icid = %self.dst_cid, "new connection");
-                Ok((ch, conn))
-            }
-            Err(e) => {
-                debug!("handshake failed: {}", e);
-                endpoint.handle_event(ch, EndpointEvent(EndpointEventInner::Drained));
-                match e {
-                    ConnectionError::TransportError(e) => Err(Some(
-                        endpoint.initial_close(self.version, self.addresses, &self.crypto, &self.src_cid, e, buf),
-                    )),
-                    _ => Err(None),
-                }
-            }
-        }
-    }
-
-    /// Reject this incoming connection attempt.
-    pub fn reject(self, endpoint: &mut Endpoint, buf: &mut BytesMut) -> Transmit {
-        debug!("going full connection_refuse on this motherfukerrrrrr");
-        endpoint.initial_close(
-            self.version,
-            self.addresses,
-            &self.crypto,
-            &self.src_cid,
-            TransportError::CONNECTION_REFUSED(""),
-            buf,
-        )
-    }
-
-    /// Respond with a retry packet, requiring the client to retry with address validation.
-    ///
-    /// Panics if `may_retry` is false.
-    pub fn retry(self, endpoint: &mut Endpoint, buf: &mut BytesMut) -> Transmit {
-        assert!(self.may_retry(), "retry() with may_retry == false");
-        let server_config = endpoint.server_config.as_ref().unwrap();
-
-        // First Initial
-        let mut random_bytes = vec![0u8; RetryToken::RANDOM_BYTES_LEN];
-        endpoint.rng.fill_bytes(&mut random_bytes);
-        // The peer will use this as the DCID of its following Initials. Initial DCIDs are
-        // looked up separately from Handshake/Data DCIDs, so there is no risk of collision
-        // with established connections. In the unlikely event that a collision occurs
-        // between two connections in the initial phase, both will fail fast and may be
-        // retried by the application layer.
-        let loc_cid = endpoint.local_cid_generator.generate_cid();
-
-        let token = RetryToken {
-            orig_dst_cid: self.dst_cid,
-            issued: SystemTime::now(),
-            random_bytes: &random_bytes,
-        }
-            .encode(&*server_config.token_key, &self.addresses.remote, &loc_cid);
-
-        let header = Header::Retry {
-            src_cid: loc_cid,
-            dst_cid: self.src_cid,
-            version: self.version,
-        };
-
-        let encode = header.encode(buf);
-        buf.put_slice(&token);
-        buf.extend_from_slice(&server_config.crypto.retry_tag(self.version, &self.dst_cid, buf));
-        encode.finish(buf, &*self.crypto.header.local, None);
-
-        Transmit {
-            destination: self.addresses.remote,
-            ecn: None,
-            size: buf.len(),
-            segment_size: None,
-            src_ip: self.addresses.local_ip,
-        }
     }
 }
 
