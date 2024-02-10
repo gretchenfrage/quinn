@@ -233,7 +233,7 @@ impl Endpoint {
             };
             return match first_decode.finish(Some(&*crypto.header.remote)) {
                 Ok(packet) => {
-                    self.handle_first_packet(now, addresses, ecn, packet, remaining, crypto, buf)
+                    self.handle_first_packet(addresses, ecn, packet, remaining, crypto, buf)
                 }
                 Err(e) => {
                     trace!("unable to decode initial packet: {}", e);
@@ -399,7 +399,6 @@ impl Endpoint {
 
     fn handle_first_packet(
         &mut self,
-        now: Instant,
         addresses: FourTuple,
         ecn: Option<EcnCodepoint>,
         mut packet: Packet,
@@ -486,7 +485,7 @@ impl Endpoint {
             }
         };
 
-        let incoming = IncomingConnection {
+        Some(DatagramEvent::NewConnection(IncomingConnection {
             addresses,
             ecn,
             packet,
@@ -498,19 +497,11 @@ impl Endpoint {
             version,
             retry_src_cid,
             orig_dst_cid,
-        };
-        if server_config.use_retry && !incoming.is_validated() {
-            Some(DatagramEvent::Response(self.retry(incoming, buf)))
-        } else {
-            match self.accept(incoming, now, buf) {
-                Ok((ch, conn)) => Some(DatagramEvent::NewConnection(ch, conn)),
-                Err(response) => response.map(DatagramEvent::Response),
-            }
-        }
+        }))
     }
 
     /// Attempt to accept this incoming connection (an error may still occur).
-    fn accept(
+    pub fn accept(
         &mut self,
         incoming: IncomingConnection,
         now: Instant,
@@ -593,8 +584,7 @@ impl Endpoint {
     }
 
     /// Reject this incoming connection attempt.
-    #[allow(dead_code)] // becomes used in subsequent commits in same PR
-    fn reject(&mut self, incoming: IncomingConnection, buf: &mut BytesMut) -> Transmit {
+    pub fn reject(&mut self, incoming: IncomingConnection, buf: &mut BytesMut) -> Transmit {
         self.initial_close(
             incoming.version,
             incoming.addresses,
@@ -608,7 +598,7 @@ impl Endpoint {
     /// Respond with a retry packet, requiring the client to retry with address validation.
     ///
     /// Panics if `may_retry` is false.
-    fn retry(&mut self, incoming: IncomingConnection, buf: &mut BytesMut) -> Transmit {
+    pub fn retry(&mut self, incoming: IncomingConnection, buf: &mut BytesMut) -> Transmit {
         assert!(incoming.may_retry(), "retry() with may_retry == false");
         let server_config = self.server_config.as_ref().unwrap();
 
@@ -961,14 +951,14 @@ impl IndexMut<ConnectionHandle> for Slab<ConnectionMeta> {
 pub enum DatagramEvent {
     /// The datagram is redirected to its `Connection`
     ConnectionEvent(ConnectionHandle, ConnectionEvent),
-    /// The datagram has resulted in starting a new `Connection`
-    NewConnection(ConnectionHandle, Connection),
+    /// The datagram may result in starting a new `Connection`
+    NewConnection(IncomingConnection),
     /// Response generated directly by the endpoint
     Response(Transmit),
 }
 
 /// An incoming connection for which the server has not yet begun its part of the handshake.
-struct IncomingConnection {
+pub struct IncomingConnection {
     addresses: FourTuple,
     ecn: Option<EcnCodepoint>,
     packet: Packet,
@@ -987,7 +977,7 @@ impl IncomingConnection {
     ///
     /// This means that the sender of the initial packet has proved that they can receive traffic
     /// sent to `self.remote_address()`.
-    fn is_validated(&self) -> bool {
+    pub fn is_validated(&self) -> bool {
         self.retry_src_cid.is_some()
     }
 
@@ -995,21 +985,19 @@ impl IncomingConnection {
     /// the connection
     ///
     /// This has the same behavior as [`Connection::local_ip`]
-    #[allow(dead_code)] // becomes used in subsequent commits in same PR
-    fn local_ip(&self) -> Option<IpAddr> {
+    pub fn local_ip(&self) -> Option<IpAddr> {
         self.addresses.local_ip
     }
 
     /// The peer's UDP address.
-    #[allow(dead_code)] // becomes used in subsequent commits in same PR
-    fn remote_address(&self) -> SocketAddr {
+    pub fn remote_address(&self) -> SocketAddr {
         self.addresses.remote
     }
 
     /// Whether it is legal to require the client to retry.
     ///
     /// If `is_validated` is false, `may_retry` is necessarily true.
-    fn may_retry(&self) -> bool {
+    pub fn may_retry(&self) -> bool {
         // Currently, we do not produce retry tokens in a way that allows us to tell the difference
         // between ones minted for a retry packet versus for a NEW_TOKEN frame, so to be safe we
         // must simply never respond with a retry packet to an initial packet with a token in it.

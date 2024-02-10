@@ -19,6 +19,7 @@ use tokio::sync::{futures::Notified, mpsc, oneshot, Notify};
 use tracing::{debug_span, Instrument, Span};
 
 use crate::{
+    endpoint::EndpointRef,
     mutex::Mutex,
     recv_stream::RecvStream,
     send_stream::{SendStream, WriteError},
@@ -27,13 +28,30 @@ use crate::{
 use proto::congestion::Controller;
 
 /// In-progress connection attempt future
+///
+/// On outgoing connections, this is given to the application in the state of the handshake already
+/// having begun. However, on incoming connections, this is given to the application before the
+/// server has begun performing its half of the handshake. This allows the application to check the
+/// remote address and reject the connection or have the client retry it with address validation
+/// before ever allocating state for it. Once this future is polled or other methods which take
+/// `&mut self` are called the server begins its half of the handshake and those methods can no
+/// longer be called.
 #[derive(Debug)]
 #[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 pub struct Connecting(Option<ConnectingState>);
 
 #[derive(Debug)]
 pub(crate) enum ConnectingState {
+    Incoming(ConnectingIncoming),
     Handshaking(ConnectingHandshaking),
+    AcceptError(ConnectionError),
+}
+
+#[derive(Debug)]
+pub(crate) struct ConnectingIncoming {
+    inner: proto::IncomingConnection,
+    endpoint: EndpointRef,
+    response_buffer: BytesMut,
 }
 
 #[derive(Debug)]
@@ -46,6 +64,21 @@ pub(crate) struct ConnectingHandshaking {
 impl Connecting {
     pub(crate) fn new(state: ConnectingState) -> Self {
         Self(Some(state))
+    }
+
+    fn accept(&mut self) -> Result<&mut ConnectingHandshaking, ConnectionError> {
+        self.0 = Some(match self.0.take().unwrap() {
+            ConnectingState::Incoming(handshaking) => handshaking
+                .accept()
+                .map(ConnectingState::Handshaking)
+                .unwrap_or_else(ConnectingState::AcceptError),
+            other => other,
+        });
+        match *self.0.as_mut().unwrap() {
+            ConnectingState::Handshaking(ref mut handshaking) => Ok(handshaking),
+            ConnectingState::AcceptError(ref error) => Err(error.clone()),
+            ConnectingState::Incoming(_) => unreachable!(),
+        }
     }
 
     /// Convert into a 0-RTT or 0.5-RTT connection at the cost of weakened security
@@ -72,10 +105,15 @@ impl Connecting {
     /// a previous connection to the same server is available, and includes a 0-RTT key. If no such
     /// ticket is found, `self` is returned unmodified.
     ///
-    /// For incoming connections, a 0.5-RTT connection will always be successfully constructed.
-    pub fn into_0rtt(mut self) -> Result<(Connection, ZeroRttAccepted), Self> {
+    /// For incoming connections, a 0.5-RTT connection will always be successfully constructed,
+    /// unless an error occurs attempting to accept the connection which had not already been
+    /// caught but which would have happened upon attempting to accept this connection attempt
+    /// regardless of calling `into_0rtt`.
+    pub fn into_0rtt(mut self) -> Result<(Connection, ZeroRttAccepted), Into0RttError> {
+        self.accept().map_err(Into0RttError::AcceptError)?;
         match self.0.take().unwrap() {
             ConnectingState::Handshaking(handshaking) => handshaking.into_0rtt(),
+            _ => unreachable!(),
         }
     }
 
@@ -86,11 +124,7 @@ impl Connecting {
     /// be [`downcast`](Box::downcast) to a
     /// [`crypto::rustls::HandshakeData`](crate::crypto::rustls::HandshakeData).
     pub async fn handshake_data(&mut self) -> Result<Box<dyn Any>, ConnectionError> {
-        match self.0.as_mut().unwrap() {
-            &mut ConnectingState::Handshaking(ref mut handshaking) => {
-                handshaking.handshake_data().await
-            }
-        }
+        self.accept()?.handshake_data().await
     }
 
     /// The local IP address which was used when the peer established
@@ -112,8 +146,10 @@ impl Connecting {
     ///
     /// Will panic if called after `poll` has returned `Ready`.
     pub fn local_ip(&self) -> Option<IpAddr> {
-        match self.0.as_ref().unwrap() {
-            ConnectingState::Handshaking(handshaking) => handshaking.local_ip(),
+        match *self.0.as_ref().unwrap() {
+            ConnectingState::Incoming(ref incoming) => incoming.inner.local_ip(),
+            ConnectingState::Handshaking(ref handshaking) => handshaking.local_ip(),
+            ConnectingState::AcceptError(_) => panic!("local_ip called after connecting errored"),
         }
     }
 
@@ -122,7 +158,94 @@ impl Connecting {
     /// Will panic if called after `poll` has returned `Ready`.
     pub fn remote_address(&self) -> SocketAddr {
         match self.0.as_ref().unwrap() {
-            ConnectingState::Handshaking(handshaking) => handshaking.remote_address(),
+            ConnectingState::Incoming(ref incoming) => incoming.inner.remote_address(),
+            ConnectingState::Handshaking(ref handshaking) => handshaking.remote_address(),
+            ConnectingState::AcceptError(_) => {
+                panic!("remote_address called after connecting errored")
+            }
+        }
+    }
+
+    fn unwrap_incoming_ref(&self, caller: &str) -> &ConnectingIncoming {
+        match self.0.as_ref().unwrap() {
+            ConnectingState::Incoming(ref incoming) => incoming,
+            _ => panic!("{} called after already started handshake", caller),
+        }
+    }
+
+    fn unwrap_incoming(mut self, caller: &str) -> ConnectingIncoming {
+        match self.0.take().unwrap() {
+            ConnectingState::Incoming(incoming) => incoming,
+            _ => panic!("{} called after already started handshake", caller),
+        }
+    }
+
+    /// Whether the socket address that is initiating this connection has been validated
+    ///
+    /// This means that the sender of the initial packet has proved that they can receive traffic
+    /// sent to `self.remote_address()`.
+    ///
+    /// Will panic if called when the handshake has already begun.
+    pub fn is_validated(&self) -> bool {
+        self.unwrap_incoming_ref("is_validated")
+            .inner
+            .is_validated()
+    }
+
+    /// Whether it is legal to require the client to retry
+    ///
+    /// If `is_validated` is false, `may_retry` is necessarily true.
+    ///
+    /// Will panic if called when the handshake has already begun or if `may_retry` is false.
+    pub fn may_retry(&self) -> bool {
+        self.unwrap_incoming_ref("may_retry").inner.is_validated()
+    }
+
+    /// Reject this incoming connection attempt
+    ///
+    /// Will panic if called when the handshake has already begun.
+    pub fn reject(self) {
+        let incoming = self.unwrap_incoming("reject");
+        incoming
+            .endpoint
+            .reject(incoming.inner, incoming.response_buffer);
+    }
+
+    /// Respond with a retry packet, requiring the client to retry with address validation
+    ///
+    /// Will panic if called when the handshake has already begun.
+    pub fn retry(self) {
+        let incoming = self.unwrap_incoming("retry");
+        incoming
+            .endpoint
+            .retry(incoming.inner, incoming.response_buffer);
+    }
+}
+
+/// Error returned from [`Connecting::into_0rtt`]
+pub enum Into0RttError {
+    /// May occur for outgoing connections. No cryptographic session ticket cached from a previous
+    /// connection to the same server can be found, and thus early data cannot be enabled.
+    NoTicket(Connecting),
+    /// May occur for incoming connections. An error occurred when attempting to begin the server's
+    /// half of the handshake, which was not already caught while forming the `Connecting` future.
+    AcceptError(ConnectionError),
+}
+
+impl Into0RttError {
+    /// Unwrap the `NoTicket` variant. This will succeed if the connection was outgoing.
+    pub fn unwrap_no_ticket(self) -> Connecting {
+        match self {
+            Self::NoTicket(connecting) => connecting,
+            Self::AcceptError(_) => panic!("expected Into0RttError::NoTicket"),
+        }
+    }
+
+    /// Unwrap the `NoTicket` variant. This will succeed if the connection was incoming.
+    pub fn unwrap_accept_error(self) -> ConnectionError {
+        match self {
+            Self::AcceptError(error) => error,
+            Self::NoTicket(_) => panic!("expected Into0RttError::AcceptError"),
         }
     }
 }
@@ -130,9 +253,47 @@ impl Connecting {
 impl Future for Connecting {
     type Output = Result<Connection, ConnectionError>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        match self.0.as_mut().unwrap() {
-            &mut ConnectingState::Handshaking(ref mut handshaking) => handshaking.poll(cx),
+        match self.accept() {
+            Ok(handshaking) => handshaking.poll(cx),
+            Err(error) => Poll::Ready(Err(error)),
         }
+    }
+}
+
+impl Drop for Connecting {
+    fn drop(&mut self) {
+        // Implicit reject, similar to Connection's implicit close
+        if let Some(ConnectingState::Incoming(incoming)) = self.0.take() {
+            incoming
+                .endpoint
+                .reject(incoming.inner, incoming.response_buffer);
+        }
+    }
+}
+
+impl ConnectingIncoming {
+    pub(crate) fn new(
+        inner: proto::IncomingConnection,
+        endpoint: EndpointRef,
+        response_buffer: BytesMut,
+    ) -> Self {
+        Self {
+            inner,
+            endpoint,
+            response_buffer,
+        }
+    }
+
+    fn accept(self) -> Result<ConnectingHandshaking, ConnectionError> {
+        self.endpoint
+            .accept(self.inner, self.response_buffer)
+            .ok_or_else(|| {
+                ConnectionError::TransportError(proto::TransportError {
+                    code: proto::TransportErrorCode::PROTOCOL_VIOLATION,
+                    frame: None,
+                    reason: "Problem with initial packet".to_owned(),
+                })
+            })
     }
 }
 
@@ -185,7 +346,7 @@ impl ConnectingHandshaking {
         })
     }
 
-    fn into_0rtt(mut self) -> Result<(Connection, ZeroRttAccepted), Connecting> {
+    fn into_0rtt(mut self) -> Result<(Connection, ZeroRttAccepted), Into0RttError> {
         // This lock borrows `self` and would normally be dropped at the end of this scope, so we'll
         // have to release it explicitly before returning `self` by value.
         let conn = (self.conn.as_mut().unwrap()).state.lock("into_0rtt");
@@ -197,7 +358,9 @@ impl ConnectingHandshaking {
             let conn = self.conn.take().unwrap();
             Ok((Connection(conn), ZeroRttAccepted(self.connected)))
         } else {
-            Err(Connecting::new(ConnectingState::Handshaking(self)))
+            Err(Into0RttError::NoTicket(Connecting::new(
+                ConnectingState::Handshaking(self),
+            )))
         }
     }
 

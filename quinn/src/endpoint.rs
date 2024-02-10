@@ -24,7 +24,7 @@ use tracing::{Instrument, Span};
 use udp::{RecvMeta, BATCH_SIZE};
 
 use crate::{
-    connection::{Connecting, ConnectingHandshaking, ConnectingState},
+    connection::{Connecting, ConnectingHandshaking, ConnectingIncoming, ConnectingState},
     work_limiter::WorkLimiter,
     ConnectionEvent, EndpointConfig, EndpointEvent, VarInt, IO_LOOP_BOUND,
     MAX_TRANSMIT_QUEUE_CONTENTS_LEN, RECV_TIME_BOUND, SEND_TIME_BOUND,
@@ -373,7 +373,7 @@ pub(crate) struct State {
     socket: Arc<dyn AsyncUdpSocket>,
     inner: proto::Endpoint,
     transmit_state: TransmitState,
-    incoming: VecDeque<Connecting>,
+    incoming: VecDeque<(proto::IncomingConnection, BytesMut)>,
     driver: Option<Waker>,
     ipv6: bool,
     connections: ConnectionSet,
@@ -451,16 +451,8 @@ impl State {
                                 buf,
                                 &mut response_buffer,
                             ) {
-                                Some(DatagramEvent::NewConnection(handle, conn)) => {
-                                    let conn = Connecting::new(ConnectingState::Handshaking(
-                                        self.connections.insert(
-                                            handle,
-                                            conn,
-                                            self.socket.clone(),
-                                            self.runtime.clone(),
-                                        ),
-                                    ));
-                                    self.incoming.push_back(conn);
+                                Some(DatagramEvent::NewConnection(incoming)) => {
+                                    self.incoming.push_back((incoming, response_buffer));
                                 }
                                 Some(DatagramEvent::ConnectionEvent(handle, event)) => {
                                     // Ignoring errors from dropped connections that haven't yet been cleaned up
@@ -671,12 +663,16 @@ impl<'a> Future for Accept<'a> {
     type Output = Option<Connecting>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
-        let endpoint = &mut *this.endpoint.inner.state.lock().unwrap();
+        let mut endpoint = this.endpoint.inner.state.lock().unwrap();
         if endpoint.driver_lost {
             return Poll::Ready(None);
         }
-        if let Some(conn) = endpoint.incoming.pop_front() {
-            return Poll::Ready(Some(conn));
+        if let Some((incoming, response_buffer)) = endpoint.incoming.pop_front() {
+            // Release the mutex lock on endpoint so cloning it doesn't deadlock
+            drop(endpoint);
+            let incoming =
+                ConnectingIncoming::new(incoming, this.endpoint.inner.clone(), response_buffer);
+            return Poll::Ready(Some(Connecting::new(ConnectingState::Incoming(incoming))));
         }
         if endpoint.connections.close.is_some() {
             return Poll::Ready(None);
@@ -767,5 +763,47 @@ impl std::ops::Deref for EndpointRef {
     type Target = EndpointInner;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl EndpointInner {
+    pub(crate) fn accept(
+        &self,
+        incoming: proto::IncomingConnection,
+        mut response_buffer: BytesMut,
+    ) -> Option<ConnectingHandshaking> {
+        let mut state = self.state.lock().unwrap();
+        match state
+            .inner
+            .accept(incoming, Instant::now(), &mut response_buffer)
+        {
+            Ok((handle, conn)) => {
+                let socket = state.socket.clone();
+                let runtime = state.runtime.clone();
+                Some(state.connections.insert(handle, conn, socket, runtime))
+            }
+            Err(response) => {
+                if let Some(transmit) = response {
+                    state.transmit_state.respond(transmit, response_buffer);
+                }
+                None
+            }
+        }
+    }
+
+    pub(crate) fn reject(
+        &self,
+        incoming: proto::IncomingConnection,
+        mut response_buffer: BytesMut,
+    ) {
+        let mut state = self.state.lock().unwrap();
+        let transmit = state.inner.reject(incoming, &mut response_buffer);
+        state.transmit_state.respond(transmit, response_buffer);
+    }
+
+    pub(crate) fn retry(&self, incoming: proto::IncomingConnection, mut response_buffer: BytesMut) {
+        let mut state = self.state.lock().unwrap();
+        let transmit = state.inner.retry(incoming, &mut response_buffer);
+        state.transmit_state.respond(transmit, response_buffer);
     }
 }

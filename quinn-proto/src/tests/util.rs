@@ -292,6 +292,34 @@ pub(super) struct TestEndpoint {
     conn_events: HashMap<ConnectionHandle, VecDeque<ConnectionEvent>>,
     pub(super) captured_packets: Vec<Vec<u8>>,
     pub(super) capture_inbound_packets: bool,
+    pub(super) retry_policy: RetryPolicy,
+}
+
+pub(super) struct RetryPolicy(
+    pub(super) Box<dyn Fn(&IncomingConnection) -> IncomingConnectionResponse>,
+);
+
+impl RetryPolicy {
+    pub(super) fn no() -> Self {
+        Self(Box::new(|_| IncomingConnectionResponse::Accept))
+    }
+
+    pub(super) fn yes() -> Self {
+        Self(Box::new(|incoming| {
+            if incoming.is_validated() {
+                IncomingConnectionResponse::Accept
+            } else {
+                IncomingConnectionResponse::Retry
+            }
+        }))
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub(super) enum IncomingConnectionResponse {
+    Accept,
+    Reject,
+    Retry,
 }
 
 impl TestEndpoint {
@@ -318,6 +346,7 @@ impl TestEndpoint {
             conn_events: HashMap::default(),
             captured_packets: Vec::new(),
             capture_inbound_packets: false,
+            retry_policy: RetryPolicy::no(),
         }
     }
 
@@ -340,9 +369,18 @@ impl TestEndpoint {
                 .handle(recv_time, remote, None, ecn, packet, &mut buf)
             {
                 match event {
-                    DatagramEvent::NewConnection(ch, conn) => {
-                        self.connections.insert(ch, conn);
-                        self.accepted = Some(ch);
+                    DatagramEvent::NewConnection(incoming) => {
+                        match (self.retry_policy.0)(&incoming) {
+                            IncomingConnectionResponse::Accept => {
+                                self.try_accept(incoming, now);
+                            }
+                            IncomingConnectionResponse::Reject => {
+                                self.reject(incoming);
+                            }
+                            IncomingConnectionResponse::Retry => {
+                                self.retry(incoming);
+                            }
+                        }
                     }
                     DatagramEvent::ConnectionEvent(ch, event) => {
                         if self.capture_inbound_packets {
@@ -416,6 +454,45 @@ impl TestEndpoint {
 
     pub(super) fn finish_delay(&mut self) {
         self.outbound.extend(self.delayed.drain(..));
+    }
+
+    pub(super) fn try_accept(
+        &mut self,
+        incoming: IncomingConnection,
+        now: Instant,
+    ) -> Option<ConnectionHandle> {
+        let mut buf = BytesMut::new();
+        match self.endpoint.accept(incoming, now, &mut buf) {
+            Ok((ch, conn)) => {
+                self.connections.insert(ch, conn);
+                self.accepted = Some(ch);
+                Some(ch)
+            }
+            Err(transmit) => {
+                if let Some(transmit) = transmit {
+                    let size = transmit.size;
+                    self.outbound
+                        .extend(split_transmit(transmit, buf.split_to(size).freeze()));
+                }
+                None
+            }
+        }
+    }
+
+    pub(super) fn retry(&mut self, incoming: IncomingConnection) {
+        let mut buf = BytesMut::new();
+        let transmit = self.endpoint.retry(incoming, &mut buf);
+        let size = transmit.size;
+        self.outbound
+            .extend(split_transmit(transmit, buf.split_to(size).freeze()));
+    }
+
+    pub(super) fn reject(&mut self, incoming: IncomingConnection) {
+        let mut buf = BytesMut::new();
+        let transmit = self.endpoint.reject(incoming, &mut buf);
+        let size = transmit.size;
+        self.outbound
+            .extend(split_transmit(transmit, buf.split_to(size).freeze()));
     }
 
     pub(super) fn assert_accept(&mut self) -> ConnectionHandle {

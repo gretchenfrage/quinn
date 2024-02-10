@@ -165,13 +165,8 @@ fn draft_version_compat() {
 #[test]
 fn stateless_retry() {
     let _guard = subscribe();
-    let mut pair = Pair::new(
-        Default::default(),
-        ServerConfig {
-            use_retry: true,
-            ..server_config()
-        },
-    );
+    let mut pair = Pair::default();
+    pair.server.retry_policy = RetryPolicy::yes();
     pair.connect();
 }
 
@@ -459,13 +454,8 @@ fn high_latency_handshake() {
 #[test]
 fn zero_rtt_happypath() {
     let _guard = subscribe();
-    let mut pair = Pair::new(
-        Default::default(),
-        ServerConfig {
-            use_retry: true,
-            ..server_config()
-        },
-    );
+    let mut pair = Pair::default();
+    pair.server.retry_policy = RetryPolicy::yes();
     let config = client_config();
 
     // Establish normal connection
@@ -2753,6 +2743,22 @@ fn reject_new_connections() {
     let _guard = subscribe();
     let mut pair = Pair::default();
     pair.server.reject_new_connections();
+
+    // The server should now reject incoming connections.
+    let client_ch = pair.begin_connect(client_config());
+    pair.drive();
+    pair.server.assert_no_accept();
+    assert!(pair.client.connections.get(&client_ch).unwrap().is_closed());
+}
+
+#[test]
+fn reject_remote_address() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    pair.server.retry_policy = RetryPolicy(Box::new(|incoming| {
+        incoming.remote_address();
+        IncomingConnectionResponse::Reject
+    }));
 
     // The server should now reject incoming connections.
     let client_ch = pair.begin_connect(client_config());
