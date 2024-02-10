@@ -24,9 +24,10 @@ use tracing::{Instrument, Span};
 use udp::{RecvMeta, BATCH_SIZE};
 
 use crate::{
-    connection::Connecting, work_limiter::WorkLimiter, ConnectionEvent, EndpointConfig,
-    EndpointEvent, VarInt, IO_LOOP_BOUND, MAX_TRANSMIT_QUEUE_CONTENTS_LEN, RECV_TIME_BOUND,
-    SEND_TIME_BOUND,
+    connection::{Connecting, ConnectingHandshaking, ConnectingState},
+    work_limiter::WorkLimiter,
+    ConnectionEvent, EndpointConfig, EndpointEvent, VarInt, IO_LOOP_BOUND,
+    MAX_TRANSMIT_QUEUE_CONTENTS_LEN, RECV_TIME_BOUND, SEND_TIME_BOUND,
 };
 
 /// A QUIC endpoint.
@@ -197,9 +198,10 @@ impl Endpoint {
             .connect(Instant::now(), config, addr, server_name)?;
 
         let socket = endpoint.socket.clone();
-        Ok(endpoint
+        let handshaking = endpoint
             .connections
-            .insert(ch, conn, socket, self.runtime.clone()))
+            .insert(ch, conn, socket, self.runtime.clone());
+        Ok(Connecting::new(ConnectingState::Handshaking(handshaking)))
     }
 
     /// Switch to a new UDP socket
@@ -450,12 +452,14 @@ impl State {
                                 &mut response_buffer,
                             ) {
                                 Some(DatagramEvent::NewConnection(handle, conn)) => {
-                                    let conn = self.connections.insert(
-                                        handle,
-                                        conn,
-                                        self.socket.clone(),
-                                        self.runtime.clone(),
-                                    );
+                                    let conn = Connecting::new(ConnectingState::Handshaking(
+                                        self.connections.insert(
+                                            handle,
+                                            conn,
+                                            self.socket.clone(),
+                                            self.runtime.clone(),
+                                        ),
+                                    ));
                                     self.incoming.push_back(conn);
                                 }
                                 Some(DatagramEvent::ConnectionEvent(handle, event)) => {
@@ -629,7 +633,7 @@ impl ConnectionSet {
         conn: proto::Connection,
         socket: Arc<dyn AsyncUdpSocket>,
         runtime: Arc<dyn Runtime>,
-    ) -> Connecting {
+    ) -> ConnectingHandshaking {
         let (send, recv) = mpsc::unbounded_channel();
         if let Some((error_code, ref reason)) = self.close {
             send.send(ConnectionEvent::Close {
@@ -639,7 +643,7 @@ impl ConnectionSet {
             .unwrap();
         }
         self.senders.insert(handle, send);
-        Connecting::new(handle, conn, self.sender.clone(), recv, socket, runtime)
+        ConnectingHandshaking::new(handle, conn, self.sender.clone(), recv, socket, runtime)
     }
 
     fn is_empty(&self) -> bool {
