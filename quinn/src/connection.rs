@@ -159,7 +159,7 @@ impl Connecting {
         match self.0.as_ref().unwrap() {
             &ConnectingState::Incoming(ref incoming) => incoming.inner.remote_address(),
             &ConnectingState::Handshaking(ref handshaking) => handshaking.remote_address(),
-            &ConnectingState::AcceptError(_) => panic!("local_ip called after connecting errored"),
+            &ConnectingState::AcceptError(_) => panic!("remote_address called after connecting errored"),
         }
     }
 
@@ -193,7 +193,7 @@ impl Connecting {
     ///
     /// Will panic if called when the handshake has already begun or if `may_retry` is false.
     pub fn may_retry(&self) -> bool {
-        self.unwrap_incoming_ref("is_validated").inner.is_validated()
+        self.unwrap_incoming_ref("may_retry").inner.is_validated()
     }
 
     /// Reject this incoming connection attempt
@@ -214,7 +214,6 @@ impl Connecting {
 }
 
 /// Error returned from [`Connecting::into_0rtt`]
-#[derive(Debug)]
 pub enum Into0RttError {
     /// May occur for outgoing connections. No cryptographic session ticket cached from a previous
     /// connection to the same server can be found, and thus early data cannot be enabled.

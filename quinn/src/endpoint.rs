@@ -25,8 +25,8 @@ use udp::{RecvMeta, BATCH_SIZE};
 
 use crate::{
     connection::{Connecting, ConnectingState, ConnectingHandshaking, ConnectingIncoming},
-    work_limiter::WorkLimiter, ConnectionEvent, EndpointConfig, EndpointEvent, VarInt, IO_LOOP_BOUND,
-    MAX_TRANSMIT_QUEUE_CONTENTS_LEN, RECV_TIME_BOUND, SEND_TIME_BOUND,
+    work_limiter::WorkLimiter, ConnectionEvent, EndpointConfig, EndpointEvent, VarInt,
+    IO_LOOP_BOUND, MAX_TRANSMIT_QUEUE_CONTENTS_LEN, RECV_TIME_BOUND, SEND_TIME_BOUND,
 };
 
 /// A QUIC endpoint.
@@ -386,7 +386,7 @@ pub(crate) struct State {
     runtime: Arc<dyn Runtime>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct TransmitState {
     outgoing: VecDeque<udp::Transmit>,
     /// The aggregateed contents length of the packets in the transmit queue
@@ -553,7 +553,8 @@ impl State {
                         let contents_len = buf.len();
                         self.transmit_state.outgoing.push_back(udp_transmit(t, buf));
                         self.transmit_state.transmit_queue_contents_len = self
-                            .transmit_state.transmit_queue_contents_len.saturating_add(contents_len);
+                            .transmit_state.transmit_queue_contents_len
+                            .saturating_add(contents_len);
                     }
                 },
                 Poll::Ready(None) => unreachable!("EndpointInner owns one sender"),
@@ -708,10 +709,7 @@ impl EndpointRef {
                 inner,
                 ipv6,
                 events,
-                transmit_state: TransmitState {
-                    outgoing: VecDeque::new(),
-                    transmit_queue_contents_len: 0,
-                },
+                transmit_state: TransmitState::default(),
                 incoming: VecDeque::new(),
                 driver: None,
                 connections: ConnectionSet {
