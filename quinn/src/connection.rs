@@ -186,19 +186,19 @@ impl Connecting {
     /// sent to `self.remote_address()`.
     ///
     /// Will panic if called when the handshake has already begun.
-    pub fn is_validated(&self) -> bool {
-        self.unwrap_incoming_ref("is_validated")
+    pub fn remote_address_validated(&self) -> bool {
+        self.unwrap_incoming_ref("remote_address_validated")
             .inner
-            .is_validated()
+            .remote_address_validated()
     }
 
     /// Whether it is legal to require the client to retry
     ///
-    /// If `is_validated` is false, `may_retry` is necessarily true.
+    /// If `remote_address_validated` is false, `may_retry` is necessarily true.
     ///
     /// Will panic if called when the handshake has already begun or if `may_retry` is false.
     pub fn may_retry(&self) -> bool {
-        self.unwrap_incoming_ref("may_retry").inner.is_validated()
+        self.unwrap_incoming_ref("may_retry").inner.remote_address_validated()
     }
 
     /// Reject this incoming connection attempt

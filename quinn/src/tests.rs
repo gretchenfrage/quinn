@@ -208,29 +208,29 @@ async fn ip_blocking() {
             let accepting = server.accept().await.unwrap();
             if accepting.remote_address() == client_1_addr {
                 accepting.reject();
-            } else if accepting.is_validated() {
+            } else if accepting.remote_address_validated() {
                 accepting.await.expect("connection");
             } else {
                 accepting.retry();
             }
         }
     });
-    let client_1_task = tokio::spawn(async move {
-        client_1
-            .connect(server_addr, "localhost")
-            .unwrap()
-            .await
-            .expect_err("server should have blocked this");
-    });
-    let client_2_task = tokio::spawn(async move {
-        client_2
-            .connect(server_addr, "localhost")
-            .unwrap()
-            .await
-            .expect("connect");
-    });
-    client_1_task.await.unwrap();
-    client_2_task.await.unwrap();
+    tokio::join!(
+        async move {
+            client_1
+                .connect(server_addr, "localhost")
+                .unwrap()
+                .await
+                .expect_err("server should have blocked this");
+        },
+        async move {
+            client_2
+                .connect(server_addr, "localhost")
+                .unwrap()
+                .await
+                .expect("connect");
+        }
+    );
     server_task.abort();
 }
 

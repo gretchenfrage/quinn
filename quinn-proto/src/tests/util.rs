@@ -306,7 +306,7 @@ impl RetryPolicy {
 
     pub(super) fn yes() -> Self {
         Self(Box::new(|incoming| {
-            if incoming.is_validated() {
+            if incoming.remote_address_validated() {
                 IncomingConnectionResponse::Accept
             } else {
                 IncomingConnectionResponse::Retry

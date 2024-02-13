@@ -434,8 +434,8 @@ impl Endpoint {
             return None;
         }
 
-        if let Some(initial_close) =
-            self.connection_refuse_if_connection_limit(version, addresses, &crypto, &src_cid, buf)
+        if let Err(initial_close) =
+            self.check_connection_limit(version, addresses, &crypto, &src_cid, buf)
         {
             return Some(DatagramEvent::Response(initial_close));
         }
@@ -507,15 +507,13 @@ impl Endpoint {
         now: Instant,
         buf: &mut BytesMut,
     ) -> Result<(ConnectionHandle, Connection), Option<Transmit>> {
-        if let Some(initial_close) = self.connection_refuse_if_connection_limit(
+        self.check_connection_limit(
             incoming.version,
             incoming.addresses,
             &incoming.crypto,
             &incoming.src_cid,
             buf,
-        ) {
-            return Err(Some(initial_close));
-        }
+        ).map_err(Some)?;
 
         let server_config = self.server_config.as_ref().unwrap().clone();
 
@@ -695,19 +693,19 @@ impl Endpoint {
         conn
     }
 
-    fn connection_refuse_if_connection_limit(
+    fn check_connection_limit(
         &mut self,
         version: u32,
         addresses: FourTuple,
         crypto: &Keys,
         src_cid: &ConnectionId,
         buf: &mut BytesMut,
-    ) -> Option<Transmit> {
+    ) -> Result<(), Transmit> {
         let server_config = self.server_config.as_ref().unwrap();
         if self.connections.len() >= server_config.concurrent_connections as usize || self.is_full()
         {
             debug!("refusing connection");
-            Some(self.initial_close(
+            Err(self.initial_close(
                 version,
                 addresses,
                 crypto,
@@ -716,7 +714,7 @@ impl Endpoint {
                 buf,
             ))
         } else {
-            None
+            Ok(())
         }
     }
 
@@ -973,14 +971,6 @@ pub struct IncomingConnection {
 }
 
 impl IncomingConnection {
-    /// Whether the socket address that is initiating this connection has been validated.
-    ///
-    /// This means that the sender of the initial packet has proved that they can receive traffic
-    /// sent to `self.remote_address()`.
-    pub fn is_validated(&self) -> bool {
-        self.retry_src_cid.is_some()
-    }
-
     /// The local IP address which was used when the peer established
     /// the connection
     ///
@@ -994,15 +984,20 @@ impl IncomingConnection {
         self.addresses.remote
     }
 
+    /// Whether the socket address that is initiating this connection has been validated.
+    ///
+    /// This means that the sender of the initial packet has proved that they can receive traffic
+    /// sent to `self.remote_address()`.
+    pub fn remote_address_validated(&self) -> bool {
+        self.retry_src_cid.is_some()
+    }
+
     /// Whether it is legal to require the client to retry.
     ///
-    /// If `is_validated` is false, `may_retry` is necessarily true.
+    /// If `remote_address_validated` is false, `may_retry` is necessarily true.
     pub fn may_retry(&self) -> bool {
-        // Currently, we do not produce retry tokens in a way that allows us to tell the difference
-        // between ones minted for a retry packet versus for a NEW_TOKEN frame, so to be safe we
-        // must simply never respond with a retry packet to an initial packet with a token in it.
-        // However, the QUIC protocol would allow for such a distinction to be implemented.
-        !self.is_validated()
+        // Currently, we exclusively produce validation tokens through retry packets.
+        !self.remote_address_validated()
     }
 }
 
@@ -1010,8 +1005,12 @@ impl fmt::Debug for IncomingConnection {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("IncomingConnection")
             .field("addresses", &self.addresses)
+            .field("ecn", &self.ecn)
+            // packet doesn't implement debug
+            // rest is too big and not meaningful enough
             .field("src_cid", &self.src_cid)
             .field("dst_cid", &self.dst_cid)
+            .field("packet_number", &self.packet_number)
             .field("version", &self.version)
             .field("retry_src_cid", &self.retry_src_cid)
             .field("orig_dst_cid", &self.orig_dst_cid)

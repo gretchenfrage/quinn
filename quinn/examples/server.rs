@@ -148,7 +148,7 @@ async fn run(options: Opt) -> Result<()> {
         if Some(conn.remote_address()) == options.block {
             info!("rejecting blocked client IP address");
             conn.reject();
-        } else if options.stateless_retry && !conn.is_validated() {
+        } else if options.stateless_retry && !conn.remote_address_validated() {
             info!("requiring connection to validate its address");
             conn.retry();
         } else {
