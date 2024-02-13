@@ -434,13 +434,9 @@ impl Endpoint {
             return None;
         }
 
-        if let Some(initial_close) = self.connection_refuse_if_connection_limit(
-            version,
-            addresses,
-            &crypto,
-            &src_cid,
-            buf,
-        ) {
+        if let Some(initial_close) =
+            self.connection_refuse_if_connection_limit(version, addresses, &crypto, &src_cid, buf)
+        {
             return Some(DatagramEvent::Response(initial_close));
         }
 
@@ -511,7 +507,6 @@ impl Endpoint {
         now: Instant,
         buf: &mut BytesMut,
     ) -> Result<(ConnectionHandle, Connection), Option<Transmit>> {
-
         if let Some(initial_close) = self.connection_refuse_if_connection_limit(
             incoming.version,
             incoming.addresses,
@@ -537,7 +532,10 @@ impl Endpoint {
         params.original_dst_cid = Some(incoming.orig_dst_cid);
         params.retry_src_cid = incoming.retry_src_cid;
 
-        let tls = server_config.crypto.clone().start_session(incoming.version, &params);
+        let tls = server_config
+            .crypto
+            .clone()
+            .start_session(incoming.version, &params);
         let transport_config = server_config.transport.clone();
         let mut conn = self.add_connection(
             ch,
@@ -571,16 +569,14 @@ impl Endpoint {
                 debug!("handshake failed: {}", e);
                 self.handle_event(ch, EndpointEvent(EndpointEventInner::Drained));
                 match e {
-                    ConnectionError::TransportError(e) => Err(Some(
-                        self.initial_close(
-                            incoming.version,
-                            incoming.addresses,
-                            &incoming.crypto,
-                            &incoming.src_cid,
-                            e,
-                            buf,
-                        ),
-                    )),
+                    ConnectionError::TransportError(e) => Err(Some(self.initial_close(
+                        incoming.version,
+                        incoming.addresses,
+                        &incoming.crypto,
+                        &incoming.src_cid,
+                        e,
+                        buf,
+                    ))),
                     _ => Err(None),
                 }
             }
@@ -621,7 +617,11 @@ impl Endpoint {
             issued: SystemTime::now(),
             random_bytes: &random_bytes,
         }
-            .encode(&*server_config.token_key, &incoming.addresses.remote, &loc_cid);
+        .encode(
+            &*server_config.token_key,
+            &incoming.addresses.remote,
+            &loc_cid,
+        );
 
         let header = Header::Retry {
             src_cid: loc_cid,
@@ -631,7 +631,11 @@ impl Endpoint {
 
         let encode = header.encode(buf);
         buf.put_slice(&token);
-        buf.extend_from_slice(&server_config.crypto.retry_tag(incoming.version, &incoming.dst_cid, buf));
+        buf.extend_from_slice(&server_config.crypto.retry_tag(
+            incoming.version,
+            &incoming.dst_cid,
+            buf,
+        ));
         encode.finish(buf, &*incoming.crypto.header.local, None);
 
         Transmit {

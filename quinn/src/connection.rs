@@ -19,11 +19,11 @@ use tokio::sync::{futures::Notified, mpsc, oneshot, Notify};
 use tracing::{debug_span, Instrument, Span};
 
 use crate::{
+    endpoint::EndpointRef,
     mutex::Mutex,
     recv_stream::RecvStream,
     send_stream::{SendStream, WriteError},
     ConnectionEvent, EndpointEvent, VarInt,
-    endpoint::EndpointRef,
 };
 use proto::congestion::Controller;
 
@@ -63,20 +63,21 @@ pub(crate) struct ConnectingHandshaking {
 
 impl Connecting {
     pub(crate) fn new(state: ConnectingState) -> Self {
-        Connecting(Some(state))
+        Self(Some(state))
     }
 
     fn accept(&mut self) -> Result<&mut ConnectingHandshaking, ConnectionError> {
         self.0 = Some(match self.0.take().unwrap() {
-            ConnectingState::Incoming(handshaking) => handshaking.accept()
+            ConnectingState::Incoming(handshaking) => handshaking
+                .accept()
                 .map(ConnectingState::Handshaking)
                 .unwrap_or_else(ConnectingState::AcceptError),
             other => other,
         });
-        match self.0.as_mut().unwrap() {
-            &mut ConnectingState::Handshaking(ref mut handshaking) => Ok(handshaking),
-            &mut ConnectingState::AcceptError(ref error) => Err(error.clone()),
-            &mut ConnectingState::Incoming(_) => unreachable!(),
+        match *self.0.as_mut().unwrap() {
+            ConnectingState::Handshaking(ref mut handshaking) => Ok(handshaking),
+            ConnectingState::AcceptError(ref error) => Err(error.clone()),
+            ConnectingState::Incoming(_) => unreachable!(),
         }
     }
 
@@ -145,10 +146,10 @@ impl Connecting {
     ///
     /// Will panic if called after `poll` has returned `Ready`.
     pub fn local_ip(&self) -> Option<IpAddr> {
-        match self.0.as_ref().unwrap() {
-            &ConnectingState::Incoming(ref incoming) => incoming.inner.local_ip(),
-            &ConnectingState::Handshaking(ref handshaking) => handshaking.local_ip(),
-            &ConnectingState::AcceptError(_) => panic!("local_ip called after connecting errored"),
+        match *self.0.as_ref().unwrap() {
+            ConnectingState::Incoming(ref incoming) => incoming.inner.local_ip(),
+            ConnectingState::Handshaking(ref handshaking) => handshaking.local_ip(),
+            ConnectingState::AcceptError(_) => panic!("local_ip called after connecting errored"),
         }
     }
 
@@ -157,15 +158,17 @@ impl Connecting {
     /// Will panic if called after `poll` has returned `Ready`.
     pub fn remote_address(&self) -> SocketAddr {
         match self.0.as_ref().unwrap() {
-            &ConnectingState::Incoming(ref incoming) => incoming.inner.remote_address(),
-            &ConnectingState::Handshaking(ref handshaking) => handshaking.remote_address(),
-            &ConnectingState::AcceptError(_) => panic!("remote_address called after connecting errored"),
+            ConnectingState::Incoming(ref incoming) => incoming.inner.remote_address(),
+            ConnectingState::Handshaking(ref handshaking) => handshaking.remote_address(),
+            ConnectingState::AcceptError(_) => {
+                panic!("remote_address called after connecting errored")
+            }
         }
     }
 
     fn unwrap_incoming_ref(&self, caller: &str) -> &ConnectingIncoming {
         match self.0.as_ref().unwrap() {
-            &ConnectingState::Incoming(ref incoming) => incoming,
+            ConnectingState::Incoming(ref incoming) => incoming,
             _ => panic!("{} called after already started handshake", caller),
         }
     }
@@ -184,7 +187,9 @@ impl Connecting {
     ///
     /// Will panic if called when the handshake has already begun.
     pub fn is_validated(&self) -> bool {
-        self.unwrap_incoming_ref("is_validated").inner.is_validated()
+        self.unwrap_incoming_ref("is_validated")
+            .inner
+            .is_validated()
     }
 
     /// Whether it is legal to require the client to retry
@@ -201,7 +206,9 @@ impl Connecting {
     /// Will panic if called when the handshake has already begun.
     pub fn reject(self) {
         let incoming = self.unwrap_incoming("reject");
-        incoming.endpoint.reject(incoming.inner, incoming.response_buffer);
+        incoming
+            .endpoint
+            .reject(incoming.inner, incoming.response_buffer);
     }
 
     /// Respond with a retry packet, requiring the client to retry with address validation
@@ -209,7 +216,9 @@ impl Connecting {
     /// Will panic if called when the handshake has already begun.
     pub fn retry(self) {
         let incoming = self.unwrap_incoming("retry");
-        incoming.endpoint.retry(incoming.inner, incoming.response_buffer);
+        incoming
+            .endpoint
+            .retry(incoming.inner, incoming.response_buffer);
     }
 }
 
@@ -227,16 +236,16 @@ impl Into0RttError {
     /// Unwrap the `NoTicket` variant. This will succeed if the connection was outgoing.
     pub fn unwrap_no_ticket(self) -> Connecting {
         match self {
-            Into0RttError::NoTicket(connecting) => connecting,
-            Into0RttError::AcceptError(_) => panic!("expected Into0RttError::NoTicket")
+            Self::NoTicket(connecting) => connecting,
+            Self::AcceptError(_) => panic!("expected Into0RttError::NoTicket"),
         }
     }
 
     /// Unwrap the `NoTicket` variant. This will succeed if the connection was incoming.
     pub fn unwrap_accept_error(self) -> ConnectionError {
         match self {
-            Into0RttError::AcceptError(error) => error,
-            Into0RttError::NoTicket(_) => panic!("expected Into0RttError::AcceptError"),
+            Self::AcceptError(error) => error,
+            Self::NoTicket(_) => panic!("expected Into0RttError::AcceptError"),
         }
     }
 }
@@ -255,7 +264,9 @@ impl Drop for Connecting {
     fn drop(&mut self) {
         // Implicit reject, similar to Connection's implicit close
         if let Some(ConnectingState::Incoming(incoming)) = self.0.take() {
-            incoming.endpoint.reject(incoming.inner, incoming.response_buffer);
+            incoming
+                .endpoint
+                .reject(incoming.inner, incoming.response_buffer);
         }
     }
 }
@@ -274,14 +285,15 @@ impl ConnectingIncoming {
     }
 
     fn accept(self) -> Result<ConnectingHandshaking, ConnectionError> {
-        self.endpoint.accept(self.inner, self.response_buffer)
-            .ok_or_else(|| ConnectionError::TransportError(
-                proto::TransportError {
+        self.endpoint
+            .accept(self.inner, self.response_buffer)
+            .ok_or_else(|| {
+                ConnectionError::TransportError(proto::TransportError {
                     code: proto::TransportErrorCode::PROTOCOL_VIOLATION,
                     frame: None,
                     reason: "Problem with initial packet".to_owned(),
-                }
-            ))
+                })
+            })
     }
 }
 
@@ -346,7 +358,9 @@ impl ConnectingHandshaking {
             let conn = self.conn.take().unwrap();
             Ok((Connection(conn), ZeroRttAccepted(self.connected)))
         } else {
-            Err(Into0RttError::NoTicket(Connecting::new(ConnectingState::Handshaking(self))))
+            Err(Into0RttError::NoTicket(Connecting::new(
+                ConnectingState::Handshaking(self),
+            )))
         }
     }
 

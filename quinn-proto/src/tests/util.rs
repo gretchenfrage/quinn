@@ -295,15 +295,17 @@ pub(super) struct TestEndpoint {
     pub(super) retry_policy: RetryPolicy,
 }
 
-pub(super) struct RetryPolicy(pub(super) Box<dyn Fn(&IncomingConnection) -> IncomingConnectionResponse>);
+pub(super) struct RetryPolicy(
+    pub(super) Box<dyn Fn(&IncomingConnection) -> IncomingConnectionResponse>,
+);
 
 impl RetryPolicy {
     pub(super) fn no() -> Self {
-        RetryPolicy(Box::new(|_| IncomingConnectionResponse::Accept))
+        Self(Box::new(|_| IncomingConnectionResponse::Accept))
     }
 
     pub(super) fn yes() -> Self {
-        RetryPolicy(Box::new(|incoming| {
+        Self(Box::new(|incoming| {
             if incoming.is_validated() {
                 IncomingConnectionResponse::Accept
             } else {
@@ -367,15 +369,17 @@ impl TestEndpoint {
                 .handle(recv_time, remote, None, ecn, packet, &mut buf)
             {
                 match event {
-                    DatagramEvent::NewConnection(incoming) => match (self.retry_policy.0)(&incoming) {
-                        IncomingConnectionResponse::Accept => {
-                            self.try_accept(incoming, now);
-                        }
-                        IncomingConnectionResponse::Reject => {
-                            self.reject(incoming);
-                        }
-                        IncomingConnectionResponse::Retry => {
-                            self.retry(incoming);
+                    DatagramEvent::NewConnection(incoming) => {
+                        match (self.retry_policy.0)(&incoming) {
+                            IncomingConnectionResponse::Accept => {
+                                self.try_accept(incoming, now);
+                            }
+                            IncomingConnectionResponse::Reject => {
+                                self.reject(incoming);
+                            }
+                            IncomingConnectionResponse::Retry => {
+                                self.retry(incoming);
+                            }
                         }
                     }
                     DatagramEvent::ConnectionEvent(ch, event) => {
@@ -452,7 +456,11 @@ impl TestEndpoint {
         self.outbound.extend(self.delayed.drain(..));
     }
 
-    pub(super) fn try_accept(&mut self, incoming: IncomingConnection, now: Instant) -> Option<ConnectionHandle> {
+    pub(super) fn try_accept(
+        &mut self,
+        incoming: IncomingConnection,
+        now: Instant,
+    ) -> Option<ConnectionHandle> {
         let mut buf = BytesMut::new();
         match self.endpoint.accept(incoming, now, &mut buf) {
             Ok((ch, conn)) => {
@@ -475,14 +483,16 @@ impl TestEndpoint {
         let mut buf = BytesMut::new();
         let transmit = self.endpoint.retry(incoming, &mut buf);
         let size = transmit.size;
-        self.outbound.extend(split_transmit(transmit, buf.split_to(size).freeze()));
+        self.outbound
+            .extend(split_transmit(transmit, buf.split_to(size).freeze()));
     }
 
     pub(super) fn reject(&mut self, incoming: IncomingConnection) {
         let mut buf = BytesMut::new();
         let transmit = self.endpoint.reject(incoming, &mut buf);
         let size = transmit.size;
-        self.outbound.extend(split_transmit(transmit, buf.split_to(size).freeze()));
+        self.outbound
+            .extend(split_transmit(transmit, buf.split_to(size).freeze()));
     }
 
     pub(super) fn assert_accept(&mut self) -> ConnectionHandle {

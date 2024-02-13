@@ -24,9 +24,10 @@ use tracing::{Instrument, Span};
 use udp::{RecvMeta, BATCH_SIZE};
 
 use crate::{
-    connection::{Connecting, ConnectingState, ConnectingHandshaking, ConnectingIncoming},
-    work_limiter::WorkLimiter, ConnectionEvent, EndpointConfig, EndpointEvent, VarInt,
-    IO_LOOP_BOUND, MAX_TRANSMIT_QUEUE_CONTENTS_LEN, RECV_TIME_BOUND, SEND_TIME_BOUND,
+    connection::{Connecting, ConnectingHandshaking, ConnectingIncoming, ConnectingState},
+    work_limiter::WorkLimiter,
+    ConnectionEvent, EndpointConfig, EndpointEvent, VarInt, IO_LOOP_BOUND,
+    MAX_TRANSMIT_QUEUE_CONTENTS_LEN, RECV_TIME_BOUND, SEND_TIME_BOUND,
 };
 
 /// A QUIC endpoint.
@@ -405,7 +406,8 @@ impl TransmitState {
                 transmit,
                 response_buffer.split_to(contents_len).freeze(),
             ));
-            self.transmit_queue_contents_len = self.transmit_queue_contents_len
+            self.transmit_queue_contents_len = self
+                .transmit_queue_contents_len
                 .saturating_add(contents_len);
         }
     }
@@ -503,12 +505,20 @@ impl State {
                 break Ok(true);
             }
 
-            match self.socket.poll_send(cx, self.transmit_state.outgoing.as_slices().0) {
+            match self
+                .socket
+                .poll_send(cx, self.transmit_state.outgoing.as_slices().0)
+            {
                 Poll::Ready(Ok(n)) => {
-                    let contents_len: usize =
-                        self.transmit_state.outgoing.drain(..n).map(|t| t.contents.len()).sum();
+                    let contents_len: usize = self
+                        .transmit_state
+                        .outgoing
+                        .drain(..n)
+                        .map(|t| t.contents.len())
+                        .sum();
                     self.transmit_state.transmit_queue_contents_len = self
-                        .transmit_state.transmit_queue_contents_len
+                        .transmit_state
+                        .transmit_queue_contents_len
                         .saturating_sub(contents_len);
                     // We count transmits instead of `poll_send` calls since the cost
                     // of a `sendmmsg` still linearly increases with number of packets.
@@ -553,7 +563,8 @@ impl State {
                         let contents_len = buf.len();
                         self.transmit_state.outgoing.push_back(udp_transmit(t, buf));
                         self.transmit_state.transmit_queue_contents_len = self
-                            .transmit_state.transmit_queue_contents_len
+                            .transmit_state
+                            .transmit_queue_contents_len
                             .saturating_add(contents_len);
                     }
                 },
@@ -659,11 +670,8 @@ impl<'a> Future for Accept<'a> {
         if let Some((incoming, response_buffer)) = endpoint.incoming.pop_front() {
             // Release the mutex lock on endpoint so cloning it doesn't deadlock
             drop(endpoint);
-            let incoming = ConnectingIncoming::new(
-                incoming,
-                this.endpoint.inner.clone(),
-                response_buffer,
-            );
+            let incoming =
+                ConnectingIncoming::new(incoming, this.endpoint.inner.clone(), response_buffer);
             return Poll::Ready(Some(Connecting::new(ConnectingState::Incoming(incoming))));
         }
         if endpoint.connections.close.is_some() {
@@ -765,7 +773,10 @@ impl EndpointInner {
         mut response_buffer: BytesMut,
     ) -> Option<ConnectingHandshaking> {
         let mut state = self.state.lock().unwrap();
-        match state.inner.accept(incoming, Instant::now(), &mut response_buffer) {
+        match state
+            .inner
+            .accept(incoming, Instant::now(), &mut response_buffer)
+        {
             Ok((handle, conn)) => {
                 let socket = state.socket.clone();
                 let runtime = state.runtime.clone();
@@ -790,11 +801,7 @@ impl EndpointInner {
         state.transmit_state.respond(transmit, response_buffer);
     }
 
-    pub(crate) fn retry(
-        &self,
-        incoming: proto::IncomingConnection,
-        mut response_buffer: BytesMut,
-    ) {
+    pub(crate) fn retry(&self, incoming: proto::IncomingConnection, mut response_buffer: BytesMut) {
         let mut state = self.state.lock().unwrap();
         let transmit = state.inner.retry(incoming, &mut response_buffer);
         state.transmit_state.respond(transmit, response_buffer);

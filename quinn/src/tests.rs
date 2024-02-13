@@ -194,7 +194,6 @@ fn export_keying_material() {
     });
 }
 
-
 #[tokio::test]
 async fn ip_blocking() {
     let _guard = subscribe();
@@ -217,11 +216,18 @@ async fn ip_blocking() {
         }
     });
     let client_1_task = tokio::spawn(async move {
-        client_1.connect(server_addr, "localhost").unwrap().await
+        client_1
+            .connect(server_addr, "localhost")
+            .unwrap()
+            .await
             .expect_err("server should have blocked this");
     });
     let client_2_task = tokio::spawn(async move {
-        client_2.connect(server_addr, "localhost").unwrap().await.expect("connect");
+        client_2
+            .connect(server_addr, "localhost")
+            .unwrap()
+            .await
+            .expect("connect");
     });
     client_1_task.await.unwrap();
     client_2_task.await.unwrap();
@@ -242,7 +248,7 @@ struct EndpointFactory(rcgen::Certificate);
 
 impl EndpointFactory {
     fn new() -> Self {
-        EndpointFactory(rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap())
+        Self(rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap())
     }
 
     fn endpoint(&self) -> Endpoint {
@@ -254,7 +260,8 @@ impl EndpointFactory {
         let key = rustls::PrivateKey(cert.serialize_private_key_der());
         let cert = rustls::Certificate(cert.serialize_der().unwrap());
         let transport_config = Arc::new(transport_config);
-        let mut server_config = crate::ServerConfig::with_single_cert(vec![cert.clone()], key).unwrap();
+        let mut server_config =
+            crate::ServerConfig::with_single_cert(vec![cert.clone()], key).unwrap();
         server_config.transport_config(transport_config.clone());
 
         let mut roots = rustls::RootCertStore::empty();
