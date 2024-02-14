@@ -292,27 +292,7 @@ pub(super) struct TestEndpoint {
     conn_events: HashMap<ConnectionHandle, VecDeque<ConnectionEvent>>,
     pub(super) captured_packets: Vec<Vec<u8>>,
     pub(super) capture_inbound_packets: bool,
-    pub(super) retry_policy: RetryPolicy,
-}
-
-pub(super) struct RetryPolicy(
-    pub(super) Box<dyn Fn(&IncomingConnection) -> IncomingConnectionResponse>,
-);
-
-impl RetryPolicy {
-    pub(super) fn no() -> Self {
-        Self(Box::new(|_| IncomingConnectionResponse::Accept))
-    }
-
-    pub(super) fn yes() -> Self {
-        Self(Box::new(|incoming| {
-            if incoming.remote_address_validated() {
-                IncomingConnectionResponse::Accept
-            } else {
-                IncomingConnectionResponse::Retry
-            }
-        }))
-    }
+    pub(super) use_retry: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -346,7 +326,7 @@ impl TestEndpoint {
             conn_events: HashMap::default(),
             captured_packets: Vec::new(),
             capture_inbound_packets: false,
-            retry_policy: RetryPolicy::no(),
+            use_retry: false,
         }
     }
 
@@ -370,16 +350,10 @@ impl TestEndpoint {
             {
                 match event {
                     DatagramEvent::NewConnection(incoming) => {
-                        match (self.retry_policy.0)(&incoming) {
-                            IncomingConnectionResponse::Accept => {
-                                self.try_accept(incoming, now);
-                            }
-                            IncomingConnectionResponse::Reject => {
-                                self.reject(incoming);
-                            }
-                            IncomingConnectionResponse::Retry => {
-                                self.retry(incoming);
-                            }
+                        if self.use_retry && !incoming.remote_address_validated() {
+                            self.retry(incoming);
+                        } else {
+                            self.try_accept(incoming, now);
                         }
                     }
                     DatagramEvent::ConnectionEvent(ch, event) => {
