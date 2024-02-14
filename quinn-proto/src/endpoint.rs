@@ -500,7 +500,7 @@ impl Endpoint {
         }))
     }
 
-    /// Attempt to accept this incoming connection (an error may still occur).
+    /// Attempt to accept this incoming connection (an error may still occur)
     pub fn accept(
         &mut self,
         incoming: IncomingConnection,
@@ -513,7 +513,8 @@ impl Endpoint {
             &incoming.crypto,
             &incoming.src_cid,
             buf,
-        ).map_err(Some)?;
+        )
+        .map_err(Some)?;
 
         let server_config = self.server_config.as_ref().unwrap().clone();
 
@@ -546,7 +547,7 @@ impl Endpoint {
             tls,
             Some(server_config),
             transport_config,
-            incoming.retry_src_cid.is_some(),
+            incoming.remote_address_validated(),
         );
         if incoming.dst_cid.len() != 0 {
             self.index.insert_initial(incoming.dst_cid, ch);
@@ -581,7 +582,7 @@ impl Endpoint {
         }
     }
 
-    /// Reject this incoming connection attempt.
+    /// Reject this incoming connection attempt
     pub fn reject(&mut self, incoming: IncomingConnection, buf: &mut BytesMut) -> Transmit {
         self.initial_close(
             incoming.version,
@@ -593,11 +594,14 @@ impl Endpoint {
         )
     }
 
-    /// Respond with a retry packet, requiring the client to retry with address validation.
+    /// Respond with a retry packet, requiring the client to retry with address validation
     ///
-    /// Panics if `may_retry` is false.
+    /// Panics if `incoming.remote_address_validated()` is true.
     pub fn retry(&mut self, incoming: IncomingConnection, buf: &mut BytesMut) -> Transmit {
-        assert!(incoming.may_retry(), "retry() with may_retry == false");
+        assert!(
+            !incoming.remote_address_validated(),
+            "retry() with validated IncomingConnection"
+        );
         let server_config = self.server_config.as_ref().unwrap();
 
         // First Initial
@@ -990,14 +994,6 @@ impl IncomingConnection {
     /// sent to `self.remote_address()`.
     pub fn remote_address_validated(&self) -> bool {
         self.retry_src_cid.is_some()
-    }
-
-    /// Whether it is legal to require the client to retry.
-    ///
-    /// If `remote_address_validated` is false, `may_retry` is necessarily true.
-    pub fn may_retry(&self) -> bool {
-        // Currently, we exclusively produce validation tokens through retry packets.
-        !self.remote_address_validated()
     }
 }
 

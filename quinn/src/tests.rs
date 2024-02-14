@@ -289,7 +289,7 @@ async fn zero_rtt() {
     let endpoint2 = endpoint.clone();
     tokio::spawn(async move {
         for _ in 0..2 {
-            let incoming = endpoint2.accept().await.unwrap();
+            let incoming = endpoint2.accept().await.unwrap().accept().unwrap();
             let (connection, established) = incoming.into_0rtt().unwrap_or_else(|_| unreachable!());
             let c = connection.clone();
             tokio::spawn(async move {
@@ -317,7 +317,6 @@ async fn zero_rtt() {
         .into_0rtt()
         .err()
         .expect("0-RTT succeeded without keys")
-        .unwrap_no_ticket()
         .await
         .expect("connect");
 

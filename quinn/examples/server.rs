@@ -153,12 +153,14 @@ async fn run(options: Opt) -> Result<()> {
             conn.retry();
         } else {
             info!("accepting connection");
-            let fut = handle_connection(root.clone(), conn);
-            tokio::spawn(async move {
-                if let Err(e) = fut.await {
-                    error!("connection failed: {reason}", reason = e.to_string())
-                }
-            });
+            if let Ok(conn) = conn.accept() {
+                let fut = handle_connection(root.clone(), conn);
+                tokio::spawn(async move {
+                    if let Err(e) = fut.await {
+                        error!("connection failed: {reason}", reason = e.to_string())
+                    }
+                });
+            }
         }
     }
 

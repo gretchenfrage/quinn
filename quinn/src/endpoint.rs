@@ -24,8 +24,7 @@ use tracing::{Instrument, Span};
 use udp::{RecvMeta, BATCH_SIZE};
 
 use crate::{
-    connection::{Connecting, ConnectingHandshaking, ConnectingIncoming, ConnectingState},
-    work_limiter::WorkLimiter,
+    connection::Connecting, incoming_connection::IncomingConnection, work_limiter::WorkLimiter,
     ConnectionEvent, EndpointConfig, EndpointEvent, VarInt, IO_LOOP_BOUND,
     MAX_TRANSMIT_QUEUE_CONTENTS_LEN, RECV_TIME_BOUND, SEND_TIME_BOUND,
 };
@@ -198,10 +197,9 @@ impl Endpoint {
             .connect(Instant::now(), config, addr, server_name)?;
 
         let socket = endpoint.socket.clone();
-        let handshaking = endpoint
+        Ok(endpoint
             .connections
-            .insert(ch, conn, socket, self.runtime.clone());
-        Ok(Connecting::new(ConnectingState::Handshaking(handshaking)))
+            .insert(ch, conn, socket, self.runtime.clone()))
     }
 
     /// Switch to a new UDP socket
@@ -625,7 +623,7 @@ impl ConnectionSet {
         conn: proto::Connection,
         socket: Arc<dyn AsyncUdpSocket>,
         runtime: Arc<dyn Runtime>,
-    ) -> ConnectingHandshaking {
+    ) -> Connecting {
         let (send, recv) = mpsc::unbounded_channel();
         if let Some((error_code, ref reason)) = self.close {
             send.send(ConnectionEvent::Close {
@@ -635,7 +633,7 @@ impl ConnectionSet {
             .unwrap();
         }
         self.senders.insert(handle, send);
-        ConnectingHandshaking::new(handle, conn, self.sender.clone(), recv, socket, runtime)
+        Connecting::new(handle, conn, self.sender.clone(), recv, socket, runtime)
     }
 
     fn is_empty(&self) -> bool {
@@ -660,7 +658,7 @@ pin_project! {
 }
 
 impl<'a> Future for Accept<'a> {
-    type Output = Option<Connecting>;
+    type Output = Option<IncomingConnection>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
         let mut endpoint = this.endpoint.inner.state.lock().unwrap();
@@ -671,8 +669,8 @@ impl<'a> Future for Accept<'a> {
             // Release the mutex lock on endpoint so cloning it doesn't deadlock
             drop(endpoint);
             let incoming =
-                ConnectingIncoming::new(incoming, this.endpoint.inner.clone(), response_buffer);
-            return Poll::Ready(Some(Connecting::new(ConnectingState::Incoming(incoming))));
+                IncomingConnection::new(incoming, this.endpoint.inner.clone(), response_buffer);
+            return Poll::Ready(Some(incoming));
         }
         if endpoint.connections.close.is_some() {
             return Poll::Ready(None);
@@ -771,7 +769,7 @@ impl EndpointInner {
         &self,
         incoming: proto::IncomingConnection,
         mut response_buffer: BytesMut,
-    ) -> Option<ConnectingHandshaking> {
+    ) -> Option<Connecting> {
         let mut state = self.state.lock().unwrap();
         match state
             .inner
