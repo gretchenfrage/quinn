@@ -1054,6 +1054,13 @@ pub enum ConnectError {
 #[derive(Debug, Error)]
 pub struct RetryError(pub IncomingConnection);
 
+impl RetryError {
+    /// Get the [`IncomingConnection`]
+    pub fn into_incoming(self) -> IncomingConnection {
+        self.0
+    }
+}
+
 impl fmt::Display for RetryError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("retry() with validated IncomingConnection")
