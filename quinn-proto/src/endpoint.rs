@@ -596,12 +596,15 @@ impl Endpoint {
 
     /// Respond with a retry packet, requiring the client to retry with address validation
     ///
-    /// Panics if `incoming.remote_address_validated()` is true.
-    pub fn retry(&mut self, incoming: IncomingConnection, buf: &mut BytesMut) -> Transmit {
-        assert!(
-            !incoming.remote_address_validated(),
-            "retry() with validated IncomingConnection"
-        );
+    /// Errors if `incoming.remote_address_validated()` is true.
+    pub fn retry(
+        &mut self,
+        incoming: IncomingConnection,
+        buf: &mut BytesMut,
+    ) -> Result<Transmit, RetryError> {
+        if incoming.remote_address_validated() {
+            return Err(RetryError(incoming));
+        }
         let server_config = self.server_config.as_ref().unwrap();
 
         // First Initial
@@ -640,13 +643,13 @@ impl Endpoint {
         ));
         encode.finish(buf, &*incoming.crypto.header.local, None);
 
-        Transmit {
+        Ok(Transmit {
             destination: incoming.addresses.remote,
             ecn: None,
             size: buf.len(),
             segment_size: None,
             src_ip: incoming.addresses.local_ip,
-        }
+        })
     }
 
     fn add_connection(
@@ -1045,6 +1048,16 @@ pub enum ConnectError {
     /// The local endpoint does not support the QUIC version specified in the client configuration
     #[error("unsupported QUIC version")]
     UnsupportedVersion,
+}
+
+/// Error for attempting to retry an [`IncomingConnection`] that can not be retried
+#[derive(Debug, Error)]
+pub struct RetryError(pub IncomingConnection);
+
+impl fmt::Display for RetryError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("retry() with validated IncomingConnection")
+    }
 }
 
 /// Reset Tokens which are associated with peer socket addresses

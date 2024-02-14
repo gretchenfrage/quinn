@@ -150,7 +150,7 @@ async fn run(options: Opt) -> Result<()> {
             conn.reject();
         } else if options.stateless_retry && !conn.remote_address_validated() {
             info!("requiring connection to validate its address");
-            conn.retry();
+            conn.retry().unwrap();
         } else {
             info!("accepting connection");
             if let Ok(conn) = conn.accept() {

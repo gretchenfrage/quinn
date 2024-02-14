@@ -481,7 +481,7 @@ impl TestEndpoint {
 
     pub(super) fn retry(&mut self, incoming: IncomingConnection) {
         let mut buf = BytesMut::new();
-        let transmit = self.endpoint.retry(incoming, &mut buf);
+        let transmit = self.endpoint.retry(incoming, &mut buf).unwrap();
         let size = transmit.size;
         self.outbound
             .extend(split_transmit(transmit, buf.split_to(size).freeze()));

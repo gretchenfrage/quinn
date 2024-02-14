@@ -799,9 +799,15 @@ impl EndpointInner {
         state.transmit_state.respond(transmit, response_buffer);
     }
 
-    pub(crate) fn retry(&self, incoming: proto::IncomingConnection, mut response_buffer: BytesMut) {
+    pub(crate) fn retry(
+        &self,
+        incoming: proto::IncomingConnection,
+        mut response_buffer: BytesMut,
+    ) -> Result<(), (proto::RetryError, BytesMut)> {
         let mut state = self.state.lock().unwrap();
-        let transmit = state.inner.retry(incoming, &mut response_buffer);
-        state.transmit_state.respond(transmit, response_buffer);
+        match state.inner.retry(incoming, &mut response_buffer) {
+            Ok(transmit) => Ok(state.transmit_state.respond(transmit, response_buffer)),
+            Err(e) => Err((e, response_buffer)),
+        }
     }
 }

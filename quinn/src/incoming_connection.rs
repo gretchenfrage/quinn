@@ -1,13 +1,14 @@
 use std::{
     fmt,
+    future::{Future, IntoFuture},
     net::{IpAddr, SocketAddr},
     pin::Pin,
-    task::{Poll, Context},
-    future::{Future, IntoFuture},
+    task::{Context, Poll},
 };
 
 use bytes::BytesMut;
 use proto::ConnectionError;
+use thiserror::Error;
 
 use crate::{
     connection::{Connecting, Connection},
@@ -79,10 +80,19 @@ impl IncomingConnection {
 
     /// Respond with a retry packet, requiring the client to retry with address validation
     ///
-    /// Panics if `incoming.remote_address_validated()` is true.
-    pub fn retry(mut self) {
+    /// Errors if `remote_address_validated()` is true.
+    pub fn retry(mut self) -> Result<(), RetryError> {
         let state = self.0.take().unwrap();
-        state.endpoint.retry(state.inner, state.response_buffer);
+        state
+            .endpoint
+            .retry(state.inner, state.response_buffer)
+            .map_err(|(e, response_buffer)| {
+                RetryError(IncomingConnection(Some(State {
+                    inner: e.0,
+                    endpoint: state.endpoint,
+                    response_buffer,
+                })))
+            })
     }
 
     /// Ignore this incoming connection attempt, not sending any packet in response
@@ -111,6 +121,15 @@ impl fmt::Debug for IncomingConnection {
     }
 }
 
+/// Error for attempting to retry an [`IncomingConnection`] that can not be retried
+#[derive(Debug, Error)]
+pub struct RetryError(pub IncomingConnection);
+
+impl fmt::Display for RetryError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("retry() with validated IncomingConnection")
+    }
+}
 
 /// Basic adapter to let [`IncomingConnection`] be `await`-ed like a [`Connecting`]
 #[derive(Debug)]

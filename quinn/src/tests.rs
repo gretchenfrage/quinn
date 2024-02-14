@@ -211,7 +211,7 @@ async fn ip_blocking() {
             } else if accepting.remote_address_validated() {
                 accepting.await.expect("connection");
             } else {
-                accepting.retry();
+                accepting.retry().unwrap();
             }
         }
     });

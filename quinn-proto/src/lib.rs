@@ -62,7 +62,7 @@ pub use crate::frame::{ApplicationClose, ConnectionClose, Datagram};
 
 mod endpoint;
 pub use crate::endpoint::{
-    ConnectError, ConnectionHandle, DatagramEvent, Endpoint, IncomingConnection,
+    ConnectError, ConnectionHandle, DatagramEvent, Endpoint, IncomingConnection, RetryError,
 };
 
 mod shared;
