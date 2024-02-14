@@ -153,21 +153,19 @@ async fn run(options: Opt) -> Result<()> {
             conn.retry().unwrap();
         } else {
             info!("accepting connection");
-            if let Ok(conn) = conn.accept() {
-                let fut = handle_connection(root.clone(), conn);
-                tokio::spawn(async move {
-                    if let Err(e) = fut.await {
-                        error!("connection failed: {reason}", reason = e.to_string())
-                    }
-                });
-            }
+            let fut = handle_connection(root.clone(), conn);
+            tokio::spawn(async move {
+                if let Err(e) = fut.await {
+                    error!("connection failed: {reason}", reason = e.to_string())
+                }
+            });
         }
     }
 
     Ok(())
 }
 
-async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<()> {
+async fn handle_connection(root: Arc<Path>, conn: quinn::IncomingConnection) -> Result<()> {
     let connection = conn.await?;
     let span = info_span!(
         "connection",

@@ -807,7 +807,10 @@ impl EndpointInner {
     ) -> Result<(), (proto::RetryError, BytesMut)> {
         let mut state = self.state.lock().unwrap();
         match state.inner.retry(incoming, &mut response_buffer) {
-            Ok(transmit) => Ok(state.transmit_state.respond(transmit, response_buffer)),
+            Ok(transmit) => {
+                state.transmit_state.respond(transmit, response_buffer);
+                Ok(())
+            }
             Err(e) => Err((e, response_buffer)),
         }
     }

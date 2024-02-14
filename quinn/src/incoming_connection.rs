@@ -87,7 +87,7 @@ impl IncomingConnection {
             .endpoint
             .retry(state.inner, state.response_buffer)
             .map_err(|(e, response_buffer)| {
-                RetryError(IncomingConnection(Some(State {
+                RetryError(Self(Some(State {
                     inner: e.0,
                     endpoint: state.endpoint,
                     response_buffer,
