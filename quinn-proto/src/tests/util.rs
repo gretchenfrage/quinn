@@ -295,13 +295,6 @@ pub(super) struct TestEndpoint {
     pub(super) use_retry: bool,
 }
 
-#[derive(Debug, Copy, Clone)]
-pub(super) enum IncomingConnectionResponse {
-    Accept,
-    Reject,
-    Retry,
-}
-
 impl TestEndpoint {
     fn new(endpoint: Endpoint, addr: SocketAddr) -> Self {
         let socket = if env::var_os("SSLKEYLOGFILE").is_some() {
