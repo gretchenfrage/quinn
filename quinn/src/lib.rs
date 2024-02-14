@@ -76,7 +76,7 @@ pub use crate::connection::{
     UnknownStream, ZeroRttAccepted,
 };
 pub use crate::endpoint::{Accept, Endpoint};
-pub use crate::incoming_connection::{IncomingConnection, IncomingConnectionFuture};
+pub use crate::incoming_connection::{IncomingConnection, RetryError, IncomingConnectionFuture};
 pub use crate::recv_stream::{ReadError, ReadExactError, ReadToEndError, RecvStream};
 #[cfg(feature = "runtime-async-std")]
 pub use crate::runtime::AsyncStdRuntime;
