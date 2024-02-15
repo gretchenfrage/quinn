@@ -372,7 +372,7 @@ impl TestEndpoint {
                     DatagramEvent::NewConnection(incoming) => {
                         match (self.retry_policy.0)(&incoming) {
                             IncomingConnectionResponse::Accept => {
-                                self.try_accept(incoming, now);
+                                let _ = self.try_accept(incoming, now);
                             }
                             IncomingConnectionResponse::Reject => {
                                 self.reject(incoming);
@@ -460,23 +460,22 @@ impl TestEndpoint {
         &mut self,
         incoming: IncomingConnection,
         now: Instant,
-    ) -> Option<ConnectionHandle> {
+    ) -> Result<ConnectionHandle, ConnectionError> {
         let mut buf = BytesMut::new();
-        match self.endpoint.accept(incoming, now, &mut buf) {
-            Ok((ch, conn)) => {
+        self.endpoint.accept(incoming, now, &mut buf)
+            .map(|(ch, conn)| {
                 self.connections.insert(ch, conn);
                 self.accepted = Some(ch);
-                Some(ch)
-            }
-            Err(transmit) => {
+                ch
+            })
+            .map_err(|(e, transmit)| {
                 if let Some(transmit) = transmit {
                     let size = transmit.size;
                     self.outbound
                         .extend(split_transmit(transmit, buf.split_to(size).freeze()));
                 }
-                None
-            }
-        }
+                e
+            })
     }
 
     pub(super) fn retry(&mut self, incoming: IncomingConnection) {

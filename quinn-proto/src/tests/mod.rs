@@ -2752,13 +2752,10 @@ fn reject_new_connections() {
 }
 
 #[test]
-fn reject_remote_address() {
+fn reject_manually() {
     let _guard = subscribe();
     let mut pair = Pair::default();
-    pair.server.retry_policy = RetryPolicy(Box::new(|incoming| {
-        incoming.remote_address();
-        IncomingConnectionResponse::Reject
-    }));
+    pair.server.retry_policy = RetryPolicy(Box::new(|_| IncomingConnectionResponse::Reject));
 
     // The server should now reject incoming connections.
     let client_ch = pair.begin_connect(client_config());
