@@ -16,7 +16,7 @@ use crate::runtime::{default_runtime, AsyncUdpSocket, Runtime};
 use bytes::{Bytes, BytesMut};
 use pin_project_lite::pin_project;
 use proto::{
-    self as proto, ClientConfig, ConnectError, ConnectionHandle, DatagramEvent, ServerConfig,
+    self as proto, ClientConfig, ConnectError, ConnectionError, ConnectionHandle, DatagramEvent, ServerConfig,
 };
 use rustc_hash::FxHashMap;
 use tokio::sync::{futures::Notified, mpsc, Notify};
@@ -772,24 +772,22 @@ impl EndpointInner {
         &self,
         incoming: proto::IncomingConnection,
         mut response_buffer: BytesMut,
-    ) -> Option<Connecting> {
+    ) -> Result<Connecting, ConnectionError> {
         let mut state = self.state.lock().unwrap();
-        match state
+        state
             .inner
             .accept(incoming, Instant::now(), &mut response_buffer)
-        {
-            Ok((handle, conn)) => {
+            .map(|(handle, conn)| {
                 let socket = state.socket.clone();
                 let runtime = state.runtime.clone();
-                Some(state.connections.insert(handle, conn, socket, runtime))
-            }
-            Err(response) => {
+                state.connections.insert(handle, conn, socket, runtime)
+            })
+            .map_err(|(e, response)| {
                 if let Some(transmit) = response {
                     state.transmit_state.respond(transmit, response_buffer);
                 }
-                None
-            }
-        }
+                e
+            })
     }
 
     pub(crate) fn reject(

@@ -59,16 +59,7 @@ impl IncomingConnection {
     /// Attempt to accept this incoming connection (an error may still occur)
     pub fn accept(mut self) -> Result<Connecting, ConnectionError> {
         let state = self.0.take().unwrap();
-        state
-            .endpoint
-            .accept(state.inner, state.response_buffer)
-            .ok_or_else(|| {
-                ConnectionError::TransportError(proto::TransportError {
-                    code: proto::TransportErrorCode::PROTOCOL_VIOLATION,
-                    frame: None,
-                    reason: "Problem with initial packet".to_owned(),
-                })
-            })
+        state.endpoint.accept(state.inner, state.response_buffer)
     }
 
     /// Reject this incoming connection attempt

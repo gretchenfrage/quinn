@@ -506,14 +506,14 @@ impl Endpoint {
         incoming: IncomingConnection,
         now: Instant,
         buf: &mut BytesMut,
-    ) -> Result<(ConnectionHandle, Connection), Option<Transmit>> {
+    ) -> Result<(ConnectionHandle, Connection), (ConnectionError, Option<Transmit>)> {
         self.check_connection_limit(
             incoming.version,
             incoming.addresses,
             &incoming.crypto,
             &incoming.src_cid,
             buf,
-        )?;
+        ).map_err(|response| (ConnectionError::ConnectionLimitExceeded, Some(response)))?;
 
         let server_config = self.server_config.as_ref().unwrap().clone();
 
@@ -566,17 +566,18 @@ impl Endpoint {
             Err(e) => {
                 debug!("handshake failed: {}", e);
                 self.handle_event(ch, EndpointEvent(EndpointEventInner::Drained));
-                match e {
-                    ConnectionError::TransportError(e) => Err(Some(self.initial_close(
+                let response = match e {
+                    ConnectionError::TransportError(ref e) => Some(self.initial_close(
                         incoming.version,
                         incoming.addresses,
                         &incoming.crypto,
                         &incoming.src_cid,
-                        e,
+                        e.clone(),
                         buf,
-                    ))),
-                    _ => Err(None),
-                }
+                    )),
+                    _ => None,
+                };
+                Err((e, response))
             }
         }
     }
