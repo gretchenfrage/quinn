@@ -3526,7 +3526,9 @@ impl From<ConnectionError> for io::Error {
             TimedOut => io::ErrorKind::TimedOut,
             Reset => io::ErrorKind::ConnectionReset,
             ApplicationClosed(_) | ConnectionClosed(_) => io::ErrorKind::ConnectionAborted,
-            TransportError(_) | VersionMismatch | LocallyClosed | ConnectionLimitExceeded => io::ErrorKind::Other,
+            TransportError(_) | VersionMismatch | LocallyClosed | ConnectionLimitExceeded => {
+                io::ErrorKind::Other
+            }
         };
         Self::new(kind, x)
     }

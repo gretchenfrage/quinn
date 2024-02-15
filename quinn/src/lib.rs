@@ -64,8 +64,8 @@ mod work_limiter;
 use bytes::Bytes;
 pub use proto::{
     congestion, crypto, AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ConfigError,
-    ConnectError, ConnectionClose, ConnectionError, TransportError, EndpointConfig, IdleTimeout,
-    MtuDiscoveryConfig, ServerConfig, StreamId, Transmit, TransportConfig, VarInt,
+    ConnectError, ConnectionClose, ConnectionError, EndpointConfig, IdleTimeout,
+    MtuDiscoveryConfig, ServerConfig, StreamId, Transmit, TransportConfig, TransportError, VarInt,
 };
 #[cfg(feature = "tls-rustls")]
 pub use rustls;

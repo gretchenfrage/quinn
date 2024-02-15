@@ -513,7 +513,8 @@ impl Endpoint {
             &incoming.crypto,
             &incoming.src_cid,
             buf,
-        ).map_err(|response| (ConnectionError::ConnectionLimitExceeded, Some(response)))?;
+        )
+        .map_err(|response| (ConnectionError::ConnectionLimitExceeded, Some(response)))?;
 
         let server_config = self.server_config.as_ref().unwrap().clone();
 

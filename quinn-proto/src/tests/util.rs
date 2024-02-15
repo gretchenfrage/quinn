@@ -462,7 +462,8 @@ impl TestEndpoint {
         now: Instant,
     ) -> Result<ConnectionHandle, ConnectionError> {
         let mut buf = BytesMut::new();
-        self.endpoint.accept(incoming, now, &mut buf)
+        self.endpoint
+            .accept(incoming, now, &mut buf)
             .map(|(ch, conn)| {
                 self.connections.insert(ch, conn);
                 self.accepted = Some(ch);
