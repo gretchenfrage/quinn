@@ -137,9 +137,11 @@ impl Endpoint {
 
     /// Get the next incoming connection attempt from a client
     ///
-    /// Yields [`IncomingConnection`]s, which can be `await`ed to obtain the final
-    /// [`Connection`](crate::Connection) or used in more complex ways such as to perform retries,
-    /// or `None` if the endpoint is [`close`](Self::close)d.
+    /// Yields [`IncomingConnection`]s, or `None` if the endpoint is [`close`](Self::close)d.
+    /// [`IncomingConnection`] can be `await`ed to obtain the final
+    /// [`Connection`](crate::Connection), or used to eg. filter connection attempts or force
+    /// address validation, or converted into an intermediate `Connecting` future which can be
+    /// used to eg. send 0.5-RTT data.
     pub fn accept(&self) -> Accept<'_> {
         Accept {
             endpoint: self,

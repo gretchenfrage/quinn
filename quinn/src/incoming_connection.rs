@@ -16,7 +16,6 @@ use crate::{
 };
 
 /// An incoming connection for which the server has not yet begun its part of the handshake
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 pub struct IncomingConnection(Option<State>);
 
 struct State {
@@ -88,7 +87,7 @@ impl IncomingConnection {
             .retry(state.inner, state.response_buffer)
             .map_err(|(e, response_buffer)| {
                 RetryError(Self(Some(State {
-                    inner: e.0,
+                    inner: e.into_incoming(),
                     endpoint: state.endpoint,
                     response_buffer,
                 })))
@@ -121,20 +120,16 @@ impl fmt::Debug for IncomingConnection {
     }
 }
 
-/// Error for attempting to retry an [`IncomingConnection`] that can not be retried
+/// Error for attempting to retry an [`IncomingConnection`] which already bears an address
+/// validation token from a previous retry
 #[derive(Debug, Error)]
-pub struct RetryError(pub IncomingConnection);
+#[error("retry() with validated IncomingConnection")]
+pub struct RetryError(IncomingConnection);
 
 impl RetryError {
     /// Get the [`IncomingConnection`]
     pub fn into_incoming(self) -> IncomingConnection {
         self.0
-    }
-}
-
-impl fmt::Display for RetryError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("retry() with validated IncomingConnection")
     }
 }
 
