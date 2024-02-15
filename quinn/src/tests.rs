@@ -217,11 +217,15 @@ async fn ip_blocking() {
     });
     tokio::join!(
         async move {
-            client_1
+            let e = client_1
                 .connect(server_addr, "localhost")
                 .unwrap()
                 .await
                 .expect_err("server should have blocked this");
+            assert!(
+                matches!(e, crate::ConnectionError::ConnectionClosed(_)),
+                "wrong error"
+            );
         },
         async move {
             client_2
