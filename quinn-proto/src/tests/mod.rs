@@ -1980,7 +1980,7 @@ fn connect_too_low_mtu() {
 
     pair.begin_connect(client_config());
     pair.drive();
-    pair.server.assert_no_accept()
+    pair.server.assert_no_accept();
 }
 
 #[test]
@@ -2761,5 +2761,12 @@ fn reject_manually() {
     let client_ch = pair.begin_connect(client_config());
     pair.drive();
     pair.server.assert_no_accept();
-    assert!(pair.client.connections.get(&client_ch).unwrap().is_closed());
+    let client = pair.client.connections.get_mut(&client_ch).unwrap();
+    assert!(client.is_closed());
+    assert!(matches!(
+        client.poll(),
+        Some(Event::ConnectionLost {
+            reason: ConnectionError::ConnectionClosed(close)
+        }) if close.error_code == TransportErrorCode::CONNECTION_REFUSED
+    ))
 }

@@ -287,7 +287,7 @@ pub(super) struct TestEndpoint {
     pub(super) outbound: VecDeque<(Transmit, Bytes)>,
     delayed: VecDeque<(Transmit, Bytes)>,
     pub(super) inbound: VecDeque<(Instant, Option<EcnCodepoint>, BytesMut)>,
-    accepted: Option<ConnectionHandle>,
+    accepted: Option<Result<ConnectionHandle, ConnectionError>>,
     pub(super) connections: HashMap<ConnectionHandle, Connection>,
     conn_events: HashMap<ConnectionHandle, VecDeque<ConnectionEvent>>,
     pub(super) captured_packets: Vec<Vec<u8>>,
@@ -466,7 +466,7 @@ impl TestEndpoint {
             .accept(incoming, now, &mut buf)
             .map(|(ch, conn)| {
                 self.connections.insert(ch, conn);
-                self.accepted = Some(ch);
+                self.accepted = Some(Ok(ch));
                 ch
             })
             .map_err(|(e, transmit)| {
@@ -475,6 +475,7 @@ impl TestEndpoint {
                     self.outbound
                         .extend(split_transmit(transmit, buf.split_to(size).freeze()));
                 }
+                self.accepted = Some(Err(e.clone()));
                 e
             })
     }
@@ -496,7 +497,17 @@ impl TestEndpoint {
     }
 
     pub(super) fn assert_accept(&mut self) -> ConnectionHandle {
-        self.accepted.take().expect("server didn't connect")
+        self.accepted
+            .take()
+            .expect("server didn't try connecting")
+            .expect("server experienced error connecting")
+    }
+
+    pub(super) fn assert_accept_error(&mut self) -> ConnectionError {
+        self.accepted
+            .take()
+            .expect("server didn't try connecting")
+            .expect_err("server did unexpectedly connect without error")
     }
 
     pub(super) fn assert_no_accept(&self) {
