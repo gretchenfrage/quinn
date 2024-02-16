@@ -65,7 +65,7 @@ use bytes::Bytes;
 pub use proto::{
     congestion, crypto, AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ConfigError,
     ConnectError, ConnectionClose, ConnectionError, EndpointConfig, IdleTimeout,
-    MtuDiscoveryConfig, ServerConfig, StreamId, Transmit, TransportConfig, TransportError, VarInt,
+    MtuDiscoveryConfig, ServerConfig, StreamId, Transmit, TransportConfig, VarInt,
 };
 #[cfg(feature = "tls-rustls")]
 pub use rustls;

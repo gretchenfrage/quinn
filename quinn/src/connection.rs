@@ -28,6 +28,7 @@ use proto::congestion::Controller;
 
 /// In-progress connection attempt future
 #[derive(Debug)]
+#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 pub struct Connecting {
     conn: Option<ConnectionRef>,
     connected: oneshot::Receiver<bool>,
@@ -151,8 +152,6 @@ impl Connecting {
     ///
     /// On all non-supported platforms the local IP address will not be available,
     /// and the method will return `None`.
-    ///
-    /// Will panic if called after `poll` has returned `Ready`.
     pub fn local_ip(&self) -> Option<IpAddr> {
         let conn = self.conn.as_ref().unwrap();
         let inner = conn.state.lock("local_ip");
@@ -160,7 +159,7 @@ impl Connecting {
         inner.inner.local_ip()
     }
 
-    /// The peer's UDP address
+    /// The peer's UDP address.
     ///
     /// Will panic if called after `poll` has returned `Ready`.
     pub fn remote_address(&self) -> SocketAddr {
