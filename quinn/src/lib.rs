@@ -127,3 +127,7 @@ const SEND_TIME_BOUND: Duration = Duration::from_micros(50);
 /// generated from the endpoint (retry or initial close) can be dropped when this limit is being execeeded.
 /// Chose to represent 100 MB of data.
 const MAX_TRANSMIT_QUEUE_CONTENTS_LEN: usize = 100_000_000;
+
+/// The maximum number of `IncomingConnection`s we allow to be enqueued at a time before we start
+/// rejecting new `IncomingConnection`s automatically.
+const MAX_INCOMING_CONNECTIONS: usize = 2 << 16;

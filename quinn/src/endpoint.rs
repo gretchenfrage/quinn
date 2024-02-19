@@ -27,7 +27,7 @@ use udp::{RecvMeta, BATCH_SIZE};
 use crate::{
     connection::Connecting, incoming_connection::IncomingConnection, work_limiter::WorkLimiter,
     ConnectionEvent, EndpointConfig, EndpointEvent, VarInt, IO_LOOP_BOUND,
-    MAX_TRANSMIT_QUEUE_CONTENTS_LEN, RECV_TIME_BOUND, SEND_TIME_BOUND,
+    MAX_INCOMING_CONNECTIONS, MAX_TRANSMIT_QUEUE_CONTENTS_LEN, RECV_TIME_BOUND, SEND_TIME_BOUND,
 };
 
 /// A QUIC endpoint.
@@ -454,7 +454,13 @@ impl State {
                                 &mut response_buffer,
                             ) {
                                 Some(DatagramEvent::NewConnection(incoming)) => {
-                                    self.incoming.push_back((incoming, response_buffer));
+                                    if self.incoming.len() < MAX_INCOMING_CONNECTIONS {
+                                        self.incoming.push_back((incoming, response_buffer));
+                                    } else {
+                                        let transmit =
+                                            self.inner.reject(incoming, &mut response_buffer);
+                                        self.transmit_state.respond(transmit, response_buffer);
+                                    }
                                 }
                                 Some(DatagramEvent::ConnectionEvent(handle, event)) => {
                                     // Ignoring errors from dropped connections that haven't yet been cleaned up
