@@ -710,20 +710,19 @@ impl Endpoint {
         buf: &mut BytesMut,
     ) -> Result<(), Transmit> {
         let server_config = self.server_config.as_ref().unwrap();
-        if self.connections.len() >= server_config.concurrent_connections as usize || self.is_full()
+        if self.connections.len() < server_config.concurrent_connections as usize && !self.is_full()
         {
-            debug!("refusing connection");
-            Err(self.initial_close(
-                version,
-                addresses,
-                crypto,
-                src_cid,
-                TransportError::CONNECTION_REFUSED(""),
-                buf,
-            ))
-        } else {
-            Ok(())
+            return Ok(());
         }
+        debug!("refusing connection");
+        Err(self.initial_close(
+            version,
+            addresses,
+            crypto,
+            src_cid,
+            TransportError::CONNECTION_REFUSED(""),
+            buf,
+        ))
     }
 
     fn initial_close(
