@@ -815,4 +815,8 @@ impl EndpointInner {
             Err(e) => Err((e, response_buffer)),
         }
     }
+
+    pub(crate) fn ignore_incoming(&self) {
+        self.state.lock().unwrap().inner.ignore_incoming();
+    }
 }

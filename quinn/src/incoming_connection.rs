@@ -87,7 +87,7 @@ impl IncomingConnection {
 
     /// Ignore this incoming connection attempt, not sending any packet in response
     pub fn ignore(mut self) {
-        self.0.take().unwrap();
+        self.0.take().unwrap().endpoint.ignore_incoming();
     }
 }
 

@@ -40,6 +40,7 @@ pub struct Endpoint {
     rng: StdRng,
     index: ConnectionIndex,
     connections: Slab<ConnectionMeta>,
+    num_incoming_connections: usize,
     local_cid_generator: Box<dyn ConnectionIdGenerator>,
     config: Arc<EndpointConfig>,
     server_config: Option<Arc<ServerConfig>>,
@@ -63,6 +64,7 @@ impl Endpoint {
             rng: rng_seed.map_or(StdRng::from_entropy(), StdRng::from_seed),
             index: ConnectionIndex::default(),
             connections: Slab::new(),
+            num_incoming_connections: 0,
             local_cid_generator: (config.connection_id_generator_factory.as_ref())(),
             config,
             server_config,
@@ -434,13 +436,22 @@ impl Endpoint {
             return None;
         }
 
-        if let Err(initial_close) =
-            self.check_connection_limit(version, addresses, &crypto, &src_cid, buf)
-        {
-            return Some(DatagramEvent::Response(initial_close));
-        }
-
         let server_config = self.server_config.as_ref().unwrap();
+
+        if (self.connections.len() + self.num_incoming_connections)
+            >= server_config.concurrent_connections as usize
+            || self.is_full()
+        {
+            debug!("refusing connection");
+            return Some(DatagramEvent::Response(self.initial_close(
+                version,
+                addresses,
+                &crypto,
+                &src_cid,
+                TransportError::CONNECTION_REFUSED(""),
+                buf,
+            )));
+        }
 
         if dst_cid.len() < 8 && dst_cid.len() != self.local_cid_generator.cid_len() {
             debug!(
@@ -485,6 +496,8 @@ impl Endpoint {
             }
         };
 
+        self.num_incoming_connections += 1;
+
         Some(DatagramEvent::NewConnection(IncomingConnection {
             addresses,
             ecn,
@@ -507,15 +520,7 @@ impl Endpoint {
         now: Instant,
         buf: &mut BytesMut,
     ) -> Result<(ConnectionHandle, Connection), (ConnectionError, Option<Transmit>)> {
-        self.check_connection_limit(
-            incoming.version,
-            incoming.addresses,
-            &incoming.crypto,
-            &incoming.src_cid,
-            buf,
-        )
-        .map_err(|response| (ConnectionError::ConnectionLimitExceeded, Some(response)))?;
-
+        self.num_incoming_connections -= 1;
         let server_config = self.server_config.as_ref().unwrap().clone();
 
         let ch = ConnectionHandle(self.connections.vacant_key());
@@ -585,6 +590,7 @@ impl Endpoint {
 
     /// Reject this incoming connection attempt
     pub fn reject(&mut self, incoming: IncomingConnection, buf: &mut BytesMut) -> Transmit {
+        self.num_incoming_connections -= 1;
         self.initial_close(
             incoming.version,
             incoming.addresses,
@@ -606,6 +612,7 @@ impl Endpoint {
         if incoming.remote_address_validated() {
             return Err(RetryError(incoming));
         }
+        self.num_incoming_connections -= 1;
         let server_config = self.server_config.as_ref().unwrap();
 
         // First Initial
@@ -651,6 +658,11 @@ impl Endpoint {
             segment_size: None,
             src_ip: incoming.addresses.local_ip,
         })
+    }
+
+    /// Call when ignoring an incoming connection attempt to stop counting it towards the connection limit
+    pub fn ignore_incoming(&mut self) {
+        self.num_incoming_connections -= 1;
     }
 
     fn add_connection(
@@ -699,30 +711,6 @@ impl Endpoint {
         self.index.insert_conn(addresses, loc_cid, ch);
 
         conn
-    }
-
-    fn check_connection_limit(
-        &mut self,
-        version: u32,
-        addresses: FourTuple,
-        crypto: &Keys,
-        src_cid: &ConnectionId,
-        buf: &mut BytesMut,
-    ) -> Result<(), Transmit> {
-        let server_config = self.server_config.as_ref().unwrap();
-        if self.connections.len() < server_config.concurrent_connections as usize && !self.is_full()
-        {
-            return Ok(());
-        }
-        debug!("refusing connection");
-        Err(self.initial_close(
-            version,
-            addresses,
-            crypto,
-            src_cid,
-            TransportError::CONNECTION_REFUSED(""),
-            buf,
-        ))
     }
 
     fn initial_close(
@@ -957,6 +945,11 @@ pub enum DatagramEvent {
     /// The datagram is redirected to its `Connection`
     ConnectionEvent(ConnectionHandle, ConnectionEvent),
     /// The datagram may result in starting a new `Connection`
+    ///
+    /// This event corresponds to an incrementing of the incoming connection counter, which counts
+    /// towards the active connection limit. Therefore, this incoming connection should not be
+    /// dropped without a corresponding call to `accept`, `reject`, `retry`, or `ignore_incoming`,
+    /// so as to decrement the incoming connection counter.
     NewConnection(IncomingConnection),
     /// Response generated directly by the endpoint
     Response(Transmit),
