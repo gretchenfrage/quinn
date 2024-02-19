@@ -142,7 +142,7 @@ impl Endpoint {
     /// [`IncomingConnection`] can be `await`ed to obtain the final
     /// [`Connection`](crate::Connection), or used to eg. filter connection attempts or force
     /// address validation, or converted into an intermediate `Connecting` future which can be
-    /// used to eg. send 0.5-RTT data.
+    /// used to e.g. send 0.5-RTT data.
     pub fn accept(&self) -> Accept<'_> {
         Accept {
             endpoint: self,
