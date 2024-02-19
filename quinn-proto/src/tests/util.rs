@@ -292,34 +292,14 @@ pub(super) struct TestEndpoint {
     conn_events: HashMap<ConnectionHandle, VecDeque<ConnectionEvent>>,
     pub(super) captured_packets: Vec<Vec<u8>>,
     pub(super) capture_inbound_packets: bool,
-    pub(super) retry_policy: RetryPolicy,
-}
-
-pub(super) struct RetryPolicy(
-    pub(super) Box<dyn Fn(&IncomingConnection) -> IncomingConnectionResponse>,
-);
-
-impl RetryPolicy {
-    pub(super) fn no() -> Self {
-        Self(Box::new(|_| IncomingConnectionResponse::Accept))
-    }
-
-    pub(super) fn yes() -> Self {
-        Self(Box::new(|incoming| {
-            if incoming.remote_address_validated() {
-                IncomingConnectionResponse::Accept
-            } else {
-                IncomingConnectionResponse::Retry
-            }
-        }))
-    }
+    pub(super) incoming_connection_behavior: IncomingConnectionBehavior,
 }
 
 #[derive(Debug, Copy, Clone)]
-pub(super) enum IncomingConnectionResponse {
-    Accept,
-    Reject,
-    Retry,
+pub(super) enum IncomingConnectionBehavior {
+    AcceptAll,
+    RejectAll,
+    Validate,
 }
 
 impl TestEndpoint {
@@ -346,7 +326,7 @@ impl TestEndpoint {
             conn_events: HashMap::default(),
             captured_packets: Vec::new(),
             capture_inbound_packets: false,
-            retry_policy: RetryPolicy::no(),
+            incoming_connection_behavior: IncomingConnectionBehavior::AcceptAll,
         }
     }
 
@@ -370,15 +350,19 @@ impl TestEndpoint {
             {
                 match event {
                     DatagramEvent::NewConnection(incoming) => {
-                        match (self.retry_policy.0)(&incoming) {
-                            IncomingConnectionResponse::Accept => {
+                        match self.incoming_connection_behavior {
+                            IncomingConnectionBehavior::AcceptAll => {
                                 let _ = self.try_accept(incoming, now);
                             }
-                            IncomingConnectionResponse::Reject => {
+                            IncomingConnectionBehavior::RejectAll => {
                                 self.reject(incoming);
                             }
-                            IncomingConnectionResponse::Retry => {
-                                self.retry(incoming);
+                            IncomingConnectionBehavior::Validate => {
+                                if incoming.remote_address_validated() {
+                                    let _ = self.try_accept(incoming, now);
+                                } else {
+                                    self.retry(incoming);
+                                }
                             }
                         }
                     }

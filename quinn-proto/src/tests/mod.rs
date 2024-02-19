@@ -166,7 +166,7 @@ fn draft_version_compat() {
 fn stateless_retry() {
     let _guard = subscribe();
     let mut pair = Pair::default();
-    pair.server.retry_policy = RetryPolicy::yes();
+    pair.server.incoming_connection_behavior = IncomingConnectionBehavior::Validate;
     pair.connect();
 }
 
@@ -455,7 +455,7 @@ fn high_latency_handshake() {
 fn zero_rtt_happypath() {
     let _guard = subscribe();
     let mut pair = Pair::default();
-    pair.server.retry_policy = RetryPolicy::yes();
+    pair.server.incoming_connection_behavior = IncomingConnectionBehavior::Validate;
     let config = client_config();
 
     // Establish normal connection
@@ -2755,7 +2755,7 @@ fn reject_new_connections() {
 fn reject_manually() {
     let _guard = subscribe();
     let mut pair = Pair::default();
-    pair.server.retry_policy = RetryPolicy(Box::new(|_| IncomingConnectionResponse::Reject));
+    pair.server.incoming_connection_behavior = IncomingConnectionBehavior::RejectAll;
 
     // The server should now reject incoming connections.
     let client_ch = pair.begin_connect(client_config());
