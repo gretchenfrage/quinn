@@ -129,5 +129,8 @@ const SEND_TIME_BOUND: Duration = Duration::from_micros(50);
 const MAX_TRANSMIT_QUEUE_CONTENTS_LEN: usize = 100_000_000;
 
 /// The maximum number of `IncomingConnection`s we allow to be enqueued at a time before we start
-/// rejecting new `IncomingConnection`s automatically.
-const MAX_INCOMING_CONNECTIONS: usize = 2 << 16;
+/// rejecting new `IncomingConnection`s automatically. Assuming each `IncomingConnection` accounts
+/// for little over 1200 bytes of memory maximum, this should limit an endpoint's incoming
+/// connection queue memory consumption to under 100 MiB, a generous amount that still prevents
+/// memory exhaustion.
+const MAX_INCOMING_CONNECTIONS: usize = 1 << 16;
