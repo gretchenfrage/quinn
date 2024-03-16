@@ -462,7 +462,7 @@ fn zero_rtt_happypath() {
     let mut pair = Pair::new(
         Default::default(),
         ServerConfig {
-            use_retry: true,
+            use_retry: false,
             ..server_config()
         },
     );

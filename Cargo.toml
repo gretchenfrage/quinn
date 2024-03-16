@@ -8,3 +8,6 @@ debug = true
 
 [profile.release]
 debug = true
+
+[patch.crates-io]
+rustls = { path = "./patches/rustls/rustls" }

@@ -1867,13 +1867,21 @@ impl Connection {
     }
 
     fn init_0rtt(&mut self) {
+        eprintln!("call to init_0rtt");
         let (header, packet) = match self.crypto.early_crypto() {
-            Some(x) => x,
-            None => return,
+            Some(x) => {
+                eprintln!("early crypto found");
+                x
+            },
+            None => {
+                eprintln!("early crypto not found");
+                return
+            },
         };
         if self.side.is_client() {
             match self.crypto.transport_parameters() {
                 Ok(params) => {
+                    eprintln!("init_0rtt, params = {:#?}", params);
                     let params = params
                         .expect("crypto layer didn't supply transport parameters with ticket");
                     // Certain values must not be cached
