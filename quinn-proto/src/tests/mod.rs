@@ -937,6 +937,33 @@ fn instant_close_2() {
 }
 
 #[test]
+fn instant_server_close() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    info!("connecting");
+    pair.begin_connect(client_config());
+    pair.drive_client();
+    pair.server.drive_incoming(pair.time, pair.client.addr);
+    let server_ch = pair.server.assert_accept();
+    info!("closing");
+    pair.server
+        .connections
+        .get_mut(&server_ch)
+        .unwrap()
+        .close(pair.time, VarInt(42), Bytes::new());
+    pair.drive();
+    assert_matches!(
+        pair.client_conn_mut(server_ch).poll(),
+        Some(Event::ConnectionLost {
+            reason: ConnectionError::ConnectionClosed(ConnectionClose {
+                error_code: TransportErrorCode::APPLICATION_ERROR,
+                ..
+            }),
+        })
+    );
+}
+
+#[test]
 fn idle_timeout() {
     let _guard = subscribe();
     const IDLE_TIMEOUT: u64 = 100;
@@ -2751,6 +2778,30 @@ fn reject_new_connections() {
     assert!(pair.client.connections.get(&client_ch).unwrap().is_closed());
 }
 
+/// Verify that an endpoint which receives but does not send ACK-eliciting data still receives ACKs
+/// occasionally. This is not required for conformance, but makes loss detection more responsive and
+/// reduces receiver memory use.
+#[test]
+fn pure_sender_voluntarily_acks() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    let (client_ch, server_ch) = pair.connect();
+
+    let receiver_acks_initial = pair.server_conn_mut(server_ch).stats().frame_rx.acks;
+
+    for _ in 0..100 {
+        const MSG: &[u8] = b"hello";
+        pair.client_datagrams(client_ch)
+            .send(Bytes::from_static(MSG))
+            .unwrap();
+        pair.drive();
+        assert_eq!(pair.server_datagrams(server_ch).recv().unwrap(), MSG);
+    }
+
+    let receiver_acks_final = pair.server_conn_mut(server_ch).stats().frame_rx.acks;
+    assert!(receiver_acks_final > receiver_acks_initial);
+}
+
 #[test]
 fn reject_manually() {
     let _guard = subscribe();
@@ -2768,5 +2819,5 @@ fn reject_manually() {
         Some(Event::ConnectionLost {
             reason: ConnectionError::ConnectionClosed(close)
         }) if close.error_code == TransportErrorCode::CONNECTION_REFUSED
-    ))
+    ));
 }

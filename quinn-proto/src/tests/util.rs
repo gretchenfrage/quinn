@@ -331,6 +331,11 @@ impl TestEndpoint {
     }
 
     pub(super) fn drive(&mut self, now: Instant, remote: SocketAddr) {
+        self.drive_incoming(now, remote);
+        self.drive_outgoing(now);
+    }
+
+    pub(super) fn drive_incoming(&mut self, now: Instant, remote: SocketAddr) {
         if let Some(ref socket) = self.socket {
             loop {
                 let mut buf = [0; 8192];
@@ -382,6 +387,11 @@ impl TestEndpoint {
                 }
             }
         }
+    }
+
+    pub(super) fn drive_outgoing(&mut self, now: Instant) {
+        let buffer_size = self.endpoint.config().get_max_udp_payload_size() as usize;
+        let mut buf = BytesMut::with_capacity(buffer_size);
 
         loop {
             let mut endpoint_events: Vec<(ConnectionHandle, EndpointEvent)> = vec![];

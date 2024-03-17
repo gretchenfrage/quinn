@@ -131,7 +131,7 @@ frame_types! {
     HANDSHAKE_DONE = 0x1e,
     // ACK Frequency
     ACK_FREQUENCY = 0xaf,
-    IMMEDIATE_ACK = 0xac,
+    IMMEDIATE_ACK = 0x1f,
     // DATAGRAM
 }
 
@@ -224,6 +224,10 @@ impl Close {
             Self::Connection(ref x) => x.encode(out, max_len),
             Self::Application(ref x) => x.encode(out, max_len),
         }
+    }
+
+    pub(crate) fn is_transport_layer(&self) -> bool {
+        matches!(*self, Self::Connection(_))
     }
 }
 

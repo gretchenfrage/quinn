@@ -215,8 +215,6 @@ pub struct Connection {
     //
     // Congestion Control
     //
-    /// Summary statistics of packets that have been sent, but not yet acked or deemed lost
-    in_flight: InFlight,
     /// Whether the most recently received packet had an ECN codepoint set
     receiving_ecn: bool,
     /// Number of packets authenticated
@@ -347,7 +345,6 @@ impl Connection {
             pto_count: 0,
 
             app_limited: false,
-            in_flight: InFlight::new(),
             receiving_ecn: false,
             total_authed_packets: 0,
 
@@ -573,16 +570,9 @@ impl Connection {
         while space_idx < spaces.len() {
             let space_id = spaces[space_idx];
 
-            if close && space_id != self.highest_space {
-                // We ignore data in this space, since the close message
-                // has higher priority
-                space_idx += 1;
-                continue;
-            }
-
             // Is there data or a close message to send in this space?
             let can_send = self.space_can_send(space_id);
-            if can_send.is_empty() && !close {
+            if can_send.is_empty() && (!close || self.spaces[space_id].crypto.is_none()) {
                 space_idx += 1;
                 continue;
             }
@@ -638,7 +628,7 @@ impl Connection {
                     debug_assert!(untracked_bytes <= self.path.current_mtu() as u64);
 
                     let bytes_to_send = u64::from(self.path.current_mtu()) + untracked_bytes;
-                    if self.in_flight.bytes + bytes_to_send >= self.path.congestion.window() {
+                    if self.path.in_flight.bytes + bytes_to_send >= self.path.congestion.window() {
                         space_idx += 1;
                         congestion_blocked = true;
                         // We continue instead of breaking here in order to avoid
@@ -766,17 +756,18 @@ impl Connection {
                     "ACKs should leave space for ConnectionClose"
                 );
                 if buf.len() + frame::ConnectionClose::SIZE_BOUND < builder.max_size {
+                    let max_frame_size = builder.max_size - buf.len();
                     match self.state {
                         State::Closed(state::Closed { ref reason }) => {
-                            if space_id == SpaceId::Data {
-                                reason.encode(buf, builder.max_size)
+                            if space_id == SpaceId::Data || reason.is_transport_layer() {
+                                reason.encode(buf, max_frame_size)
                             } else {
                                 frame::ConnectionClose {
                                     error_code: TransportErrorCode::APPLICATION_ERROR,
                                     frame_type: None,
                                     reason: Bytes::new(),
                                 }
-                                .encode(buf, builder.max_size)
+                                .encode(buf, max_frame_size)
                             }
                         }
                         State::Draining => frame::ConnectionClose {
@@ -784,16 +775,24 @@ impl Connection {
                             frame_type: None,
                             reason: Bytes::new(),
                         }
-                        .encode(buf, builder.max_size),
+                        .encode(buf, max_frame_size),
                         _ => unreachable!(
                             "tried to make a close packet when the connection wasn't closed"
                         ),
                     }
                 }
-                // Don't send another close packet
-                self.close = false;
-                // `CONNECTION_CLOSE` is the final packet
-                break;
+                if space_id == self.highest_space {
+                    // Don't send another close packet
+                    self.close = false;
+                    // `CONNECTION_CLOSE` is the final packet
+                    break;
+                } else {
+                    // Send a close frame in every possible space for robustness, per RFC9000
+                    // "Immediate Close during the Handshake". Don't bother trying to send anything
+                    // else.
+                    space_idx += 1;
+                    continue;
+                }
             }
 
             // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that path
@@ -828,13 +827,8 @@ impl Connection {
                 }
             }
 
-            let sent = self.populate_packet(
-                now,
-                space_id,
-                buf,
-                buf_capacity - builder.tag_len,
-                builder.exact_number,
-            );
+            let sent =
+                self.populate_packet(now, space_id, buf, builder.max_size, builder.exact_number);
 
             // ACK-only packets should only be sent when explicitly allowed. If we write them due
             // to any other reason, there is a bug which leads to one component announcing write
@@ -1324,7 +1318,7 @@ impl Connection {
 
         let mut ack_eliciting_acked = false;
         for packet in newly_acked.elts() {
-            if let Some(info) = self.spaces[space].sent_packets.remove(&packet) {
+            if let Some(info) = self.spaces[space].take(packet) {
                 if let Some(acked) = info.largest_acked {
                     // Assume ACKs for all packets below the largest acknowledged in `packet` have
                     // been received. This can cause the peer to spuriously retransmit if some of
@@ -1346,13 +1340,13 @@ impl Connection {
                 // Notify ack frequency that a packet was acked, because it might contain an ACK_FREQUENCY frame
                 self.ack_frequency.on_acked(packet);
 
-                self.on_packet_acked(now, space, info);
+                self.on_packet_acked(now, packet, info);
             }
         }
 
         self.path.congestion.on_end_acks(
             now,
-            self.in_flight.bytes,
+            self.path.in_flight.bytes,
             self.app_limited,
             self.spaces[space].largest_acked_packet,
         );
@@ -1432,8 +1426,8 @@ impl Connection {
 
     // Not timing-aware, so it's safe to call this for inferred acks, such as arise from
     // high-latency handshakes
-    fn on_packet_acked(&mut self, now: Instant, space: SpaceId, info: SentPacket) {
-        self.remove_in_flight(space, &info);
+    fn on_packet_acked(&mut self, now: Instant, pn: u64, info: SentPacket) {
+        self.remove_in_flight(pn, &info);
         if info.ack_eliciting && self.path.challenge.is_none() {
             // Only pass ACKs to the congestion controller if we are not validating the current
             // path, so as to ignore any ACKs from older paths still coming in.
@@ -1490,13 +1484,13 @@ impl Connection {
             }
         };
         trace!(
-            in_flight = self.in_flight.bytes,
+            in_flight = self.path.in_flight.bytes,
             count = self.pto_count,
             ?space,
             "PTO fired"
         );
 
-        let count = match self.in_flight.ack_eliciting {
+        let count = match self.path.in_flight.ack_eliciting {
             // A PTO when we're not expecting any ACKs must be due to handshake anti-amplification
             // deadlock preventions
             0 => {
@@ -1585,7 +1579,7 @@ impl Connection {
 
         // OnPacketsLost
         if let Some(largest_lost) = lost_packets.last().cloned() {
-            let old_bytes_in_flight = self.in_flight.bytes;
+            let old_bytes_in_flight = self.path.in_flight.bytes;
             let largest_lost_sent = self.spaces[pn_space].sent_packets[&largest_lost].time_sent;
             self.lost_packets += lost_packets.len() as u64;
             self.stats.path.lost_packets += lost_packets.len() as u64;
@@ -1596,14 +1590,14 @@ impl Connection {
                 size_of_lost_packets
             );
 
-            for packet in &lost_packets {
-                let info = self.spaces[pn_space].sent_packets.remove(packet).unwrap(); // safe: lost_packets is populated just above
-                self.remove_in_flight(pn_space, &info);
+            for &packet in &lost_packets {
+                let info = self.spaces[pn_space].take(packet).unwrap(); // safe: lost_packets is populated just above
+                self.remove_in_flight(packet, &info);
                 for frame in info.stream_frames {
                     self.streams.retransmit(frame);
                 }
                 self.spaces[pn_space].pending |= info.retransmits;
-                self.path.mtud.on_non_probe_lost(*packet, info.size);
+                self.path.mtud.on_non_probe_lost(packet, info.size);
             }
 
             if self.path.mtud.black_hole_detected(now) {
@@ -1611,7 +1605,7 @@ impl Connection {
             }
 
             // Don't apply congestion penalty for lost ack-only packets
-            let lost_ack_eliciting = old_bytes_in_flight != self.in_flight.bytes;
+            let lost_ack_eliciting = old_bytes_in_flight != self.path.in_flight.bytes;
 
             if lost_ack_eliciting {
                 self.stats.path.congestion_events += 1;
@@ -1626,11 +1620,8 @@ impl Connection {
 
         // Handle a lost MTU probe
         if let Some(packet) = lost_mtu_probe {
-            let info = self.spaces[SpaceId::Data]
-                .sent_packets
-                .remove(&packet)
-                .unwrap(); // safe: lost_mtu_probe is omitted from lost_packets, and therefore must not have been removed yet
-            self.remove_in_flight(SpaceId::Data, &info);
+            let info = self.spaces[SpaceId::Data].take(packet).unwrap(); // safe: lost_mtu_probe is omitted from lost_packets, and therefore must not have been removed yet
+            self.remove_in_flight(packet, &info);
             self.path.mtud.on_probe_lost();
             self.stats.path.lost_plpmtud_probes += 1;
         }
@@ -1646,7 +1637,7 @@ impl Connection {
         let backoff = 2u32.pow(self.pto_count.min(MAX_BACKOFF_EXPONENT));
         let mut duration = self.path.rtt.pto_base() * backoff;
 
-        if self.in_flight.ack_eliciting == 0 {
+        if self.path.in_flight.ack_eliciting == 0 {
             debug_assert!(!self.peer_completed_address_validation());
             let space = match self.highest_space {
                 SpaceId::Handshake => SpaceId::Handshake,
@@ -1708,7 +1699,7 @@ impl Connection {
             return;
         }
 
-        if self.in_flight.ack_eliciting == 0 && self.peer_completed_address_validation() {
+        if self.path.in_flight.ack_eliciting == 0 && self.peer_completed_address_validation() {
             // There is nothing to detect lost, so no timer is set. However, the client needs to arm
             // the timer if the server might be blocked by the anti-amplification limit.
             self.timers.stop(Timer::LossDetection);
@@ -2026,9 +2017,10 @@ impl Connection {
         space.crypto = None;
         space.time_of_last_ack_eliciting_packet = None;
         space.loss_time = None;
+        space.in_flight = 0;
         let sent_packets = mem::take(&mut space.sent_packets);
-        for (_, packet) in sent_packets.into_iter() {
-            self.remove_in_flight(space_id, &packet);
+        for (pn, packet) in sent_packets.into_iter() {
+            self.remove_in_flight(pn, &packet);
         }
         self.set_loss_detection_timer(now)
     }
@@ -2307,8 +2299,8 @@ impl Connection {
                 self.rem_handshake_cid = rem_cid;
 
                 let space = &mut self.spaces[SpaceId::Initial];
-                if let Some(info) = space.sent_packets.remove(&0) {
-                    self.on_packet_acked(now, SpaceId::Initial, info);
+                if let Some(info) = space.take(0) {
+                    self.on_packet_acked(now, 0, info);
                 };
 
                 self.discard_space(now, SpaceId::Initial); // Make sure we clean up after any retransmitted Initials
@@ -2328,8 +2320,8 @@ impl Connection {
 
                 // Retransmit all 0-RTT data
                 let zero_rtt = mem::take(&mut self.spaces[SpaceId::Data].sent_packets);
-                for (_, info) in zero_rtt {
-                    self.remove_in_flight(SpaceId::Data, &info);
+                for (pn, info) in zero_rtt {
+                    self.remove_in_flight(pn, &info);
                     self.spaces[SpaceId::Data].pending |= info.retransmits;
                 }
                 self.streams.retransmit_all_for_0rtt();
@@ -2391,8 +2383,8 @@ impl Connection {
                             // Discard 0-RTT packets
                             let sent_packets =
                                 mem::take(&mut self.spaces[SpaceId::Data].sent_packets);
-                            for (_, packet) in sent_packets {
-                                self.remove_in_flight(SpaceId::Data, &packet);
+                            for (pn, packet) in sent_packets {
+                                self.remove_in_flight(pn, &packet);
                             }
                         } else {
                             self.accepted_0rtt = true;
@@ -2952,6 +2944,7 @@ impl Connection {
         let mut sent = SentFrames::default();
         let space = &mut self.spaces[space_id];
         let is_0rtt = space_id == SpaceId::Data && space.crypto.is_none();
+        space.pending_acks.maybe_ack_non_eliciting();
 
         // HANDSHAKE_DONE
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
@@ -2980,7 +2973,6 @@ impl Connection {
 
         // ACK
         if space.pending_acks.can_send() {
-            debug_assert!(!space.pending_acks.ranges().is_empty());
             Self::populate_acks(
                 now,
                 self.receiving_ecn,
@@ -3364,7 +3356,7 @@ impl Connection {
     /// acknowledged or declared lost.
     #[cfg(test)]
     pub(crate) fn bytes_in_flight(&self) -> u64 {
-        self.in_flight.bytes
+        self.path.in_flight.bytes
     }
 
     /// Number of bytes worth of non-ack-only packets that may be sent
@@ -3373,7 +3365,7 @@ impl Connection {
         self.path
             .congestion
             .window()
-            .saturating_sub(self.in_flight.bytes)
+            .saturating_sub(self.path.in_flight.bytes)
     }
 
     /// Whether no timers but keepalive, idle, rtt and pushnewcid are running
@@ -3446,10 +3438,13 @@ impl Connection {
     }
 
     /// Update counters to account for a packet becoming acknowledged, lost, or abandoned
-    fn remove_in_flight(&mut self, space: SpaceId, packet: &SentPacket) {
-        self.in_flight.bytes -= u64::from(packet.size);
-        self.in_flight.ack_eliciting -= u64::from(packet.ack_eliciting);
-        self.spaces[space].in_flight -= u64::from(packet.size);
+    fn remove_in_flight(&mut self, pn: u64, packet: &SentPacket) {
+        // Visit known paths from newest to oldest to find the one `pn` was sent on
+        for path in [&mut self.path].into_iter().chain(self.prev_path.as_mut()) {
+            if path.remove_in_flight(pn, packet) {
+                return;
+            }
+        }
     }
 
     /// Terminate the connection instantly, without sending a close packet
@@ -3593,34 +3588,6 @@ mod state {
     #[derive(Clone)]
     pub struct Closed {
         pub(super) reason: Close,
-    }
-}
-
-struct InFlight {
-    /// Sum of the sizes of all sent packets considered "in flight" by congestion control
-    ///
-    /// The size does not include IP or UDP overhead. Packets only containing ACK frames do not
-    /// count towards this to ensure congestion control does not impede congestion feedback.
-    bytes: u64,
-    /// Number of packets in flight containing frames other than ACK and PADDING
-    ///
-    /// This can be 0 even when bytes is not 0 because PADDING frames cause a packet to be
-    /// considered "in flight" by congestion control. However, if this is nonzero, bytes will always
-    /// also be nonzero.
-    ack_eliciting: u64,
-}
-
-impl InFlight {
-    fn new() -> Self {
-        Self {
-            bytes: 0,
-            ack_eliciting: 0,
-        }
-    }
-
-    fn insert(&mut self, packet: &SentPacket) {
-        self.bytes += u64::from(packet.size);
-        self.ack_eliciting += u64::from(packet.ack_eliciting);
     }
 }
 

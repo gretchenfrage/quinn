@@ -20,6 +20,14 @@ use crate::{
 /// If dropped, streams that haven't been explicitly [`reset()`] will continue to (re)transmit
 /// previously written data until it has been fully acknowledged or the connection is closed.
 ///
+/// # Cancellation
+///
+/// A `write` method is said to be *cancel-safe* when dropping its future before the future becomes
+/// ready will always result in no data being written to the stream. This is true of methods which
+/// succeed immediately when any progress is made, and is not true of methods which might need to
+/// perform multiple writes internally before succeeding. Each `write` method documents whether it is
+/// cancel-safe.
+///
 /// [`reset()`]: SendStream::reset
 #[derive(Debug)]
 pub struct SendStream {
@@ -43,11 +51,15 @@ impl SendStream {
     ///
     /// Yields the number of bytes written on success. Congestion and flow control may cause this to
     /// be shorter than `buf.len()`, indicating that only a prefix of `buf` was written.
+    ///
+    /// This operation is cancel-safe.
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, WriteError> {
         Write { stream: self, buf }.await
     }
 
     /// Convenience method to write an entire buffer to the stream
+    ///
+    /// This operation is *not* cancel-safe.
     pub async fn write_all(&mut self, buf: &[u8]) -> Result<(), WriteError> {
         WriteAll { stream: self, buf }.await
     }
@@ -57,11 +69,15 @@ impl SendStream {
     /// Yields the number of bytes and chunks written on success.
     /// Congestion and flow control may cause this to be shorter than `buf.len()`,
     /// indicating that only a prefix of `bufs` was written
+    ///
+    /// This operation is cancel-safe.
     pub async fn write_chunks(&mut self, bufs: &mut [Bytes]) -> Result<Written, WriteError> {
         WriteChunks { stream: self, bufs }.await
     }
 
     /// Convenience method to write a single chunk in its entirety to the stream
+    ///
+    /// This operation is *not* cancel-safe.
     pub async fn write_chunk(&mut self, buf: Bytes) -> Result<(), WriteError> {
         WriteChunk {
             stream: self,
@@ -71,6 +87,8 @@ impl SendStream {
     }
 
     /// Convenience method to write an entire list of chunks to the stream
+    ///
+    /// This operation is *not* cancel-safe.
     pub async fn write_all_chunks(&mut self, bufs: &mut [Bytes]) -> Result<(), WriteError> {
         WriteAllChunks {
             stream: self,
@@ -120,7 +138,10 @@ impl SendStream {
         Finish { stream: self }.await
     }
 
-    #[doc(hidden)]
+    /// Attempt to shut down the send stream gracefully.
+    ///
+    /// No new data may be written after calling this method. Completes when the peer has
+    /// acknowledged all sent data, retransmitting data as needed.
     pub fn poll_finish(&mut self, cx: &mut Context) -> Poll<Result<(), WriteError>> {
         let mut conn = self.conn.state.lock("poll_finish");
         if self.is_0rtt {
@@ -223,6 +244,21 @@ impl SendStream {
     /// Get the identity of this stream
     pub fn id(&self) -> StreamId {
         self.stream
+    }
+
+    /// Attempt to write bytes from buf into the stream.
+    ///
+    /// On success, returns Poll::Ready(Ok(num_bytes_written)).
+    ///
+    /// If the stream is not ready for writing, the method returns Poll::Pending and arranges
+    /// for the current task (via cx.waker().wake_by_ref()) to receive a notification when the
+    /// stream becomes writable or is closed.
+    pub fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &[u8],
+    ) -> Poll<Result<usize, WriteError>> {
+        self.get_mut().execute_poll(cx, |stream| stream.write(buf))
     }
 }
 

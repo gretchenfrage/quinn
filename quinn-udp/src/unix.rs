@@ -46,7 +46,11 @@ impl UdpSocketState {
     pub fn new(sock: UdpSockRef<'_>) -> io::Result<Self> {
         let io = sock.0;
         let mut cmsg_platform_space = 0;
-        if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") || cfg!(target_os = "macos") {
+        if cfg!(target_os = "linux")
+            || cfg!(target_os = "freebsd")
+            || cfg!(target_os = "macos")
+            || cfg!(target_os = "android")
+        {
             cmsg_platform_space +=
                 unsafe { libc::CMSG_SPACE(mem::size_of::<libc::in6_pktinfo>() as _) as usize };
         }
@@ -76,9 +80,10 @@ impl UdpSocketState {
         }
 
         let mut may_fragment = false;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         {
             // opportunistically try to enable GRO. See gro::gro_segments().
+            #[cfg(target_os = "linux")]
             let _ = set_socket_option(&*io, libc::SOL_UDP, libc::UDP_GRO, OPTION_ON);
 
             // Forbid IPv4 fragmentation. Set even for IPv6 to account for IPv6 mapped IPv4 addresses.
@@ -586,7 +591,10 @@ fn prepare_msg(
     hdr.msg_controllen = CMSG_LEN as _;
     let mut encoder = unsafe { cmsg::Encoder::new(hdr) };
     let ecn = transmit.ecn.map_or(0, |x| x as libc::c_int);
-    if transmit.destination.is_ipv4() {
+    // True for IPv4 or IPv4-Mapped IPv6
+    let is_ipv4 = transmit.destination.is_ipv4()
+        || matches!(transmit.destination.ip(), IpAddr::V6(addr) if addr.to_ipv4_mapped().is_some());
+    if is_ipv4 {
         if !sendmsg_einval {
             encoder.push(libc::IPPROTO_IP, libc::IP_TOS, ecn as IpTosTy);
         }
@@ -601,7 +609,7 @@ fn prepare_msg(
     if let Some(ip) = &transmit.src_ip {
         match ip {
             IpAddr::V4(v4) => {
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "android"))]
                 {
                     let pktinfo = libc::in_pktinfo {
                         ipi_ifindex: 0,
@@ -682,7 +690,7 @@ fn decode_recv(
                     ecn_bits = cmsg::decode::<libc::c_int, libc::cmsghdr>(cmsg) as u8;
                 }
             },
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "android"))]
             (libc::IPPROTO_IP, libc::IP_PKTINFO) => {
                 let pktinfo = unsafe { cmsg::decode::<libc::in_pktinfo, libc::cmsghdr>(cmsg) };
                 dst_ip = Some(IpAddr::V4(Ipv4Addr::from(
