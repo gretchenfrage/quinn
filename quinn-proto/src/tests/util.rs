@@ -452,7 +452,7 @@ impl TestEndpoint {
 
     pub(super) fn try_accept(
         &mut self,
-        incoming: IncomingConnection,
+        incoming: Incoming,
         now: Instant,
     ) -> Result<ConnectionHandle, ConnectionError> {
         let mut buf = BytesMut::new();
@@ -474,7 +474,7 @@ impl TestEndpoint {
             })
     }
 
-    pub(super) fn retry(&mut self, incoming: IncomingConnection) {
+    pub(super) fn retry(&mut self, incoming: Incoming) {
         let mut buf = BytesMut::new();
         let transmit = self.endpoint.retry(incoming, &mut buf).unwrap();
         let size = transmit.size;
@@ -482,7 +482,7 @@ impl TestEndpoint {
             .extend(split_transmit(transmit, buf.split_to(size).freeze()));
     }
 
-    pub(super) fn reject(&mut self, incoming: IncomingConnection) {
+    pub(super) fn reject(&mut self, incoming: Incoming) {
         let mut buf = BytesMut::new();
         let transmit = self.endpoint.reject(incoming, &mut buf);
         let size = transmit.size;

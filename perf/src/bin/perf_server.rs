@@ -123,7 +123,7 @@ async fn run(opt: Opt) -> Result<()> {
     Ok(())
 }
 
-async fn handle(handshake: quinn::IncomingConnection, opt: Arc<Opt>) -> Result<()> {
+async fn handle(handshake: quinn::Incoming, opt: Arc<Opt>) -> Result<()> {
     let connection = handshake.await.context("handshake failed")?;
     debug!("{} connected", connection.remote_address());
     tokio::try_join!(

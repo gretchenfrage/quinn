@@ -485,7 +485,7 @@ impl Endpoint {
             }
         };
 
-        Some(DatagramEvent::NewConnection(IncomingConnection {
+        Some(DatagramEvent::NewConnection(Incoming {
             addresses,
             ecn,
             packet,
@@ -503,7 +503,7 @@ impl Endpoint {
     /// Attempt to accept this incoming connection (an error may still occur)
     pub fn accept(
         &mut self,
-        incoming: IncomingConnection,
+        incoming: Incoming,
         now: Instant,
         buf: &mut BytesMut,
     ) -> Result<(ConnectionHandle, Connection), (ConnectionError, Option<Transmit>)> {
@@ -584,7 +584,7 @@ impl Endpoint {
     }
 
     /// Reject this incoming connection attempt
-    pub fn reject(&mut self, incoming: IncomingConnection, buf: &mut BytesMut) -> Transmit {
+    pub fn reject(&mut self, incoming: Incoming, buf: &mut BytesMut) -> Transmit {
         self.initial_close(
             incoming.version,
             incoming.addresses,
@@ -600,7 +600,7 @@ impl Endpoint {
     /// Errors if `incoming.remote_address_validated()` is true.
     pub fn retry(
         &mut self,
-        incoming: IncomingConnection,
+        incoming: Incoming,
         buf: &mut BytesMut,
     ) -> Result<Transmit, RetryError> {
         if incoming.remote_address_validated() {
@@ -957,13 +957,13 @@ pub enum DatagramEvent {
     /// The datagram is redirected to its `Connection`
     ConnectionEvent(ConnectionHandle, ConnectionEvent),
     /// The datagram may result in starting a new `Connection`
-    NewConnection(IncomingConnection),
+    NewConnection(Incoming),
     /// Response generated directly by the endpoint
     Response(Transmit),
 }
 
 /// An incoming connection for which the server has not yet begun its part of the handshake.
-pub struct IncomingConnection {
+pub struct Incoming {
     addresses: FourTuple,
     ecn: Option<EcnCodepoint>,
     packet: Packet,
@@ -977,7 +977,7 @@ pub struct IncomingConnection {
     orig_dst_cid: ConnectionId,
 }
 
-impl IncomingConnection {
+impl Incoming {
     /// The local IP address which was used when the peer established
     /// the connection
     ///
@@ -1000,9 +1000,9 @@ impl IncomingConnection {
     }
 }
 
-impl fmt::Debug for IncomingConnection {
+impl fmt::Debug for Incoming {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("IncomingConnection")
+        f.debug_struct("Incoming")
             .field("addresses", &self.addresses)
             .field("ecn", &self.ecn)
             // packet doesn't implement debug
@@ -1050,15 +1050,15 @@ pub enum ConnectError {
     UnsupportedVersion,
 }
 
-/// Error for attempting to retry an [`IncomingConnection`] which already bears an address
+/// Error for attempting to retry an [`Incoming`] which already bears an address
 /// validation token from a previous retry
 #[derive(Debug, Error)]
-#[error("retry() with validated IncomingConnection")]
-pub struct RetryError(IncomingConnection);
+#[error("retry() with validated Incoming")]
+pub struct RetryError(Incoming);
 
 impl RetryError {
-    /// Get the [`IncomingConnection`]
-    pub fn into_incoming(self) -> IncomingConnection {
+    /// Get the [`Incoming`]
+    pub fn into_incoming(self) -> Incoming {
         self.0
     }
 }

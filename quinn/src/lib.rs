@@ -54,7 +54,7 @@ macro_rules! ready {
 
 mod connection;
 mod endpoint;
-mod incoming_connection;
+mod incoming;
 mod mutex;
 mod recv_stream;
 mod runtime;
@@ -76,7 +76,7 @@ pub use crate::connection::{
     UnknownStream, ZeroRttAccepted,
 };
 pub use crate::endpoint::{Accept, Endpoint};
-pub use crate::incoming_connection::{IncomingConnection, IncomingConnectionFuture, RetryError};
+pub use crate::incoming::{Incoming, IncomingFuture, RetryError};
 pub use crate::recv_stream::{ReadError, ReadExactError, ReadToEndError, RecvStream};
 #[cfg(feature = "runtime-async-std")]
 pub use crate::runtime::AsyncStdRuntime;

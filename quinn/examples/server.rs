@@ -165,7 +165,7 @@ async fn run(options: Opt) -> Result<()> {
     Ok(())
 }
 
-async fn handle_connection(root: Arc<Path>, conn: quinn::IncomingConnection) -> Result<()> {
+async fn handle_connection(root: Arc<Path>, conn: quinn::Incoming) -> Result<()> {
     let connection = conn.await?;
     let span = info_span!(
         "connection",
