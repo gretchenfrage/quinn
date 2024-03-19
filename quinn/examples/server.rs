@@ -128,14 +128,13 @@ async fn run(options: Opt) -> Result<()> {
     if options.keylog {
         server_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
     }
-
+    server_crypto.max_early_data_size = u32::MAX;
     let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
     transport_config.max_concurrent_uni_streams(0_u8.into());
     if options.stateless_retry {
         server_config.use_retry(true);
     }
-
     let root = Arc::<Path>::from(options.root.clone());
     if !root.exists() {
         bail!("root path does not exist");

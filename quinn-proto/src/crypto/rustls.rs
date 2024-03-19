@@ -67,7 +67,9 @@ impl crypto::Session for TlsSession {
     }
 
     fn early_crypto(&self) -> Option<(Box<dyn HeaderKey>, Box<dyn crypto::PacketKey>)> {
+        eprintln!("rustls::early_crypto");
         let keys = self.inner.zero_rtt_keys()?;
+        eprintln!("rustls::early_crypto proceeding with Some path");
         Some((Box::new(keys.header), Box::new(keys.packet)))
     }
 

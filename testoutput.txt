@@ -1,0 +1,517 @@
+
+running 1 test
+test tests::zero_rtt_happypath ... ok
+
+successes:
+
+---- tests::zero_rtt_happypath stdout ----
+[2m2024-03-15T23:47:03.664072Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::endpoint[0m[2m:[0m [3minitial_dcid[0m[2m=[0m96c463a37af68e0a11b1b94fd18bcf411d0ad320
+[2m2024-03-15T23:47:03.664474Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m wrote 273 Initial CRYPTO bytes
+call to init_0rtt
+rustls::early_crypto
+rustls ConnectionCommon zero_rtt_keys
+rustls ConnectionCommon zero_rtt_keys thing1.is_some() false
+early crypto not found
+[2m2024-03-15T23:47:03.664540Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m CRYPTO: off 0 len 273
+[2m2024-03-15T23:47:03.664551Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 868
+[2m2024-03-15T23:47:03.664582Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1200 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.664712Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Initial packet (116 bytes) from [::1]:4433 using id 68936da7fe064bb5
+[2m2024-03-15T23:47:03.664737Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mInitial[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m retrying with CID 75d909d4a9a560eb
+[2m2024-03-15T23:47:03.664755Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mInitial[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m discarding Initial keys
+[2m2024-03-15T23:47:03.664805Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m CRYPTO: off 0 len 273
+[2m2024-03-15T23:47:03.664814Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 802
+[2m2024-03-15T23:47:03.664833Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1200 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.665035Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mCRYPTO[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m consumed 273 CRYPTO bytes
+[2m2024-03-15T23:47:03.665614Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m Handshake keys ready
+[2m2024-03-15T23:47:03.665624Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m wrote 90 Initial CRYPTO bytes
+[2m2024-03-15T23:47:03.665655Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m Data keys ready
+[2m2024-03-15T23:47:03.665681Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m wrote 642 Handshake CRYPTO bytes
+call to init_0rtt
+rustls::early_crypto
+rustls ConnectionCommon zero_rtt_keys
+rustls ConnectionCommon zero_rtt_keys thing1.is_some() true
+rustls ConnectionCommon zero_rtt_keys thing2.is_some() false
+early crypto not found
+[2m2024-03-15T23:47:03.665711Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::endpoint[0m[2m:[0m connection incoming [3mid[0m[2m=[0m0 [3micid[0m[2m=[0m75d909d4a9a560eb
+[2m2024-03-15T23:47:03.665742Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([1..2]), Delay = 0us
+[2m2024-03-15T23:47:03.665751Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m CRYPTO: off 0 len 90
+[2m2024-03-15T23:47:03.665781Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m CRYPTO: off 0 len 642
+[2m2024-03-15T23:47:03.665792Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 367
+[2m2024-03-15T23:47:03.665809Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1200 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.665850Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m1 [3mid[0m[2m=[0mb78399e6604a40b8
+[2m2024-03-15T23:47:03.665860Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m2 [3mid[0m[2m=[0ma372f3934d951c13
+[2m2024-03-15T23:47:03.665867Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m3 [3mid[0m[2m=[0m116459198318817d
+[2m2024-03-15T23:47:03.665874Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m4 [3mid[0m[2m=[0m267d45978e6c0bc5
+[2m2024-03-15T23:47:03.665900Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 138 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.665946Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Initial packet (145 bytes) from [::1]:4433 using id 68936da7fe064bb5
+[2m2024-03-15T23:47:03.665975Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m switching remote CID to d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.666017Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mCRYPTO[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m consumed 90 CRYPTO bytes
+[2m2024-03-15T23:47:03.666233Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m Handshake keys ready
+[2m2024-03-15T23:47:03.666250Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Handshake packet (1055 bytes) from [::1]:4433 using id 68936da7fe064bb5
+[2m2024-03-15T23:47:03.666277Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mCRYPTO[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m consumed 642 CRYPTO bytes
+[2m2024-03-15T23:47:03.666555Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m Data keys ready
+[2m2024-03-15T23:47:03.666582Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m wrote 52 Handshake CRYPTO bytes
+[2m2024-03-15T23:47:03.666606Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m established
+[2m2024-03-15T23:47:03.666619Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (138 bytes) from [::1]:4433 using id 68936da7fe064bb5
+[2m2024-03-15T23:47:03.666646Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 1, retire_prior_to: 0, id: [183, 131, 153, 230, 96, 74, 64, 184], reset_token: ResetToken([96, 85, 158, 3, 192, 174, 152, 54, 181, 114, 245, 41, 239, 53, 29, 244]) })
+[2m2024-03-15T23:47:03.666657Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m1 [3mid[0m[2m=[0mb78399e6604a40b8 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.666675Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 2, retire_prior_to: 0, id: [163, 114, 243, 147, 77, 149, 28, 19], reset_token: ResetToken([68, 6, 176, 126, 42, 112, 239, 92, 193, 17, 60, 221, 155, 83, 124, 89]) })
+[2m2024-03-15T23:47:03.666683Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m2 [3mid[0m[2m=[0ma372f3934d951c13 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.666698Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 3, retire_prior_to: 0, id: [17, 100, 89, 25, 131, 24, 129, 125], reset_token: ResetToken([21, 240, 145, 223, 141, 34, 73, 117, 43, 182, 150, 86, 28, 151, 175, 62]) })
+[2m2024-03-15T23:47:03.666706Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m3 [3mid[0m[2m=[0m116459198318817d [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.666721Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 4, retire_prior_to: 0, id: [38, 125, 69, 151, 142, 108, 11, 197], reset_token: ResetToken([175, 210, 240, 96, 138, 12, 167, 132, 164, 211, 244, 142, 86, 78, 222, 60]) })
+[2m2024-03-15T23:47:03.666729Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m4 [3mid[0m[2m=[0m267d45978e6c0bc5 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.666755Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m2[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([0..1]), Delay = 0us
+[2m2024-03-15T23:47:03.666776Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m discarding Initial keys
+[2m2024-03-15T23:47:03.666798Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([0..1]), Delay = 0us
+[2m2024-03-15T23:47:03.666805Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m CRYPTO: off 0 len 52
+[2m2024-03-15T23:47:03.666813Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 966
+[2m2024-03-15T23:47:03.666830Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1200 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.666847Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1297
+[2m2024-03-15T23:47:03.666864Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1326
+[2m2024-03-15T23:47:03.666870Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1326 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.666907Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m1 [3mid[0m[2m=[0mb0d1974f83dc7e07
+[2m2024-03-15T23:47:03.666916Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m2 [3mid[0m[2m=[0m10098d031b4ea268
+[2m2024-03-15T23:47:03.666923Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m3 [3mid[0m[2m=[0m383f9c85c8f417d1
+[2m2024-03-15T23:47:03.666930Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m4 [3mid[0m[2m=[0m02b3dda3fabb0bdb
+[2m2024-03-15T23:47:03.666950Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 138 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.666981Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Initial packet (129 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.667026Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Handshake packet (1071 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.667045Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m discarding Initial keys
+[2m2024-03-15T23:47:03.667074Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mCRYPTO[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m consumed 52 CRYPTO bytes
+[2m2024-03-15T23:47:03.667250Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m wrote 356 Data CRYPTO bytes
+[2m2024-03-15T23:47:03.667260Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m discarding Handshake keys
+[2m2024-03-15T23:47:03.667267Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m established
+[2m2024-03-15T23:47:03.667279Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1326 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.667302Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.667317Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.667440Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (138 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.667462Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 1, retire_prior_to: 0, id: [176, 209, 151, 79, 131, 220, 126, 7], reset_token: ResetToken([169, 50, 221, 134, 18, 162, 251, 86, 140, 212, 27, 95, 224, 156, 119, 172]) })
+[2m2024-03-15T23:47:03.667471Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m1 [3mid[0m[2m=[0mb0d1974f83dc7e07 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.667490Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 2, retire_prior_to: 0, id: [16, 9, 141, 3, 27, 78, 162, 104], reset_token: ResetToken([166, 219, 104, 4, 141, 22, 44, 138, 86, 40, 56, 233, 52, 46, 86, 251]) })
+[2m2024-03-15T23:47:03.667497Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m2 [3mid[0m[2m=[0m10098d031b4ea268 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.667513Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 3, retire_prior_to: 0, id: [56, 63, 156, 133, 200, 244, 23, 209], reset_token: ResetToken([41, 72, 108, 101, 37, 242, 183, 5, 129, 88, 153, 11, 168, 183, 237, 57]) })
+[2m2024-03-15T23:47:03.667520Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m3 [3mid[0m[2m=[0m383f9c85c8f417d1 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.667536Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 4, retire_prior_to: 0, id: [2, 179, 221, 163, 250, 187, 11, 219], reset_token: ResetToken([49, 27, 9, 212, 116, 158, 55, 232, 70, 217, 200, 20, 235, 162, 149, 120]) })
+[2m2024-03-15T23:47:03.667543Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m4 [3mid[0m[2m=[0m02b3dda3fabb0bdb [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.667569Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([0..2]), Delay = 0us
+[2m2024-03-15T23:47:03.667577Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m CRYPTO: off 0 len 356
+[2m2024-03-15T23:47:03.667584Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m RETIRE_CONNECTION_ID [3msequence[0m[2m=[0m0
+[2m2024-03-15T23:47:03.667604Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 397 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.667613Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection::spaces[0m[2m:[0m skipping pn 2
+[2m2024-03-15T23:47:03.667625Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1297
+[2m2024-03-15T23:47:03.667640Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1326
+[2m2024-03-15T23:47:03.667646Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1326 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.667675Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (397 bytes) from [::1]:4433 using id b0d1974f83dc7e07
+[2m2024-03-15T23:47:03.667698Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame HandshakeDone
+[2m2024-03-15T23:47:03.667705Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mHANDSHAKE_DONE[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m discarding Handshake keys
+[2m2024-03-15T23:47:03.667724Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 1, delay: 0, ecn: Some(EcnCounts { ect0: 2, ect1: 0, ce: 0 }), ranges: "[0..=1]" })
+[2m2024-03-15T23:47:03.667737Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1326
+[2m2024-03-15T23:47:03.667760Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got crypto frame [3moffset[0m[2m=[0m0 [3mlen[0m[2m=[0m356
+[2m2024-03-15T23:47:03.667769Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mCRYPTO[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m consumed 356 CRYPTO bytes
+[2m2024-03-15T23:47:03.667851Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame RetireConnectionId { sequence: 0 }
+[2m2024-03-15T23:47:03.667870Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1326 bytes) from [::1]:4433 using id b0d1974f83dc7e07
+[2m2024-03-15T23:47:03.667893Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.667907Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.668038Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m2[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([0..2, 3..4]), Delay = 0us
+[2m2024-03-15T23:47:03.668057Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 36 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.668073Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1360
+[2m2024-03-15T23:47:03.668089Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1389
+[2m2024-03-15T23:47:03.668094Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1389 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.668102Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::endpoint[0m[2m:[0m peer retired CID 0: 68936da7fe064bb5
+[2m2024-03-15T23:47:03.668127Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m4[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m5 [3mid[0m[2m=[0mb5b3fc4944781de3
+[2m2024-03-15T23:47:03.668148Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 54 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.668171Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (36 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.668195Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m2[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 3, delay: 0, ecn: Some(EcnCounts { ect0: 3, ect1: 0, ce: 0 }), ranges: "[3..=3,0..=1]" })
+[2m2024-03-15T23:47:03.668211Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m2[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1326
+[2m2024-03-15T23:47:03.668232Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1389 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.668253Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.668267Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.668395Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (54 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.668415Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m4[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 5, retire_prior_to: 0, id: [181, 179, 252, 73, 68, 120, 29, 227], reset_token: ResetToken([191, 167, 189, 0, 188, 169, 63, 9, 118, 189, 190, 97, 26, 192, 249, 160]) })
+[2m2024-03-15T23:47:03.668423Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m4[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m5 [3mid[0m[2m=[0mb5b3fc4944781de3 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.668448Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m4[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([2..5]), Delay = 0us
+[2m2024-03-15T23:47:03.668465Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.668479Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m5[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1360
+[2m2024-03-15T23:47:03.668496Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1389
+[2m2024-03-15T23:47:03.668501Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1389 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.668524Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:4433 using id b0d1974f83dc7e07
+[2m2024-03-15T23:47:03.668547Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m4[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 4, delay: 0, ecn: Some(EcnCounts { ect0: 5, ect1: 0, ce: 0 }), ranges: "[2..=4]" })
+[2m2024-03-15T23:47:03.668560Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m4[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1389
+[2m2024-03-15T23:47:03.668581Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1389 bytes) from [::1]:4433 using id b0d1974f83dc7e07
+[2m2024-03-15T23:47:03.668602Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m5[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.668616Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m5[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.668752Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m5[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([4..6]), Delay = 0us
+[2m2024-03-15T23:47:03.668770Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.668783Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m6[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1391
+[2m2024-03-15T23:47:03.668798Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1420
+[2m2024-03-15T23:47:03.668803Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1420 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.668824Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.668846Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m5[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 5, delay: 0, ecn: Some(EcnCounts { ect0: 5, ect1: 0, ce: 0 }), ranges: "[4..=5]" })
+[2m2024-03-15T23:47:03.668858Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m5[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1389
+[2m2024-03-15T23:47:03.668877Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1420 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.668898Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m6[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.668912Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m6[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.669053Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m6[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([5..7]), Delay = 0us
+[2m2024-03-15T23:47:03.669071Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.669084Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m7[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1391
+[2m2024-03-15T23:47:03.669099Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1420
+[2m2024-03-15T23:47:03.669105Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1420 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.669127Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:4433 using id b0d1974f83dc7e07
+[2m2024-03-15T23:47:03.669149Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m6[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 6, delay: 0, ecn: Some(EcnCounts { ect0: 7, ect1: 0, ce: 0 }), ranges: "[5..=6]" })
+[2m2024-03-15T23:47:03.669161Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m6[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1420
+[2m2024-03-15T23:47:03.669181Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1420 bytes) from [::1]:4433 using id b0d1974f83dc7e07
+[2m2024-03-15T23:47:03.669202Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m7[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.669216Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m7[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.669354Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m7[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([6..8]), Delay = 0us
+[2m2024-03-15T23:47:03.669371Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.669386Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m8[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1423
+[2m2024-03-15T23:47:03.669401Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1452
+[2m2024-03-15T23:47:03.669406Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1452 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.669427Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.669449Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m7[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 7, delay: 0, ecn: Some(EcnCounts { ect0: 7, ect1: 0, ce: 0 }), ranges: "[6..=7]" })
+[2m2024-03-15T23:47:03.669461Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m7[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1420
+[2m2024-03-15T23:47:03.669483Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1452 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.669504Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m8[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.669518Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m8[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.669733Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m8[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([7..9]), Delay = 0us
+[2m2024-03-15T23:47:03.669753Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.669767Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m9[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1423
+[2m2024-03-15T23:47:03.669783Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1452
+[2m2024-03-15T23:47:03.669788Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1452 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.669812Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:4433 using id b0d1974f83dc7e07
+[2m2024-03-15T23:47:03.669835Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m8[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 8, delay: 0, ecn: Some(EcnCounts { ect0: 9, ect1: 0, ce: 0 }), ranges: "[7..=8]" })
+[2m2024-03-15T23:47:03.669847Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m8[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1452
+[2m2024-03-15T23:47:03.669868Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1452 bytes) from [::1]:4433 using id b0d1974f83dc7e07
+[2m2024-03-15T23:47:03.669917Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m9[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.669939Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m9[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.670116Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m9[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([8..10]), Delay = 0us
+[2m2024-03-15T23:47:03.670135Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.670157Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.670180Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m9[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 9, delay: 0, ecn: Some(EcnCounts { ect0: 9, ect1: 0, ce: 0 }), ranges: "[8..=9]" })
+[2m2024-03-15T23:47:03.670195Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m9[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1452
+[2m2024-03-15T23:47:03.670221Z[0m [35mTRACE[0m [2mquinn_proto::connection[0m[2m:[0m connection closed
+[2m2024-03-15T23:47:03.670238Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m10[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending CONNECTION_CLOSE
+[2m2024-03-15T23:47:03.670245Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m10[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([8..10]), Delay = 0us
+[2m2024-03-15T23:47:03.670261Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 37 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.670280Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (37 bytes) from [::1]:44433 using id d9a97eaafa61d6f4
+[2m2024-03-15T23:47:03.670302Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m10[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 9, delay: 0, ecn: Some(EcnCounts { ect0: 9, ect1: 0, ce: 0 }), ranges: "[8..=9]" })
+[2m2024-03-15T23:47:03.670321Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m10[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Close(Application(ApplicationClose { error_code: 0, reason: b"" }))
+[2m2024-03-15T23:47:03.670334Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m connection closed
+[2m2024-03-15T23:47:03.670347Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m10[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending CONNECTION_CLOSE
+[2m2024-03-15T23:47:03.670353Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m10[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([9..11]), Delay = 0us
+[2m2024-03-15T23:47:03.670368Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 38 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.670389Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (38 bytes) from [::1]:4433 using id b0d1974f83dc7e07
+[2m2024-03-15T23:47:03.670409Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m10[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m draining
+[2m2024-03-15T23:47:03.670431Z[0m [35mTRACE[0m [2mquinn_proto::tests::util[0m[2m:[0m advancing to 78ms for client
+[2m2024-03-15T23:47:03.670438Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m timeout [3mtimer[0m[2m=[0mClose
+[2m2024-03-15T23:47:03.670461Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m timeout [3mtimer[0m[2m=[0mClose
+[2m2024-03-15T23:47:03.670478Z[0m [32m INFO[0m [2mquinn_proto::tests[0m[2m:[0m resuming session
+[2m2024-03-15T23:47:03.670498Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::endpoint[0m[2m:[0m [3minitial_dcid[0m[2m=[0m49f8a781499f10dfc754e91e9be8fb10374d1490
+>>> client_early_traffic_secret
+[2m2024-03-15T23:47:03.670839Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m wrote 368 Initial CRYPTO bytes
+call to init_0rtt
+rustls::early_crypto
+rustls ConnectionCommon zero_rtt_keys
+rustls ConnectionCommon zero_rtt_keys thing1.is_some() true
+rustls ConnectionCommon zero_rtt_keys thing2.is_some() true
+rustls::early_crypto proceeding with Some path
+early crypto found
+init_0rtt, params = Some(
+    TransportParameters {
+        max_idle_timeout: 10000,
+        max_udp_payload_size: 1472,
+        initial_max_data: 4611686018427387903,
+        initial_max_stream_data_bidi_local: 1250000,
+        initial_max_stream_data_bidi_remote: 1250000,
+        initial_max_stream_data_uni: 1250000,
+        initial_max_streams_bidi: 100,
+        initial_max_streams_uni: 100,
+        ack_delay_exponent: 3,
+        max_ack_delay: 25,
+        active_connection_id_limit: 5,
+        disable_active_migration: false,
+        max_datagram_frame_size: Some(
+            65535,
+        ),
+        initial_src_cid: Some(
+            [
+                217,
+                169,
+                126,
+                170,
+                250,
+                97,
+                214,
+                244,
+            ],
+        ),
+        grease_quic_bit: true,
+        min_ack_delay: Some(
+            1000,
+        ),
+        original_dst_cid: Some(
+            [
+                150,
+                196,
+                99,
+                163,
+                122,
+                246,
+                142,
+                10,
+                17,
+                177,
+                185,
+                79,
+                209,
+                139,
+                207,
+                65,
+                29,
+                10,
+                211,
+                32,
+            ],
+        ),
+        retry_src_cid: Some(
+            [
+                117,
+                217,
+                9,
+                212,
+                169,
+                165,
+                96,
+                235,
+            ],
+        ),
+        stateless_reset_token: Some(
+            ResetToken(
+                [
+                    209,
+                    139,
+                    49,
+                    203,
+                    140,
+                    97,
+                    231,
+                    138,
+                    243,
+                    153,
+                    203,
+                    101,
+                    168,
+                    194,
+                    220,
+                    6,
+                ],
+            ),
+        ),
+        preferred_address: None,
+    },
+)
+[2m2024-03-15T23:47:03.670897Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m 0-RTT enabled
+[2m2024-03-15T23:47:03.670931Z[0m [35mTRACE[0m [2mquinn_proto::connection::streams[0m[2m:[0m wrote 13 bytes [3mstream[0m[2m=[0mclient unidirectional stream 0
+[2m2024-03-15T23:47:03.670953Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m CRYPTO: off 0 len 368
+[2m2024-03-15T23:47:03.670989Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection::streams::state[0m[2m:[0m STREAM [3mid[0m[2m=[0mclient unidirectional stream 0 [3moff[0m[2m=[0m0 [3mlen[0m[2m=[0m13 [3mfin[0m[2m=[0mfalse
+[2m2024-03-15T23:47:03.671002Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 703
+[2m2024-03-15T23:47:03.671018Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1200 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.671096Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Initial packet (116 bytes) from [::1]:4433 using id 7e1c6c0207fda575
+[2m2024-03-15T23:47:03.671114Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mInitial[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m retrying with CID 0dd7892b09eb7b57
+[2m2024-03-15T23:47:03.671123Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mInitial[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m discarding Initial keys
+[2m2024-03-15T23:47:03.671172Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m CRYPTO: off 0 len 368
+[2m2024-03-15T23:47:03.671204Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection::streams::state[0m[2m:[0m STREAM [3mid[0m[2m=[0mclient unidirectional stream 0 [3moff[0m[2m=[0m0 [3mlen[0m[2m=[0m13 [3mfin[0m[2m=[0mfalse
+[2m2024-03-15T23:47:03.671216Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 649
+[2m2024-03-15T23:47:03.671232Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1200 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.671407Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mCRYPTO[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m consumed 368 CRYPTO bytes
+>>> client_early_traffic_secret
+[2m2024-03-15T23:47:03.671880Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m Handshake keys ready
+[2m2024-03-15T23:47:03.671889Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m wrote 96 Initial CRYPTO bytes
+[2m2024-03-15T23:47:03.671917Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m Data keys ready
+[2m2024-03-15T23:47:03.671939Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m wrote 196 Handshake CRYPTO bytes
+call to init_0rtt
+rustls::early_crypto
+rustls ConnectionCommon zero_rtt_keys
+rustls ConnectionCommon zero_rtt_keys thing1.is_some() true
+rustls ConnectionCommon zero_rtt_keys thing2.is_some() true
+rustls::early_crypto proceeding with Some path
+early crypto found
+[2m2024-03-15T23:47:03.671969Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m 0-RTT enabled
+[2m2024-03-15T23:47:03.671979Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (707 bytes) from [::1]:44434 using id 0dd7892b09eb7b57
+[2m2024-03-15T23:47:03.672015Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mfirst recv[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got stream frame [3mid[0m[2m=[0mclient unidirectional stream 0 [3moffset[0m[2m=[0m0 [3mlen[0m[2m=[0m13 [3mfin[0m[2m=[0mfalse
+[2m2024-03-15T23:47:03.672099Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::endpoint[0m[2m:[0m connection incoming [3mid[0m[2m=[0m0 [3micid[0m[2m=[0m0dd7892b09eb7b57
+[2m2024-03-15T23:47:03.672130Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([1..2]), Delay = 0us
+[2m2024-03-15T23:47:03.672138Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m CRYPTO: off 0 len 96
+[2m2024-03-15T23:47:03.672167Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m CRYPTO: off 0 len 196
+[2m2024-03-15T23:47:03.672176Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 807
+[2m2024-03-15T23:47:03.672193Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1200 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.672228Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m1 [3mid[0m[2m=[0m5d12418ce3947269
+[2m2024-03-15T23:47:03.672238Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m2 [3mid[0m[2m=[0m9027101309f1b2b4
+[2m2024-03-15T23:47:03.672245Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m3 [3mid[0m[2m=[0ma1a864795c5510ad
+[2m2024-03-15T23:47:03.672252Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m4 [3mid[0m[2m=[0m4460ccba1c540b95
+[2m2024-03-15T23:47:03.672270Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 138 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.672296Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Initial packet (151 bytes) from [::1]:4433 using id 7e1c6c0207fda575
+[2m2024-03-15T23:47:03.672315Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m switching remote CID to 046c268edbe978d0
+[2m2024-03-15T23:47:03.672347Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mCRYPTO[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m consumed 96 CRYPTO bytes
+[2m2024-03-15T23:47:03.672569Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m Handshake keys ready
+[2m2024-03-15T23:47:03.672587Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Handshake packet (1049 bytes) from [::1]:4433 using id 7e1c6c0207fda575
+[2m2024-03-15T23:47:03.672617Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mCRYPTO[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m consumed 196 CRYPTO bytes
+[2m2024-03-15T23:47:03.672822Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m Data keys ready
+[2m2024-03-15T23:47:03.672850Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m wrote 52 Handshake CRYPTO bytes
+[2m2024-03-15T23:47:03.672876Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m established
+[2m2024-03-15T23:47:03.672893Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (138 bytes) from [::1]:4433 using id 7e1c6c0207fda575
+[2m2024-03-15T23:47:03.672921Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 1, retire_prior_to: 0, id: [93, 18, 65, 140, 227, 148, 114, 105], reset_token: ResetToken([191, 161, 242, 100, 217, 171, 26, 218, 219, 102, 41, 208, 48, 76, 140, 19]) })
+[2m2024-03-15T23:47:03.672939Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m1 [3mid[0m[2m=[0m5d12418ce3947269 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.672959Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 2, retire_prior_to: 0, id: [144, 39, 16, 19, 9, 241, 178, 180], reset_token: ResetToken([15, 71, 255, 51, 44, 19, 157, 54, 41, 72, 71, 5, 142, 188, 215, 89]) })
+[2m2024-03-15T23:47:03.672968Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m2 [3mid[0m[2m=[0m9027101309f1b2b4 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.672986Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 3, retire_prior_to: 0, id: [161, 168, 100, 121, 92, 85, 16, 173], reset_token: ResetToken([36, 148, 150, 135, 209, 224, 217, 184, 255, 224, 131, 155, 198, 186, 15, 229]) })
+[2m2024-03-15T23:47:03.672994Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m3 [3mid[0m[2m=[0ma1a864795c5510ad [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.673012Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 4, retire_prior_to: 0, id: [68, 96, 204, 186, 28, 84, 11, 149], reset_token: ResetToken([88, 38, 159, 148, 155, 216, 135, 200, 9, 162, 145, 143, 227, 126, 193, 99]) })
+[2m2024-03-15T23:47:03.673020Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m4 [3mid[0m[2m=[0m4460ccba1c540b95 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.673049Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mInitial [3mpn[0m[2m=[0m2[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([0..1]), Delay = 0us
+[2m2024-03-15T23:47:03.673072Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m discarding Initial keys
+[2m2024-03-15T23:47:03.673089Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([0..1]), Delay = 0us
+[2m2024-03-15T23:47:03.673097Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m CRYPTO: off 0 len 52
+[2m2024-03-15T23:47:03.673106Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 966
+[2m2024-03-15T23:47:03.673125Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1200 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.673147Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m2[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1297
+[2m2024-03-15T23:47:03.673170Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1326
+[2m2024-03-15T23:47:03.673176Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1326 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.673216Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m1 [3mid[0m[2m=[0m8db66f6bbf5c4767
+[2m2024-03-15T23:47:03.673226Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m2 [3mid[0m[2m=[0m30367ca9cb3921ee
+[2m2024-03-15T23:47:03.673234Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m3 [3mid[0m[2m=[0m6da576a0d76800e2
+[2m2024-03-15T23:47:03.673242Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m4 [3mid[0m[2m=[0ma11d55f94f71f1c0
+[2m2024-03-15T23:47:03.673263Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 138 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.673294Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Initial packet (129 bytes) from [::1]:44434 using id 046c268edbe978d0
+[2m2024-03-15T23:47:03.673344Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Handshake packet (1071 bytes) from [::1]:44434 using id 046c268edbe978d0
+[2m2024-03-15T23:47:03.673366Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m discarding Initial keys
+[2m2024-03-15T23:47:03.673398Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mCRYPTO[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m consumed 52 CRYPTO bytes
+[2m2024-03-15T23:47:03.673600Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m wrote 356 Data CRYPTO bytes
+[2m2024-03-15T23:47:03.673611Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m discarding Handshake keys
+[2m2024-03-15T23:47:03.673619Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mHandshake [3mpn[0m[2m=[0m0[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m established
+[2m2024-03-15T23:47:03.673632Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1326 bytes) from [::1]:44434 using id 046c268edbe978d0
+[2m2024-03-15T23:47:03.673659Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m2[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.673677Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m2[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.673824Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (138 bytes) from [::1]:44434 using id 046c268edbe978d0
+[2m2024-03-15T23:47:03.673868Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 1, retire_prior_to: 0, id: [141, 182, 111, 107, 191, 92, 71, 103], reset_token: ResetToken([250, 53, 154, 221, 174, 192, 94, 84, 73, 34, 176, 12, 60, 125, 90, 30]) })
+[2m2024-03-15T23:47:03.673884Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m1 [3mid[0m[2m=[0m8db66f6bbf5c4767 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.673908Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 2, retire_prior_to: 0, id: [48, 54, 124, 169, 203, 57, 33, 238], reset_token: ResetToken([98, 39, 220, 77, 109, 239, 125, 201, 59, 73, 176, 236, 44, 196, 1, 104]) })
+[2m2024-03-15T23:47:03.673917Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m2 [3mid[0m[2m=[0m30367ca9cb3921ee [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.673935Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 3, retire_prior_to: 0, id: [109, 165, 118, 160, 215, 104, 0, 226], reset_token: ResetToken([128, 248, 10, 98, 207, 117, 187, 171, 133, 179, 118, 18, 112, 110, 212, 38]) })
+[2m2024-03-15T23:47:03.673944Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m3 [3mid[0m[2m=[0m6da576a0d76800e2 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.673961Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 4, retire_prior_to: 0, id: [161, 29, 85, 249, 79, 113, 241, 192], reset_token: ResetToken([127, 32, 51, 13, 68, 198, 225, 177, 30, 137, 154, 201, 27, 108, 118, 217]) })
+[2m2024-03-15T23:47:03.673970Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m4 [3mid[0m[2m=[0ma11d55f94f71f1c0 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.673998Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([1..4]), Delay = 0us
+[2m2024-03-15T23:47:03.674007Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m CRYPTO: off 0 len 356
+[2m2024-03-15T23:47:03.674014Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m RETIRE_CONNECTION_ID [3msequence[0m[2m=[0m0
+[2m2024-03-15T23:47:03.674037Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 397 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.674054Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m2[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1297
+[2m2024-03-15T23:47:03.674070Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1326
+[2m2024-03-15T23:47:03.674075Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1326 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.674110Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (397 bytes) from [::1]:4433 using id 8db66f6bbf5c4767
+[2m2024-03-15T23:47:03.674134Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame HandshakeDone
+[2m2024-03-15T23:47:03.674140Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mHANDSHAKE_DONE[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m discarding Handshake keys
+[2m2024-03-15T23:47:03.674161Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 3, delay: 0, ecn: Some(EcnCounts { ect0: 3, ect1: 0, ce: 0 }), ranges: "[1..=3]" })
+[2m2024-03-15T23:47:03.674182Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1326
+[2m2024-03-15T23:47:03.674208Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got crypto frame [3moffset[0m[2m=[0m0 [3mlen[0m[2m=[0m356
+[2m2024-03-15T23:47:03.674218Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mCRYPTO[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m consumed 356 CRYPTO bytes
+[2m2024-03-15T23:47:03.674289Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m1[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame RetireConnectionId { sequence: 0 }
+[2m2024-03-15T23:47:03.674309Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1326 bytes) from [::1]:4433 using id 8db66f6bbf5c4767
+[2m2024-03-15T23:47:03.674331Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m2[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.674345Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m2[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.674478Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m4[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([0..3]), Delay = 0us
+[2m2024-03-15T23:47:03.674497Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.674511Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m5[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1360
+[2m2024-03-15T23:47:03.674530Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1389
+[2m2024-03-15T23:47:03.674536Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1389 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.674543Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::endpoint[0m[2m:[0m peer retired CID 0: 7e1c6c0207fda575
+[2m2024-03-15T23:47:03.674580Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m6[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m NEW_CONNECTION_ID [3msequence[0m[2m=[0m5 [3mid[0m[2m=[0ma137d208642812c5
+[2m2024-03-15T23:47:03.674601Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 54 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.674628Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:44434 using id 046c268edbe978d0
+[2m2024-03-15T23:47:03.674652Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m4[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 2, delay: 0, ecn: Some(EcnCounts { ect0: 3, ect1: 0, ce: 0 }), ranges: "[0..=2]" })
+[2m2024-03-15T23:47:03.674669Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m4[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1326
+[2m2024-03-15T23:47:03.674690Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1389 bytes) from [::1]:44434 using id 046c268edbe978d0
+[2m2024-03-15T23:47:03.674712Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m5[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.674726Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m5[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.674855Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (54 bytes) from [::1]:44434 using id 046c268edbe978d0
+[2m2024-03-15T23:47:03.674875Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m6[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame NewConnectionId(NewConnectionId { sequence: 5, retire_prior_to: 0, id: [161, 55, 210, 8, 100, 40, 18, 197], reset_token: ResetToken([201, 229, 98, 114, 172, 140, 110, 240, 151, 28, 90, 230, 48, 67, 208, 237]) })
+[2m2024-03-15T23:47:03.674883Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m6[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mNEW_CONNECTION_ID[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m [3msequence[0m[2m=[0m5 [3mid[0m[2m=[0ma137d208642812c5 [3mretire_prior_to[0m[2m=[0m0
+[2m2024-03-15T23:47:03.674908Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([4..7]), Delay = 0us
+[2m2024-03-15T23:47:03.674929Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.674955Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m4[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1360
+[2m2024-03-15T23:47:03.674971Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1389
+[2m2024-03-15T23:47:03.674979Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1389 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.675003Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:4433 using id 8db66f6bbf5c4767
+[2m2024-03-15T23:47:03.675027Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 6, delay: 0, ecn: Some(EcnCounts { ect0: 6, ect1: 0, ce: 0 }), ranges: "[4..=6]" })
+[2m2024-03-15T23:47:03.675039Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m3[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1389
+[2m2024-03-15T23:47:03.675060Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1389 bytes) from [::1]:4433 using id 8db66f6bbf5c4767
+[2m2024-03-15T23:47:03.675082Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m4[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.675096Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m4[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.675232Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m7[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([3..5]), Delay = 0us
+[2m2024-03-15T23:47:03.675250Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.675264Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m8[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1391
+[2m2024-03-15T23:47:03.675279Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1420
+[2m2024-03-15T23:47:03.675284Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1420 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.675305Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:44434 using id 046c268edbe978d0
+[2m2024-03-15T23:47:03.675328Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m7[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 4, delay: 0, ecn: Some(EcnCounts { ect0: 5, ect1: 0, ce: 0 }), ranges: "[3..=4]" })
+[2m2024-03-15T23:47:03.675340Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m7[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1389
+[2m2024-03-15T23:47:03.675359Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1420 bytes) from [::1]:44434 using id 046c268edbe978d0
+[2m2024-03-15T23:47:03.675380Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m8[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.675394Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m8[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.675533Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m5[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([7..9]), Delay = 0us
+[2m2024-03-15T23:47:03.675553Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.675567Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m6[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1391
+[2m2024-03-15T23:47:03.675582Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1420
+[2m2024-03-15T23:47:03.675587Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1420 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.675609Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:4433 using id 8db66f6bbf5c4767
+[2m2024-03-15T23:47:03.675632Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m5[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 8, delay: 0, ecn: Some(EcnCounts { ect0: 8, ect1: 0, ce: 0 }), ranges: "[7..=8]" })
+[2m2024-03-15T23:47:03.675644Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m5[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1420
+[2m2024-03-15T23:47:03.675664Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1420 bytes) from [::1]:4433 using id 8db66f6bbf5c4767
+[2m2024-03-15T23:47:03.675685Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m6[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.675698Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m6[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.675836Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m9[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([5..7]), Delay = 0us
+[2m2024-03-15T23:47:03.675854Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.675869Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m10[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1423
+[2m2024-03-15T23:47:03.675884Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1452
+[2m2024-03-15T23:47:03.675889Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1452 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.675910Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:44434 using id 046c268edbe978d0
+[2m2024-03-15T23:47:03.675933Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m9[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 6, delay: 0, ecn: Some(EcnCounts { ect0: 7, ect1: 0, ce: 0 }), ranges: "[5..=6]" })
+[2m2024-03-15T23:47:03.675944Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m9[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1420
+[2m2024-03-15T23:47:03.675964Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1452 bytes) from [::1]:44434 using id 046c268edbe978d0
+[2m2024-03-15T23:47:03.675987Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m10[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.676002Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m10[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.676143Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m7[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([9..11]), Delay = 0us
+[2m2024-03-15T23:47:03.676161Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.676175Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m8[1m}[0m[2m:[0m [2mquinn_proto::connection::packet_builder[0m[2m:[0m PADDING * 1423
+[2m2024-03-15T23:47:03.676190Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m writing MTUD probe [3mprobe_size[0m[2m=[0m1452
+[2m2024-03-15T23:47:03.676195Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 1452 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.676218Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:4433 using id 8db66f6bbf5c4767
+[2m2024-03-15T23:47:03.676241Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m7[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 10, delay: 0, ecn: Some(EcnCounts { ect0: 10, ect1: 0, ce: 0 }), ranges: "[9..=10]" })
+[2m2024-03-15T23:47:03.676253Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m7[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1452
+[2m2024-03-15T23:47:03.676272Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (1452 bytes) from [::1]:4433 using id 8db66f6bbf5c4767
+[2m2024-03-15T23:47:03.676294Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m8[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ping
+[2m2024-03-15T23:47:03.676307Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m8[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame ImmediateAck
+[2m2024-03-15T23:47:03.676449Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m[1msend[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m11[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m ACK ArrayRangeSet([7..9]), Delay = 0us
+[2m2024-03-15T23:47:03.676467Z[0m [35mTRACE[0m [1mclient[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m sending 34 bytes in 1 datagrams
+[2m2024-03-15T23:47:03.676487Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got Data packet (34 bytes) from [::1]:44434 using id 046c268edbe978d0
+[2m2024-03-15T23:47:03.676509Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m11[1m}[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m got frame Ack(Ack { largest: 8, delay: 0, ecn: Some(EcnCounts { ect0: 9, ect1: 0, ce: 0 }), ranges: "[7..=8]" })
+[2m2024-03-15T23:47:03.676521Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m[1mrecv[0m[1m{[0m[3mspace[0m[2m=[0mData [3mpn[0m[2m=[0m11[1m}[0m[2m:[0m[1mframe[0m[1m{[0m[3mty[0m[2m=[0mACK[1m}[0m[2m:[0m [2mquinn_proto::connection::mtud[0m[2m:[0m new MTU detected [3mcurrent_mtu[0m[2m=[0m1452
+[2m2024-03-15T23:47:03.676555Z[0m [35mTRACE[0m [2mquinn_proto::tests::util[0m[2m:[0m advancing to 156ms for server
+[2m2024-03-15T23:47:03.676571Z[0m [35mTRACE[0m [1mserver[0m[2m:[0m [2mquinn_proto::connection[0m[2m:[0m timeout [3mtimer[0m[2m=[0mKeyDiscard
+
+
+successes:
+    tests::zero_rtt_happypath
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 210 filtered out; finished in 0.01s
+
+
+running 0 tests
+
+successes:
+
+successes:
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
