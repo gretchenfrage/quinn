@@ -37,6 +37,9 @@ struct Opt {
     /// Address to listen on
     #[clap(long = "listen", default_value = "[::1]:4433")]
     listen: SocketAddr,
+    /// Attempt to transmit response as 0.5-RTT data
+    #[clap(long = "0rtt")]
+    zero_rtt: bool,
 }
 
 fn main() {
@@ -124,6 +127,7 @@ async fn run(options: Opt) -> Result<()> {
         .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(certs, key)?;
+    server_crypto.max_early_data_size = u32::MAX;
     server_crypto.alpn_protocols = common::ALPN_QUIC_HTTP.iter().map(|&x| x.into()).collect();
     if options.keylog {
         server_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
@@ -146,7 +150,7 @@ async fn run(options: Opt) -> Result<()> {
 
     while let Some(conn) = endpoint.accept().await {
         info!("connection incoming");
-        let fut = handle_connection(root.clone(), conn);
+        let fut = handle_connection(root.clone(), options.zero_rtt, conn);
         tokio::spawn(async move {
             if let Err(e) = fut.await {
                 error!("connection failed: {reason}", reason = e.to_string())
@@ -157,8 +161,17 @@ async fn run(options: Opt) -> Result<()> {
     Ok(())
 }
 
-async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<()> {
-    let connection = conn.await?;
+async fn handle_connection(root: Arc<Path>, zero_rtt: bool, conn: quinn::Connecting) -> Result<()> {
+    let connection = if zero_rtt {
+        let (conn, zero_rtt_accepted) = conn.into_0rtt().unwrap();
+        tokio::spawn(async move {
+            zero_rtt_accepted.await;
+            eprintln!("handshake fully complete");
+        });
+        conn
+    } else {
+        conn.await?
+    };
     let span = info_span!(
         "connection",
         remote = %connection.remote_address(),

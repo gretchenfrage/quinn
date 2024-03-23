@@ -39,6 +39,10 @@ struct Opt {
     /// Simulate NAT rebinding after connecting
     #[clap(long = "rebind")]
     rebind: bool,
+
+    /// Attempt to transmit request as 0-RTT data
+    #[clap(long = "0rtt")]
+    zero_rtt: bool,
 }
 
 fn main() {
@@ -94,7 +98,7 @@ async fn run(options: Opt) -> Result<()> {
         .with_safe_defaults()
         .with_root_certificates(roots)
         .with_no_client_auth();
-
+    client_crypto.enable_early_data = true;
     client_crypto.alpn_protocols = common::ALPN_QUIC_HTTP.iter().map(|&x| x.into()).collect();
     if options.keylog {
         client_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
@@ -111,11 +115,31 @@ async fn run(options: Opt) -> Result<()> {
         let host = options.host.as_deref().unwrap_or(&url_host);
 
         eprintln!("connecting to {host} at {remote}");
-        let conn = endpoint
-            .connect(remote, host)?
-            .await
-            .map_err(|e| anyhow!("failed to connect: {}", e))?;
-        eprintln!("connected at {:?}", start.elapsed());
+        let connecting = endpoint.connect(remote, host)?;
+        let conn = if options.zero_rtt {
+            match connecting.into_0rtt() {
+                Ok((conn, zero_rtt_accepted)) => {
+                    eprintln!("client accepted 0rtt conversion");
+                    tokio::spawn(async move {
+                        if zero_rtt_accepted.await {
+                            eprintln!("server accepted 0rtt data at {:?}", start.elapsed());
+                        } else {
+                            eprintln!("server rejected 0rtt data at {:?}", start.elapsed());
+                        }
+                    });
+                    conn
+                }
+                Err(connecting) => {
+                    eprintln!("client rejected 0rtt conversion");
+                    connecting.await
+                        .map_err(|e| anyhow!("failed to connect: {}", e))?
+                }
+            }
+        } else {
+            connecting.await
+                .map_err(|e| anyhow!("failed to connect: {}", e))?
+        };
+        eprintln!("sending request at {:?}", start.elapsed());
         let (mut send, mut recv) = conn
             .open_bi()
             .await
@@ -130,15 +154,46 @@ async fn run(options: Opt) -> Result<()> {
         send.write_all(request.as_bytes())
             .await
             .map_err(|e| anyhow!("failed to send request: {}", e))?;
+        //let send_finish = tokio::spawn(send.finish());
+        /*tokio::spawn(async move {
+            if let Err(e) = send.finish().await {
+                eprintln!("failed to shutdown stream: {}", e);
+            }
+        });*/
         send.finish()
             .await
             .map_err(|e| anyhow!("failed to shutdown stream: {}", e))?;
         let response_start = Instant::now();
-        eprintln!("request sent at {:?}", response_start - start);
+        eprintln!("receiving response at {:?}", response_start - start);
+        
         let resp = recv
             .read_to_end(usize::max_value())
             .await
             .map_err(|e| anyhow!("failed to read response: {}", e))?;
+            
+        //let mut resp = Vec::new();
+        //let mut buf = [0; 4096];
+        //let mut response_start = None;
+        //loop {
+        //    //tokio::join! {
+        //    //    chunk = recv.read_chunk(4096, true).await => {
+        //    //        let chunk = chunk.map_err(|e|)
+        //    //    }
+        //    //}
+        //    let chunk = recv.read_chunk(4096, true).await
+        //        .map_err(|e| anyhow!("failed to read response: {}", e))?;
+        //    if response_start.is_none() {
+        //        let now = Instant::now();
+        //        eprintln!("receiving response at {:?}", now - start);
+        //        response_start = Some(now);
+        //    }
+        //    if let Some(chunk) = chunk {
+        //        resp.extend(chunk.bytes);
+        //    } else {
+        //        break;
+        //    }
+        //}
+        //let response_start = response_start.unwrap();
         let duration = response_start.elapsed();
         eprintln!(
             "response received in {:?} - {} KiB/s",
