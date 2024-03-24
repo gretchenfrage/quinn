@@ -10,6 +10,7 @@ use std::{
     sync::Arc,
 };
 
+use tokio::io::{BufReader, AsyncBufReadExt as _, AsyncReadExt as _};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use tracing::{error, info, info_span};
@@ -203,8 +204,13 @@ async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<(
 
 async fn handle_request(
     root: Arc<Path>,
-    (mut send, mut recv): (quinn::SendStream, quinn::RecvStream),
+    (mut send, recv): (quinn::SendStream, quinn::RecvStream),
 ) -> Result<()> {
+    let mut req = Vec::new();
+    BufReader::new(recv)
+        .read_until(b'\n', &mut req)
+        .await
+        .map_err(|e|)
     let req = recv
         .read_to_end(64 * 1024)
         .await
