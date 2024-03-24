@@ -160,40 +160,43 @@ async fn run(options: Opt) -> Result<()> {
                 eprintln!("failed to shutdown stream: {}", e);
             }
         });*/
+        /*
         send.finish()
             .await
             .map_err(|e| anyhow!("failed to shutdown stream: {}", e))?;
-        let response_start = Instant::now();
+            */
+        /*let response_start = Instant::now();
         eprintln!("receiving response at {:?}", response_start - start);
         
         let resp = recv
             .read_to_end(usize::max_value())
             .await
-            .map_err(|e| anyhow!("failed to read response: {}", e))?;
+            .map_err(|e| anyhow!("failed to read response: {}", e))?;*/
             
-        //let mut resp = Vec::new();
+        let mut resp = Vec::new();
         //let mut buf = [0; 4096];
-        //let mut response_start = None;
-        //loop {
-        //    //tokio::join! {
-        //    //    chunk = recv.read_chunk(4096, true).await => {
-        //    //        let chunk = chunk.map_err(|e|)
-        //    //    }
-        //    //}
-        //    let chunk = recv.read_chunk(4096, true).await
-        //        .map_err(|e| anyhow!("failed to read response: {}", e))?;
-        //    if response_start.is_none() {
-        //        let now = Instant::now();
-        //        eprintln!("receiving response at {:?}", now - start);
-        //        response_start = Some(now);
-        //    }
-        //    if let Some(chunk) = chunk {
-        //        resp.extend(chunk.bytes);
-        //    } else {
-        //        break;
-        //    }
-        //}
-        //let response_start = response_start.unwrap();
+        let mut response_start = None;
+        loop {
+            //tokio::join! {
+            //    chunk = recv.read_chunk(4096, true).await => {
+            //        let chunk = chunk.map_err(|e|)
+            //    }
+            //}
+            let chunk = recv.read_chunk(4096, true).await
+                .map_err(|e| anyhow!("failed to read response: {}", e))?;
+            if response_start.is_none() {
+                let now = Instant::now();
+                eprintln!("first response bytes at {:?}", now - start);
+                response_start = Some(now);
+            }
+            if let Some(chunk) = chunk {
+                resp.extend(chunk.bytes);
+            } else {
+                break;
+            }
+        }
+        let response_start = response_start.unwrap();
+
         let duration = response_start.elapsed();
         eprintln!(
             "response received in {:?} - {} KiB/s",
