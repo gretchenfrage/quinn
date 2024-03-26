@@ -164,11 +164,7 @@ async fn run(options: Opt) -> Result<()> {
 
 async fn handle_connection(root: Arc<Path>, zero_rtt: bool, conn: quinn::Connecting) -> Result<()> {
     let connection = if zero_rtt {
-        let (conn, zero_rtt_accepted) = conn.into_0rtt().unwrap();
-        tokio::spawn(async move {
-            zero_rtt_accepted.await;
-            eprintln!("handshake fully complete");
-        });
+        let (conn, _) = conn.into_0rtt().unwrap();
         conn
     } else {
         conn.await?

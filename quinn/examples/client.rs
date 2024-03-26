@@ -5,16 +5,18 @@
 use std::{
     fs,
     io::{self, Write},
-    net::ToSocketAddrs,
+    net::{ToSocketAddrs, SocketAddr},
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
+    str::FromStr,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Result, Error};
 use clap::Parser;
 use tracing::{error, info};
 use url::Url;
+use tokio::io::{BufReader, AsyncBufReadExt as _};
 
 mod common;
 
@@ -26,7 +28,7 @@ struct Opt {
     #[clap(long = "keylog")]
     keylog: bool,
 
-    urls: Vec<Url>,
+    urls: Vec<ParsedUrl>,
 
     /// Override hostname used for certificate verification
     #[clap(long = "host")]
@@ -43,6 +45,14 @@ struct Opt {
     /// Attempt to transmit request as 0-RTT data
     #[clap(long = "0rtt")]
     zero_rtt: bool,
+
+    /// Read URLs from standard input
+    #[clap(long = "stdin")]
+    stdin: bool,
+
+    /// Suppress printing the response.
+    #[clap(long = "no-print-response")]
+    no_print_response: bool,
 }
 
 fn main() {
@@ -66,19 +76,8 @@ fn main() {
 
 #[tokio::main]
 async fn run(options: Opt) -> Result<()> {
-    let urls = options.urls.into_iter()
-        .map(|url| {
-            let url_host = strip_ipv6_brackets(url.host_str().unwrap()).to_owned();
-            (url_host.as_str(), url.port().unwrap_or(4433))
-                .to_socket_addrs()?
-                .next()
-                .ok_or_else(|| anyhow!("couldn't resolve to an address"))
-                .map(move |remote| (url, url_host, remote))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
     let mut roots = rustls::RootCertStore::empty();
-    if let Some(ca_path) = options.ca {
+    if let Some(ref ca_path) = options.ca {
         roots.add(&rustls::Certificate(fs::read(ca_path)?))?;
     } else {
         let dirs = directories_next::ProjectDirs::from("org", "quinn", "quinn-examples").unwrap();
@@ -108,111 +107,157 @@ async fn run(options: Opt) -> Result<()> {
     let mut endpoint = quinn::Endpoint::client("[::]:0".parse().unwrap())?;
     endpoint.set_default_client_config(client_config);
 
-    let start = Instant::now();
-    for (url, url_host, remote) in urls {
-        let request = format!("GET {}\r\n", url.path());
-        let rebind = options.rebind;
-        let host = options.host.as_deref().unwrap_or(&url_host);
+    for url in &options.urls {
+        request(&options, &endpoint, url).await?;
+    }
 
-        eprintln!("connecting to {host} at {remote}");
-        let connecting = endpoint.connect(remote, host)?;
-        let conn = if options.zero_rtt {
-            match connecting.into_0rtt() {
-                Ok((conn, zero_rtt_accepted)) => {
-                    eprintln!("client accepted 0rtt conversion");
-                    tokio::spawn(async move {
-                        if zero_rtt_accepted.await {
-                            eprintln!("server accepted 0rtt data at {:?}", start.elapsed());
-                        } else {
-                            eprintln!("server rejected 0rtt data at {:?}", start.elapsed());
-                        }
-                    });
-                    conn
-                }
-                Err(connecting) => {
-                    eprintln!("client rejected 0rtt conversion");
-                    connecting.await
-                        .map_err(|e| anyhow!("failed to connect: {}", e))?
+    if options.stdin {
+        let mut lines = BufReader::new(tokio::io::stdin()).lines();
+        while let Some(line) = {
+            print!("> ");
+            std::io::stdout().flush()?;
+            lines.next_line().await?
+        } {
+            match line.trim().parse() {
+                Ok(url) => request(&options, &endpoint, &url).await?,
+                Err(e) => {
+                    eprintln!("error parsing url: {}", e);
+                    eprintln!();
                 }
             }
-        } else {
-            connecting.await
-                .map_err(|e| anyhow!("failed to connect: {}", e))?
-        };
-        eprintln!("sending request at {:?}", start.elapsed());
-        let (mut send, mut recv) = conn
-            .open_bi()
-            .await
-            .map_err(|e| anyhow!("failed to open stream: {}", e))?;
-        if rebind {
-            let socket = std::net::UdpSocket::bind("[::]:0").unwrap();
-            let addr = socket.local_addr().unwrap();
-            eprintln!("rebinding to {addr}");
-            endpoint.rebind(socket).expect("rebind failed");
         }
-
-        send.write_all(request.as_bytes())
-            .await
-            .map_err(|e| anyhow!("failed to send request: {}", e))?;
-        //let send_finish = tokio::spawn(send.finish());
-        /*tokio::spawn(async move {
-            if let Err(e) = send.finish().await {
-                eprintln!("failed to shutdown stream: {}", e);
-            }
-        });*/
-        /*
-        send.finish()
-            .await
-            .map_err(|e| anyhow!("failed to shutdown stream: {}", e))?;
-            */
-        /*let response_start = Instant::now();
-        eprintln!("receiving response at {:?}", response_start - start);
-        
-        let resp = recv
-            .read_to_end(usize::max_value())
-            .await
-            .map_err(|e| anyhow!("failed to read response: {}", e))?;*/
-            
-        let mut resp = Vec::new();
-        //let mut buf = [0; 4096];
-        let mut response_start = None;
-        loop {
-            //tokio::join! {
-            //    chunk = recv.read_chunk(4096, true).await => {
-            //        let chunk = chunk.map_err(|e|)
-            //    }
-            //}
-            let chunk = recv.read_chunk(4096, true).await
-                .map_err(|e| anyhow!("failed to read response: {}", e))?;
-            if response_start.is_none() {
-                let now = Instant::now();
-                eprintln!("first response bytes at {:?}", now - start);
-                response_start = Some(now);
-            }
-            if let Some(chunk) = chunk {
-                resp.extend(chunk.bytes);
-            } else {
-                break;
-            }
-        }
-        let response_start = response_start.unwrap();
-
-        let duration = response_start.elapsed();
-        eprintln!(
-            "response received in {:?} - {} KiB/s",
-            duration,
-            resp.len() as f32 / (duration_secs(&duration) * 1024.0)
-        );
-        io::stdout().write_all(&resp).unwrap();
-        io::stdout().flush().unwrap();
-        conn.close(0u32.into(), b"done");
-        eprintln!();
     }
 
     // Give the server a fair chance to receive the close packet
     endpoint.wait_idle().await;
 
     Ok(())
+}
+
+async fn request(options: &Opt, endpoint: &quinn::Endpoint, url: &ParsedUrl) -> Result<()> {
+    let start = Instant::now();
+    let request = format!("GET {}\r\n", url.url.path());
+    let rebind = options.rebind;
+    let host = options.host.as_deref().unwrap_or(&url.url_host);
+
+    eprintln!("connecting to {host} at {}", url.remote);
+    let connecting = endpoint.connect(url.remote, host)?;
+    let conn = if options.zero_rtt {
+        match connecting.into_0rtt() {
+            Ok((conn, zero_rtt_accepted)) => {
+                eprintln!("client accepted 0rtt conversion");
+                tokio::spawn(async move {
+                    if zero_rtt_accepted.await {
+                        eprintln!("server accepted 0rtt data at {:?}", start.elapsed());
+                    } else {
+                        eprintln!("server rejected 0rtt data at {:?}", start.elapsed());
+                    }
+                });
+                conn
+            }
+            Err(connecting) => {
+                eprintln!("client rejected 0rtt conversion");
+                connecting.await
+                    .map_err(|e| anyhow!("failed to connect: {}", e))?
+            }
+        }
+    } else {
+        connecting.await
+            .map_err(|e| anyhow!("failed to connect: {}", e))?
+    };
+    eprintln!("sending request at {:?}", start.elapsed());
+    let (mut send, mut recv) = conn
+        .open_bi()
+        .await
+        .map_err(|e| anyhow!("failed to open stream: {}", e))?;
+    if rebind {
+        let socket = std::net::UdpSocket::bind("[::]:0").unwrap();
+        let addr = socket.local_addr().unwrap();
+        eprintln!("rebinding to {addr}");
+        endpoint.rebind(socket).expect("rebind failed");
+    }
+
+    send.write_all(request.as_bytes())
+        .await
+        .map_err(|e| anyhow!("failed to send request: {}", e))?;
+    //let send_finish = tokio::spawn(send.finish());
+    /*tokio::spawn(async move {
+        if let Err(e) = send.finish().await {
+            eprintln!("failed to shutdown stream: {}", e);
+        }
+    });*/
+    /*
+    send.finish()
+        .await
+        .map_err(|e| anyhow!("failed to shutdown stream: {}", e))?;
+        */
+    /*let response_start = Instant::now();
+    eprintln!("receiving response at {:?}", response_start - start);
+    
+    let resp = recv
+        .read_to_end(usize::max_value())
+        .await
+        .map_err(|e| anyhow!("failed to read response: {}", e))?;*/
+        
+    let mut resp = Vec::new();
+    //let mut buf = [0; 4096];
+    let mut response_start = None;
+    loop {
+        //tokio::join! {
+        //    chunk = recv.read_chunk(4096, true).await => {
+        //        let chunk = chunk.map_err(|e|)
+        //    }
+        //}
+        let chunk = recv.read_chunk(4096, true).await
+            .map_err(|e| anyhow!("failed to read response: {}", e))?;
+        if response_start.is_none() {
+            let now = Instant::now();
+            eprintln!("first response bytes at {:?}", now - start);
+            response_start = Some(now);
+        }
+        if let Some(chunk) = chunk {
+            resp.extend(chunk.bytes);
+        } else {
+            break;
+        }
+    }
+    let response_start = response_start.unwrap();
+
+    let duration = response_start.elapsed();
+    eprintln!(
+        "response received in {:?} - {} KiB/s",
+        duration,
+        resp.len() as f32 / (duration_secs(&duration) * 1024.0)
+    );
+    if !options.no_print_response {
+        io::stdout().write_all(&resp).unwrap();
+        io::stdout().flush().unwrap();
+    }
+    conn.close(0u32.into(), b"done");
+    eprintln!();
+
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct ParsedUrl {
+    url: Url,
+    url_host: String,
+    remote: SocketAddr,
+}
+
+impl FromStr for ParsedUrl {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let url: Url = s.parse()?;
+        let url_host = strip_ipv6_brackets(url.host_str().unwrap()).to_owned();
+        let remote = (url_host.as_str(), url.port().unwrap_or(4433))
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| anyhow!("couldn't resolve to an address"))?;
+        Ok(Self { url, url_host, remote })
+    }
 }
 
 fn strip_ipv6_brackets(host: &str) -> &str {
