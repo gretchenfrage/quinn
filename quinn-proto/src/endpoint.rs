@@ -22,7 +22,7 @@ use crate::{
     connection::{Connection, ConnectionError},
     crypto::{self, Keys, UnsupportedVersion},
     frame,
-    packet::{Header, Packet, PacketDecodeError, PacketNumber, PartialDecode},
+    packet::{Header, Packet, PacketDecodeError, PacketNumber, PartialDecode, PlainInitialHeader},
     shared::{
         ConnectionEvent, ConnectionEventInner, ConnectionId, EcnCodepoint, EndpointEvent,
         EndpointEventInner, IssuedCid,
@@ -210,27 +210,40 @@ impl Endpoint {
             }
         };
 
-        if let Some(version) = first_decode.initial_version() {
+        if let Some(header) = first_decode.initial_header() {
             if datagram_len < MIN_INITIAL_SIZE as usize {
                 debug!("ignoring short initial for connection {}", dst_cid);
                 return None;
             }
 
-            let crypto = match server_config
-                .crypto
-                .initial_keys(version, dst_cid, Side::Server)
-            {
-                Ok(keys) => keys,
-                Err(UnsupportedVersion) => {
-                    // This probably indicates that the user set supported_versions incorrectly in
-                    // `EndpointConfig`.
-                    debug!(
+            let crypto =
+                match server_config
+                    .crypto
+                    .initial_keys(header.version, dst_cid, Side::Server)
+                {
+                    Ok(keys) => keys,
+                    Err(UnsupportedVersion) => {
+                        // This probably indicates that the user set supported_versions incorrectly in
+                        // `EndpointConfig`.
+                        debug!(
                         "ignoring initial packet version {:#x} unsupported by cryptographic layer",
-                        version
+                        header.version
                     );
-                    return None;
-                }
-            };
+                        return None;
+                    }
+                };
+
+            if let Err(reason) = self.early_validate_first_packet(header) {
+                return Some(DatagramEvent::Response(self.initial_close(
+                    header.version,
+                    addresses,
+                    &crypto,
+                    &header.src_cid,
+                    reason,
+                    buf,
+                )));
+            }
+
             return match first_decode.finish(Some(&*crypto.header.remote)) {
                 Ok(packet) => {
                     self.handle_first_packet(addresses, ecn, packet, remaining, crypto, buf)
@@ -434,28 +447,7 @@ impl Endpoint {
             return None;
         }
 
-        if let Err(initial_close) =
-            self.check_connection_limit(version, addresses, &crypto, &src_cid, buf)
-        {
-            return Some(DatagramEvent::Response(initial_close));
-        }
-
-        let server_config = self.server_config.as_ref().unwrap();
-
-        if dst_cid.len() < 8 && dst_cid.len() != self.local_cid_generator.cid_len() {
-            debug!(
-                "rejecting connection due to invalid DCID length {}",
-                dst_cid.len()
-            );
-            return Some(DatagramEvent::Response(self.initial_close(
-                version,
-                addresses,
-                &crypto,
-                &src_cid,
-                TransportError::PROTOCOL_VIOLATION("invalid destination CID length"),
-                buf,
-            )));
-        }
+        let server_config = self.server_config.as_ref().unwrap().clone();
 
         let (retry_src_cid, orig_dst_cid) = if token.is_empty() {
             (None, dst_cid)
@@ -507,14 +499,19 @@ impl Endpoint {
         now: Instant,
         buf: &mut BytesMut,
     ) -> Result<(ConnectionHandle, Connection), (ConnectionError, Option<Transmit>)> {
-        self.check_connection_limit(
-            incoming.version,
-            incoming.addresses,
-            &incoming.crypto,
-            &incoming.src_cid,
-            buf,
-        )
-        .map_err(|response| (ConnectionError::ConnectionLimitExceeded, Some(response)))?;
+        self.check_connection_limit().map_err(|reason| {
+            (
+                ConnectionError::ConnectionLimitExceeded,
+                Some(self.initial_close(
+                    incoming.version,
+                    incoming.addresses,
+                    &incoming.crypto,
+                    &incoming.src_cid,
+                    reason,
+                    buf,
+                )),
+            )
+        })?;
 
         let server_config = self.server_config.as_ref().unwrap().clone();
 
@@ -581,6 +578,33 @@ impl Endpoint {
                 Err((e, response))
             }
         }
+    }
+
+    /// Check if we should refuse a connection attempt regardless of the packet's contents
+    fn early_validate_first_packet(
+        &mut self,
+        header: &PlainInitialHeader,
+    ) -> Result<(), TransportError> {
+        self.check_connection_limit()?;
+
+        // RFC9000 §7.2 dictates that initial (client-chosen) destination CIDs must be at least 8
+        // bytes. If this is a Retry packet, then the length must instead match our usual CID
+        // length. If we ever issue non-Retry address validation tokens via `NEW_TOKEN`, then we'll
+        // also need to validate CID length for those after decoding the token.
+        if header.dst_cid.len() < 8
+            && (!header.token_pos.is_empty()
+                && header.dst_cid.len() != self.local_cid_generator.cid_len())
+        {
+            debug!(
+                "rejecting connection due to invalid DCID length {}",
+                header.dst_cid.len()
+            );
+            return Err(TransportError::PROTOCOL_VIOLATION(
+                "invalid destination CID length",
+            ));
+        }
+
+        Ok(())
     }
 
     /// Reject this incoming connection attempt
@@ -701,28 +725,14 @@ impl Endpoint {
         conn
     }
 
-    fn check_connection_limit(
-        &mut self,
-        version: u32,
-        addresses: FourTuple,
-        crypto: &Keys,
-        src_cid: &ConnectionId,
-        buf: &mut BytesMut,
-    ) -> Result<(), Transmit> {
+    fn check_connection_limit(&mut self) -> Result<(), TransportError> {
         let server_config = self.server_config.as_ref().unwrap();
         if self.connections.len() < server_config.concurrent_connections as usize && !self.is_full()
         {
             return Ok(());
         }
         debug!("refusing connection");
-        Err(self.initial_close(
-            version,
-            addresses,
-            crypto,
-            src_cid,
-            TransportError::CONNECTION_REFUSED(""),
-            buf,
-        ))
+        Err(TransportError::CONNECTION_REFUSED(""))
     }
 
     fn initial_close(
