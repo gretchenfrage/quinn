@@ -130,6 +130,7 @@ async fn run(options: Opt) -> Result<()> {
         .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(certs, key)?;
+    server_crypto.max_early_data_size = u32::MAX;
     server_crypto.alpn_protocols = common::ALPN_QUIC_HTTP.iter().map(|&x| x.into()).collect();
     if options.keylog {
         server_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
