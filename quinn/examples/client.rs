@@ -54,6 +54,10 @@ struct Opt {
     /// Suppress printing the response
     #[clap(long = "suppress")]
     suppress: bool,
+
+    /// Attempt to transmit request as 0-RTT data
+    #[clap(long = "0rtt")]
+    zero_rtt: bool,
 }
 
 fn main() {
@@ -142,14 +146,51 @@ async fn request(options: &Opt, endpoint: &quinn::Endpoint, url: &ParsedUrl) -> 
     let host = options.host.as_deref().unwrap_or(&url.url_host);
 
     eprintln!("connecting to {host} at {}", url.remote);
-    let conn = endpoint
-        .connect(url.remote, host)?
-        .await
-        .map_err(|e| anyhow!("failed to connect: {}", e))?;
-
-    eprintln!("connected at {:?}", start.elapsed());
-
-    request_inner(options, endpoint, &conn, &request, start).await
+    let connecting = endpoint.connect(url.remote, host)?;
+    if options.zero_rtt {
+        match connecting.into_0rtt() {
+            Ok((conn, zero_rtt_accepted)) => {
+                eprintln!("client accepted 0rtt conversion");
+                let request_0rtt = request_inner(&options, endpoint, &conn, &request, start);
+                futures::pin_mut!(request_0rtt);
+                tokio::select! {
+                    result = &mut request_0rtt => {
+                        result
+                    }
+                    accepted = zero_rtt_accepted => {
+                        if accepted {
+                            eprintln!("server accepted 0rtt data at {:?}", start.elapsed());
+                            request_0rtt.await
+                        } else {
+                            eprintln!("server rejected 0rtt data at {:?}", start.elapsed());
+                            request_inner(
+                                &options,
+                                endpoint,
+                                &conn,
+                                &request,
+                                start
+                            ).await
+                        }
+                    }
+                }
+            }
+            Err(connecting) => {
+                eprintln!("client rejected 0rtt conversion");
+                let conn = connecting
+                    .await
+                    .map_err(|e| anyhow!("failed to connect: {}", e))?;
+                eprintln!("connected at {:?}", start.elapsed());
+                request_inner(options, endpoint, &conn, &request, start).await
+            }
+        }
+    } else {
+        let conn = endpoint
+            .connect(url.remote, host)?
+            .await
+            .map_err(|e| anyhow!("failed to connect: {}", e))?;
+        eprintln!("connected at {:?}", start.elapsed());
+        request_inner(options, endpoint, &conn, &request, start).await
+    }
 }
 
 async fn request_inner(
