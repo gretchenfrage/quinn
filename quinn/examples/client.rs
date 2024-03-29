@@ -139,7 +139,6 @@ async fn run(options: Opt) -> Result<()> {
 async fn request(options: &Opt, endpoint: &quinn::Endpoint, url: &ParsedUrl) -> Result<()> {
     let request = format!("GET {}\r\n", url.url.path());
     let start = Instant::now();
-    let rebind = options.rebind;
     let host = options.host.as_deref().unwrap_or(&url.url_host);
 
     eprintln!("connecting to {host} at {}", url.remote);
@@ -147,12 +146,25 @@ async fn request(options: &Opt, endpoint: &quinn::Endpoint, url: &ParsedUrl) -> 
         .connect(url.remote, host)?
         .await
         .map_err(|e| anyhow!("failed to connect: {}", e))?;
+
     eprintln!("connected at {:?}", start.elapsed());
+
+    request_inner(options, endpoint, &conn, &request, start).await
+}
+
+async fn request_inner(
+    options: &Opt,
+    endpoint: &quinn::Endpoint,
+    conn: &quinn::Connection,
+    request: &str,
+    start: Instant,
+) -> Result<()> {
     let (mut send, mut recv) = conn
         .open_bi()
         .await
         .map_err(|e| anyhow!("failed to open stream: {}", e))?;
-    if rebind {
+
+    if options.rebind {
         let socket = std::net::UdpSocket::bind("[::]:0").unwrap();
         let addr = socket.local_addr().unwrap();
         eprintln!("rebinding to {addr}");
