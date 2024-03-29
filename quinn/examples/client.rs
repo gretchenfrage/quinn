@@ -15,6 +15,7 @@ use std::{
 use anyhow::{anyhow, Error, Result};
 use bytes::Bytes;
 use clap::Parser;
+use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tracing::{error, info};
 use url::Url;
 
@@ -45,6 +46,10 @@ struct Opt {
     /// Address to bind on
     #[clap(long = "bind", default_value = "[::]:0")]
     bind: SocketAddr,
+
+    /// Read URLs from standard input
+    #[clap(long = "stdin")]
+    stdin: bool,
 }
 
 fn main() {
@@ -101,6 +106,23 @@ async fn run(options: Opt) -> Result<()> {
 
     for url in &options.urls {
         request(&options, &endpoint, url).await?;
+    }
+
+    if options.stdin {
+        let mut lines = BufReader::new(tokio::io::stdin()).lines();
+        while let Some(line) = {
+            eprint!("> ");
+            std::io::stderr().flush()?;
+            lines.next_line().await?
+        } {
+            match line.trim().parse() {
+                Ok(url) => request(&options, &endpoint, &url).await?,
+                Err(e) => {
+                    eprintln!("error parsing url: {}", e);
+                    eprintln!();
+                }
+            }
+        }
     }
 
     // Give the server a fair chance to receive the close packet
