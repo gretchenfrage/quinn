@@ -28,7 +28,7 @@ struct Opt {
     #[clap(long = "keylog")]
     keylog: bool,
 
-    url: ParsedUrl,
+    urls: Vec<ParsedUrl>,
 
     /// Override hostname used for certificate verification
     #[clap(long = "host")]
@@ -99,7 +99,9 @@ async fn run(options: Opt) -> Result<()> {
     let mut endpoint = quinn::Endpoint::client(options.bind)?;
     endpoint.set_default_client_config(client_config);
 
-    request(&options, &endpoint).await?;
+    for url in &options.urls {
+        request(&options, &endpoint, url).await?;
+    }
 
     // Give the server a fair chance to receive the close packet
     endpoint.wait_idle().await;
@@ -107,15 +109,15 @@ async fn run(options: Opt) -> Result<()> {
     Ok(())
 }
 
-async fn request(options: &Opt, endpoint: &quinn::Endpoint) -> Result<()> {
-    let request = format!("GET {}\r\n", options.url.url.path());
+async fn request(options: &Opt, endpoint: &quinn::Endpoint, url: &ParsedUrl) -> Result<()> {
+    let request = format!("GET {}\r\n", url.url.path());
     let start = Instant::now();
     let rebind = options.rebind;
-    let host = options.host.as_deref().unwrap_or(&options.url.url_host);
+    let host = options.host.as_deref().unwrap_or(&url.url_host);
 
-    eprintln!("connecting to {host} at {}", options.url.remote);
+    eprintln!("connecting to {host} at {}", url.remote);
     let conn = endpoint
-        .connect(options.url.remote, host)?
+        .connect(url.remote, host)?
         .await
         .map_err(|e| anyhow!("failed to connect: {}", e))?;
     eprintln!("connected at {:?}", start.elapsed());
@@ -161,6 +163,7 @@ async fn request(options: &Opt, endpoint: &quinn::Endpoint) -> Result<()> {
     io::stdout().write_all(&resp).unwrap();
     io::stdout().flush().unwrap();
     conn.close(0u32.into(), b"done");
+    eprintln!();
 
     Ok(())
 }
