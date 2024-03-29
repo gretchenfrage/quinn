@@ -7,11 +7,13 @@ use std::{
     io::{self, Write},
     net::{SocketAddr, ToSocketAddrs},
     path::PathBuf,
+    str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Error, Result};
+use bytes::Bytes;
 use clap::Parser;
 use tracing::{error, info};
 use url::Url;
@@ -26,7 +28,7 @@ struct Opt {
     #[clap(long = "keylog")]
     keylog: bool,
 
-    url: Url,
+    url: ParsedUrl,
 
     /// Override hostname used for certificate verification
     #[clap(long = "host")]
@@ -66,13 +68,6 @@ fn main() {
 
 #[tokio::main]
 async fn run(options: Opt) -> Result<()> {
-    let url = options.url;
-    let url_host = strip_ipv6_brackets(url.host_str().unwrap());
-    let remote = (url_host, url.port().unwrap_or(4433))
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| anyhow!("couldn't resolve to an address"))?;
-
     let mut roots = rustls::RootCertStore::empty();
     if let Some(ca_path) = options.ca {
         roots.add(&rustls::Certificate(fs::read(ca_path)?))?;
@@ -104,14 +99,14 @@ async fn run(options: Opt) -> Result<()> {
     let mut endpoint = quinn::Endpoint::client(options.bind)?;
     endpoint.set_default_client_config(client_config);
 
-    let request = format!("GET {}\r\n", url.path());
+    let request = format!("GET {}\r\n", options.url.url.path());
     let start = Instant::now();
     let rebind = options.rebind;
-    let host = options.host.as_deref().unwrap_or(url_host);
+    let host = options.host.as_deref().unwrap_or(&options.url.url_host);
 
-    eprintln!("connecting to {host} at {remote}");
+    eprintln!("connecting to {host} at {}", options.url.remote);
     let conn = endpoint
-        .connect(remote, host)?
+        .connect(options.url.remote, host)?
         .await
         .map_err(|e| anyhow!("failed to connect: {}", e))?;
     eprintln!("connected at {:?}", start.elapsed());
@@ -129,15 +124,25 @@ async fn run(options: Opt) -> Result<()> {
     send.write_all(request.as_bytes())
         .await
         .map_err(|e| anyhow!("failed to send request: {}", e))?;
-    send.finish()
-        .await
-        .map_err(|e| anyhow!("failed to shutdown stream: {}", e))?;
+    drop(send);
+
+    async fn next_response_chunk(recv: &mut quinn::RecvStream) -> Result<Option<Bytes>> {
+        Ok(recv
+            .read_chunk(4096, true)
+            .await
+            .map_err(|e| anyhow!("failed to read response: {}", e))?
+            .map(|chunk| chunk.bytes))
+    }
+    let mut resp = next_response_chunk(&mut recv)
+        .await?
+        .map(|b| b.to_vec())
+        .unwrap_or_default();
     let response_start = Instant::now();
-    eprintln!("request sent at {:?}", response_start - start);
-    let resp = recv
-        .read_to_end(usize::max_value())
-        .await
-        .map_err(|e| anyhow!("failed to read response: {}", e))?;
+    eprintln!("first response byte at {:?}", response_start - start);
+    while let Some(b) = next_response_chunk(&mut recv).await? {
+        resp.extend(b);
+    }
+
     let duration = response_start.elapsed();
     eprintln!(
         "response received in {:?} - {} KiB/s",
@@ -152,6 +157,31 @@ async fn run(options: Opt) -> Result<()> {
     endpoint.wait_idle().await;
 
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct ParsedUrl {
+    url: Url,
+    url_host: String,
+    remote: SocketAddr,
+}
+
+impl FromStr for ParsedUrl {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let url: Url = s.parse()?;
+        let url_host = strip_ipv6_brackets(url.host_str().unwrap()).to_owned();
+        let remote = (url_host.as_str(), url.port().unwrap_or(4433))
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| anyhow!("couldn't resolve to an address"))?;
+        Ok(Self {
+            url,
+            url_host,
+            remote,
+        })
+    }
 }
 
 fn strip_ipv6_brackets(host: &str) -> &str {
