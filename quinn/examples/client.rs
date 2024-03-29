@@ -69,7 +69,7 @@ fn main() {
 #[tokio::main]
 async fn run(options: Opt) -> Result<()> {
     let mut roots = rustls::RootCertStore::empty();
-    if let Some(ca_path) = options.ca {
+    if let Some(ca_path) = options.ca.as_ref() {
         roots.add(&rustls::Certificate(fs::read(ca_path)?))?;
     } else {
         let dirs = directories_next::ProjectDirs::from("org", "quinn", "quinn-examples").unwrap();
@@ -99,6 +99,15 @@ async fn run(options: Opt) -> Result<()> {
     let mut endpoint = quinn::Endpoint::client(options.bind)?;
     endpoint.set_default_client_config(client_config);
 
+    request(&options, &endpoint).await?;
+
+    // Give the server a fair chance to receive the close packet
+    endpoint.wait_idle().await;
+
+    Ok(())
+}
+
+async fn request(options: &Opt, endpoint: &quinn::Endpoint) -> Result<()> {
     let request = format!("GET {}\r\n", options.url.url.path());
     let start = Instant::now();
     let rebind = options.rebind;
@@ -152,9 +161,6 @@ async fn run(options: Opt) -> Result<()> {
     io::stdout().write_all(&resp).unwrap();
     io::stdout().flush().unwrap();
     conn.close(0u32.into(), b"done");
-
-    // Give the server a fair chance to receive the close packet
-    endpoint.wait_idle().await;
 
     Ok(())
 }
