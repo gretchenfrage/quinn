@@ -769,6 +769,14 @@ pub struct ServerConfig {
 
 impl ServerConfig {
     /// Create a default config with a particular handshake token key
+    ///
+    /// 0-rtt
+    /// ---
+    ///
+    /// In general, where quinn automatically constructs a `ServerConfig`, it uses as the
+    /// cryptographic config a `rustls::ServerConfig`, and sets `max_early_data_size` to
+    /// `u32::MAX`. If a `rustls::ServerConfig` is constructed and used without setting
+    /// `max_early_data_size` to `u32::MAX`, then 0-rtt conversion will not be possible.
     pub fn new(
         crypto: Arc<dyn crypto::ServerConfig>,
         token_key: Arc<dyn HandshakeTokenKey>,
