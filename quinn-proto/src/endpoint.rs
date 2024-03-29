@@ -498,12 +498,12 @@ impl Endpoint {
         incoming: Incoming,
         now: Instant,
         buf: &mut BytesMut,
-    ) -> Result<(ConnectionHandle, Connection), (ConnectionError, Option<Transmit>)> {
+    ) -> Result<(ConnectionHandle, Connection), AcceptError> {
         if self.cids_exhausted() {
             debug!("refusing connection");
-            return Err((
-                ConnectionError::CidsExhausted,
-                Some(self.initial_close(
+            return Err(AcceptError {
+                cause: ConnectionError::CidsExhausted,
+                response: Some(self.initial_close(
                     incoming.version,
                     incoming.addresses,
                     &incoming.crypto,
@@ -511,7 +511,7 @@ impl Endpoint {
                     TransportError::CONNECTION_REFUSED(""),
                     buf,
                 )),
-            ));
+            });
         }
 
         let server_config = self.server_config.as_ref().unwrap().clone();
@@ -576,7 +576,7 @@ impl Endpoint {
                     )),
                     _ => None,
                 };
-                Err((e, response))
+                Err(AcceptError { cause: e, response })
             }
         }
     }
@@ -1045,6 +1045,15 @@ pub enum ConnectError {
     /// The local endpoint does not support the QUIC version specified in the client configuration
     #[error("unsupported QUIC version")]
     UnsupportedVersion,
+}
+
+/// Error type for attempting to accept an [`Incoming`]
+#[derive(Debug)]
+pub struct AcceptError {
+    /// Underlying error describing reason for failure
+    pub cause: ConnectionError,
+    /// Optional response to transmit back
+    pub response: Option<Transmit>,
 }
 
 /// Error for attempting to retry an [`Incoming`] which already bears an address

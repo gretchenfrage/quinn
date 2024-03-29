@@ -374,11 +374,11 @@ impl EndpointInner {
                 let runtime = state.runtime.clone();
                 state.connections.insert(handle, conn, socket, runtime)
             })
-            .map_err(|(e, response)| {
-                if let Some(transmit) = response {
+            .map_err(|error| {
+                if let Some(transmit) = error.response {
                     state.transmit_state.respond(transmit, response_buffer);
                 }
-                e
+                error.cause
             })
     }
 
