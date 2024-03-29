@@ -50,6 +50,10 @@ struct Opt {
     /// Read URLs from standard input
     #[clap(long = "stdin")]
     stdin: bool,
+
+    /// Suppress printing the response
+    #[clap(long = "suppress")]
+    suppress: bool,
 }
 
 fn main() {
@@ -182,8 +186,10 @@ async fn request(options: &Opt, endpoint: &quinn::Endpoint, url: &ParsedUrl) -> 
         duration,
         resp.len() as f32 / (duration_secs(&duration) * 1024.0)
     );
-    io::stdout().write_all(&resp).unwrap();
-    io::stdout().flush().unwrap();
+    if !options.suppress {
+        io::stdout().write_all(&resp).unwrap();
+        io::stdout().flush().unwrap();
+    }
     conn.close(0u32.into(), b"done");
     eprintln!();
 
