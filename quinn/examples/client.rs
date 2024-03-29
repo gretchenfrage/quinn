@@ -98,6 +98,7 @@ async fn run(options: Opt) -> Result<()> {
         .with_safe_defaults()
         .with_root_certificates(roots)
         .with_no_client_auth();
+    client_crypto.enable_early_data = true;
 
     client_crypto.alpn_protocols = common::ALPN_QUIC_HTTP.iter().map(|&x| x.into()).collect();
     if options.keylog {
