@@ -70,29 +70,55 @@ impl Connecting {
 
     /// Convert into a 0-RTT or 0.5-RTT connection at the cost of weakened security
     ///
-    /// Opens up the connection for use before the handshake finishes, allowing the API user to
-    /// send data with 0-RTT encryption if the necessary key material is available. This is useful
-    /// for reducing start-up latency by beginning transmission of application data without waiting
-    /// for the handshake's cryptographic security guarantees to be established.
+    /// Returns `Ok` immediately if the local endpoint is able to attempt 0/0.5-RTT conversion. If
+    /// so, the returned [`Connection`] can be used to open streams and write data to them without
+    /// waiting for the rest of the handshake to complete, at the cost of weakened cryptographic
+    /// security guarantees. The returned [`ZeroRttAccepted`] future resolves when the handshake
+    /// does complete, at which point subsequently opened streams and written data will have full
+    /// cryptographic protection.
     ///
-    /// When the `ZeroRttAccepted` future completes, the connection has been fully established.
+    /// Outgoing
+    /// ---
     ///
-    /// # Security
+    /// For outgoing connections, the initial attempt to convert to 0-RTT will proceed if the
+    /// [`crypto::ClientConfig`][crate::crypto::ClientConfig] attempts to resume a previous TLS
+    /// session. However, **the remote endpoint may not actually _accept_ the 0-RTT data**--yet
+    /// still accept the connection attempt in general. This may occur, for example, if the remote
+    /// endpoint has restarted since the local endpoint last connected to it.
     ///
-    /// On outgoing connections, this enables transmission of 0-RTT data, which might be vulnerable
-    /// to replay attacks, and should therefore never invoke non-idempotent operations.
+    /// This possibility is conveyed through the [`ZeroRttAccepted`] future--when the handshake
+    /// completes, it resolves to true if the 0-RTT data was accepted and false if it was rejected.
+    /// If it was rejected, streams opened prior to the handshake completing will _hang_, and their
+    /// existence will typically not be conveyed to the remote application.
     ///
-    /// On incoming connections, this enables transmission of 0.5-RTT data, which might be
-    /// intercepted by a man-in-the-middle. If this occurs, the handshake will not complete
-    /// successfully.
+    /// By default, quinn uses [`rustls::ClientConfig`] as the client crypto implementation. It
+    /// allows the initial attempt to convert to 0-RTT to proceed if its `enable_early_data` field
+    /// is set to true and its `resumption` field recognizes the server name (which defaults to an
+    /// in-memory cache of 256 server names). **If you are manually providing the client crypto
+    /// config, you must set `enable_early_data` to true to get 0-RTT working.**
     ///
-    /// # Errors
+    /// Incoming
+    /// ---
     ///
-    /// Outgoing connections are only 0-RTT-capable when a cryptographic session ticket cached from
-    /// a previous connection to the same server is available, and includes a 0-RTT key. If no such
-    /// ticket is found, `self` is returned unmodified.
+    /// For incoming connections, conversion to 0.5-RTT will always fully succeed. `into_0rtt` will
+    /// always return `Ok` and the [`ZeroRttAccepted`] will always resolve to true.
     ///
-    /// For incoming connections, a 0.5-RTT connection will always be successfully constructed.
+    /// By default, quinn uses [`rustls::ServerConfig`] as the server crypto implementation. Its
+    /// `max_early_data_size` field can be set to either 0 or `u32::MAX`. If it is left as 0, 0-RTT
+    /// conversion by the remote endpoint may be "accepted" by the local endpoint but nevertheless
+    /// have all attempts to send 0-RTT data blocked until the handshake completes. **If you are
+    /// manually providing the server crypto config, you must set `max_early_data_size` to
+    /// `u32::MAX` to get 0-RTT working.**
+    ///
+    /// Security
+    /// ---
+    ///
+    /// On outgoing connections, this enables transmission of 0-RTT data, which is vulnerable to
+    /// replay attacks, and should therefore never invoke non-idempotent operations.
+    ///
+    /// On incoming connections, this enables transmission of 0.5-RTT data, which is vulnerable
+    /// to an attack in which a man-in-the-middle may prevent the handshake from successfully
+    /// completing.
     pub fn into_0rtt(mut self) -> Result<(Connection, ZeroRttAccepted), Self> {
         // This lock borrows `self` and would normally be dropped at the end of this scope, so we'll
         // have to release it explicitly before returning `self` by value.
