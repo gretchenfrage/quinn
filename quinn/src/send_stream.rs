@@ -134,6 +134,17 @@ impl SendStream {
     ///
     /// No new data may be written after calling this method. Completes when the peer has
     /// acknowledged all sent data, retransmitting data as needed.
+    ///
+    /// 0-rtt
+    /// ---
+    ///
+    /// Because 0-RTT packets cannot contain ACKs, if this is called from a 0-RTT stream opened by
+    /// the client, it cannot resolve for at least two round trips after the creation of the
+    /// connection.
+    ///
+    /// If a single round trip request/response exchange is desired, consider having the client
+    /// write the response into the 0-RTT `SendStream`, then _drop_ the `SendStream`, then read the
+    /// response from the `RecvStream`.
     pub async fn finish(&mut self) -> Result<(), WriteError> {
         Finish { stream: self }.await
     }
@@ -142,6 +153,17 @@ impl SendStream {
     ///
     /// No new data may be written after calling this method. Completes when the peer has
     /// acknowledged all sent data, retransmitting data as needed.
+    ///
+    /// 0-rtt
+    /// ---
+    ///
+    /// Because 0-RTT packets cannot contain ACKs, if this is called from a 0-RTT stream opened by
+    /// the client, it cannot resolve for at least two round trips after the creation of the
+    /// connection.
+    ///
+    /// If a single round trip request/response exchange is desired, consider having the client
+    /// write the response into the 0-RTT `SendStream`, then _drop_ the `SendStream`, then read the
+    /// response from the `RecvStream`.
     pub fn poll_finish(&mut self, cx: &mut Context) -> Poll<Result<(), WriteError>> {
         let mut conn = self.conn.state.lock("poll_finish");
         if self.is_0rtt {
