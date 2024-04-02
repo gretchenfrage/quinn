@@ -233,6 +233,8 @@ async fn request_inner(
     while let Some(b) = next_response_chunk(&mut recv).await? {
         resp.extend(b);
     }
+    let response_end = Instant::now();
+    eprintln!("last response byte at {:?}", response_end - start);
 
     let duration = response_start.elapsed();
     eprintln!(

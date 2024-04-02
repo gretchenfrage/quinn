@@ -18,7 +18,7 @@ def run_command_and_extract_number():
     stderr = process.communicate()[1]
 
     # Extracting the number from the second occurrence of "first response byte at"
-    search_phrase = "first response byte at"
+    search_phrase = "last response byte at"
     occurrences = [line for line in stderr.split('\n') if search_phrase in line]
 
     if len(occurrences) >= 2:
