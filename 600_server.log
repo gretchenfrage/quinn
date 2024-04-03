@@ -1,0 +1,224 @@
+2024-04-03T04:52:17.584036Z  INFO server: accepting connection
+2024-04-03T04:52:17.584124Z TRACE first recv:frame{ty=CRYPTO}: quinn_proto::connection: consumed 297 CRYPTO bytes
+2024-04-03T04:52:17.584300Z TRACE first recv: quinn_proto::connection: Handshake keys ready
+2024-04-03T04:52:17.584304Z TRACE first recv: quinn_proto::connection: wrote 90 Initial CRYPTO bytes
+2024-04-03T04:52:17.584314Z TRACE first recv: quinn_proto::connection: Data keys ready
+2024-04-03T04:52:17.584320Z TRACE first recv: quinn_proto::connection: wrote 640 Handshake CRYPTO bytes
+2024-04-03T04:52:17.584328Z TRACE quinn_proto::endpoint: new connection id=1 icid=018f2cd4059b1e4ce257219660c16def554aa383
+2024-04-03T04:52:17.584350Z  INFO connection{remote=127.0.0.1:56209 protocol=hq-29}: server: established
+2024-04-03T04:52:17.584357Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=0 bytes_to_send=1
+2024-04-03T04:52:17.584366Z TRACE drive{id=1}:send{space=Initial pn=0}: quinn_proto::connection: ACK ArrayRangeSet([0..1]), Delay = 267us
+2024-04-03T04:52:17.584371Z TRACE drive{id=1}:send{space=Initial pn=0}: quinn_proto::connection: CRYPTO: off 0 len 90
+2024-04-03T04:52:17.584377Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=0 bytes_to_send=1
+2024-04-03T04:52:17.584382Z TRACE drive{id=1}:send{space=Handshake pn=0}: quinn_proto::connection: CRYPTO: off 0 len 640
+2024-04-03T04:52:17.584385Z TRACE drive{id=1}:send{space=Handshake pn=0}: quinn_proto::connection::packet_builder: PADDING * 369
+2024-04-03T04:52:17.584389Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=0 bytes_to_send=1
+2024-04-03T04:52:17.584393Z TRACE drive{id=1}: quinn_proto::connection: sending 1200 bytes in 1 datagrams
+2024-04-03T04:52:17.584429Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=1200 bytes_to_send=1
+2024-04-03T04:52:17.584435Z TRACE drive{id=1}:send{space=Data pn=0}: quinn_proto::connection: NEW_CONNECTION_ID sequence=1 id=2cfaabac57a90f68
+2024-04-03T04:52:17.584439Z TRACE drive{id=1}:send{space=Data pn=0}: quinn_proto::connection: NEW_CONNECTION_ID sequence=2 id=45826c433c56fd17
+2024-04-03T04:52:17.584443Z TRACE drive{id=1}:send{space=Data pn=0}: quinn_proto::connection: NEW_CONNECTION_ID sequence=3 id=dbe77ebc9f6b8f72
+2024-04-03T04:52:17.584446Z TRACE drive{id=1}:send{space=Data pn=0}: quinn_proto::connection: NEW_CONNECTION_ID sequence=4 id=aca208e8b3f1921d
+2024-04-03T04:52:17.584450Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=1200 bytes_to_send=1
+2024-04-03T04:52:17.584454Z TRACE drive{id=1}: quinn_proto::connection: sending 138 bytes in 1 datagrams
+2024-04-03T04:52:17.786453Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:17.786470Z TRACE drive{id=1}: quinn_proto::connection: got Initial packet (52 bytes) from 127.0.0.1:56209 using id 0e072cf1af47507d
+2024-04-03T04:52:17.786487Z TRACE drive{id=1}:recv{space=Initial pn=1}:frame{ty=ACK}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:17.786497Z TRACE drive{id=1}: quinn_proto::connection: got Handshake packet (1148 bytes) from 127.0.0.1:56209 using id 0e072cf1af47507d
+2024-04-03T04:52:17.786502Z TRACE drive{id=1}:recv{space=Handshake pn=0}: quinn_proto::connection: discarding Initial keys
+2024-04-03T04:52:17.786506Z TRACE drive{id=1}:recv{space=Handshake pn=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=2384 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:17.786512Z TRACE drive{id=1}:recv{space=Handshake pn=0}:frame{ty=ACK}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=2384 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:17.786518Z TRACE drive{id=1}:recv{space=Handshake pn=0}:frame{ty=CRYPTO}: quinn_proto::connection: consumed 52 CRYPTO bytes
+2024-04-03T04:52:17.786583Z TRACE drive{id=1}:recv{space=Handshake pn=0}: quinn_proto::connection: wrote 356 Data CRYPTO bytes
+2024-04-03T04:52:17.786592Z TRACE drive{id=1}:recv{space=Handshake pn=0}: quinn_proto::connection: discarding Handshake keys
+2024-04-03T04:52:17.786595Z TRACE drive{id=1}:recv{space=Handshake pn=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=2384 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:17.786617Z TRACE drive{id=1}:recv{space=Handshake pn=0}: quinn_proto::connection: established
+2024-04-03T04:52:17.786621Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=2384 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:17.786627Z TRACE drive{id=1}: quinn_proto::connection: got Data packet (1326 bytes) from 127.0.0.1:56209 using id 0e072cf1af47507d
+2024-04-03T04:52:17.786635Z TRACE drive{id=1}:recv{space=Data pn=0}: quinn_proto::connection: got frame Ping
+2024-04-03T04:52:17.786651Z TRACE drive{id=1}:recv{space=Data pn=0}: quinn_proto::connection: got frame ImmediateAck
+2024-04-03T04:52:17.786681Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3710 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:17.786687Z TRACE drive{id=1}: quinn_proto::connection: got Data packet (158 bytes) from 127.0.0.1:56209 using id 0e072cf1af47507d
+2024-04-03T04:52:17.786701Z TRACE drive{id=1}:recv{space=Data pn=1}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 1, retire_prior_to: 0, id: [15, 186, 32, 134, 3, 136, 12, 31], reset_token: ResetToken([44, 237, 107, 251, 141, 149, 187, 137, 164, 92, 18, 139, 68, 162, 101, 2]) })
+2024-04-03T04:52:17.786708Z TRACE drive{id=1}:recv{space=Data pn=1}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=1 id=0fba208603880c1f retire_prior_to=0
+2024-04-03T04:52:17.786715Z TRACE drive{id=1}:recv{space=Data pn=1}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 2, retire_prior_to: 0, id: [237, 59, 223, 168, 245, 220, 171, 207], reset_token: ResetToken([26, 66, 97, 247, 84, 126, 202, 110, 6, 165, 253, 203, 21, 71, 104, 90]) })
+2024-04-03T04:52:17.786720Z TRACE drive{id=1}:recv{space=Data pn=1}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=2 id=ed3bdfa8f5dcabcf retire_prior_to=0
+2024-04-03T04:52:17.786726Z TRACE drive{id=1}:recv{space=Data pn=1}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 3, retire_prior_to: 0, id: [203, 135, 110, 233, 45, 74, 225, 210], reset_token: ResetToken([174, 14, 215, 27, 135, 138, 102, 79, 151, 63, 95, 176, 171, 167, 84, 249]) })
+2024-04-03T04:52:17.786731Z TRACE drive{id=1}:recv{space=Data pn=1}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=3 id=cb876ee92d4ae1d2 retire_prior_to=0
+2024-04-03T04:52:17.786737Z TRACE drive{id=1}:recv{space=Data pn=1}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 4, retire_prior_to: 0, id: [224, 61, 176, 184, 166, 211, 61, 239], reset_token: ResetToken([244, 246, 14, 10, 229, 143, 211, 130, 83, 43, 172, 137, 161, 149, 184, 108]) })
+2024-04-03T04:52:17.786742Z TRACE drive{id=1}:recv{space=Data pn=1}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=4 id=e03db0b8a6d33def retire_prior_to=0
+2024-04-03T04:52:17.786748Z TRACE drive{id=1}:recv{space=Data pn=1}: quinn_proto::connection: got stream frame id=client bidirectional stream 0 offset=0 len=17 fin=true
+2024-04-03T04:52:17.786758Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3868 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:17.786766Z TRACE drive{id=1}:send{space=Data pn=1}: quinn_proto::connection: ACK ArrayRangeSet([0..2]), Delay = 126us
+2024-04-03T04:52:17.786772Z TRACE drive{id=1}:send{space=Data pn=1}: quinn_proto::connection: CRYPTO: off 0 len 356
+2024-04-03T04:52:17.786779Z TRACE drive{id=1}:send{space=Data pn=1}: quinn_proto::connection: RETIRE_CONNECTION_ID sequence=0
+2024-04-03T04:52:17.786788Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3868 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:17.786793Z TRACE drive{id=1}: quinn_proto::connection: sending 397 bytes in 1 datagrams
+2024-04-03T04:52:17.786800Z TRACE drive{id=1}:send{space=Data pn=2}: quinn_proto::connection::packet_builder: PADDING * 1298
+2024-04-03T04:52:17.786806Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3868 total_sent=1735 bytes_to_send=1
+2024-04-03T04:52:17.786812Z TRACE drive{id=1}: quinn_proto::connection: writing MTUD probe probe_size=1326
+2024-04-03T04:52:17.786816Z TRACE drive{id=1}: quinn_proto::connection: sending 1326 bytes in 1 datagrams
+2024-04-03T04:52:17.786839Z  INFO connection{remote=127.0.0.1:56209 protocol=hq-29}:request: server: content=GET /Cargo.toml\r\n
+2024-04-03T04:52:17.786883Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3868 total_sent=3061 bytes_to_send=1
+2024-04-03T04:52:17.786897Z TRACE drive{id=1}:send{space=Data pn=3}: quinn_proto::connection::streams::state: MAX_STREAMS (Bi) value=100
+2024-04-03T04:52:17.786902Z TRACE drive{id=1}:send{space=Data pn=3}: quinn_proto::connection::packet_builder: PADDING * 1
+2024-04-03T04:52:17.786910Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3868 total_sent=3061 bytes_to_send=1
+2024-04-03T04:52:17.786914Z TRACE drive{id=1}: quinn_proto::connection: sending 30 bytes in 1 datagrams
+2024-04-03T04:52:17.786927Z TRACE connection{remote=127.0.0.1:56209 protocol=hq-29}:request: quinn_proto::connection::streams: wrote 235 bytes stream=client bidirectional stream 0
+2024-04-03T04:52:17.786945Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3868 total_sent=3091 bytes_to_send=1
+2024-04-03T04:52:17.786967Z TRACE drive{id=1}:send{space=Data pn=4}: quinn_proto::connection::streams::state: STREAM id=client bidirectional stream 0 off=0 len=235 fin=true
+2024-04-03T04:52:17.786973Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3868 total_sent=3091 bytes_to_send=1
+2024-04-03T04:52:17.786977Z TRACE drive{id=1}: quinn_proto::connection: sending 265 bytes in 1 datagrams
+2024-04-03T04:52:17.988762Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3868 total_sent=3356 bytes_to_send=1
+2024-04-03T04:52:17.988785Z TRACE drive{id=1}: quinn_proto::connection: got Data packet (35 bytes) from 127.0.0.1:56209 using id 0e072cf1af47507d
+2024-04-03T04:52:17.988800Z TRACE drive{id=1}:recv{space=Data pn=2}: quinn_proto::connection: got frame Ack(Ack { largest: 4, delay: 135, ecn: Some(EcnCounts { ect0: 5, ect1: 0, ce: 0 }), ranges: "[0..=4]" })
+2024-04-03T04:52:17.988813Z TRACE drive{id=1}:recv{space=Data pn=2}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1326
+2024-04-03T04:52:17.988822Z TRACE drive{id=1}:recv{space=Data pn=2}:frame{ty=ACK}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3868 total_sent=3356 bytes_to_send=1
+2024-04-03T04:52:17.988830Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3903 total_sent=3356 bytes_to_send=1
+2024-04-03T04:52:17.988834Z TRACE drive{id=1}: quinn_proto::connection: got Data packet (1389 bytes) from 127.0.0.1:56209 using id 0e072cf1af47507d
+2024-04-03T04:52:17.988839Z TRACE drive{id=1}:recv{space=Data pn=3}: quinn_proto::connection: got frame Ping
+2024-04-03T04:52:17.988843Z TRACE drive{id=1}:recv{space=Data pn=3}: quinn_proto::connection: got frame ImmediateAck
+2024-04-03T04:52:17.988862Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5292 total_sent=3356 bytes_to_send=1
+2024-04-03T04:52:17.988868Z TRACE drive{id=1}:send{space=Data pn=5}: quinn_proto::connection: ACK ArrayRangeSet([2..4]), Delay = 136us
+2024-04-03T04:52:17.988873Z TRACE drive{id=1}:send{space=Data pn=5}: quinn_proto::connection::streams::state: MAX_STREAMS (Bi) value=101
+2024-04-03T04:52:17.988879Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5292 total_sent=3356 bytes_to_send=1
+2024-04-03T04:52:17.988883Z TRACE drive{id=1}: quinn_proto::connection: sending 37 bytes in 1 datagrams
+2024-04-03T04:52:17.988887Z TRACE drive{id=1}:send{space=Data pn=6}: quinn_proto::connection::packet_builder: PADDING * 1361
+2024-04-03T04:52:17.988891Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5292 total_sent=3393 bytes_to_send=1
+2024-04-03T04:52:17.988895Z TRACE drive{id=1}: quinn_proto::connection: writing MTUD probe probe_size=1389
+2024-04-03T04:52:17.988897Z TRACE drive{id=1}: quinn_proto::connection: sending 1389 bytes in 1 datagrams
+2024-04-03T04:52:17.988906Z  INFO connection{remote=127.0.0.1:56209 protocol=hq-29}:request: server: complete
+2024-04-03T04:52:17.989440Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5292 total_sent=4782 bytes_to_send=1
+2024-04-03T04:52:17.989452Z TRACE drive{id=1}: quinn_proto::connection: got Data packet (42 bytes) from 127.0.0.1:56209 using id 0e072cf1af47507d
+2024-04-03T04:52:17.989463Z TRACE drive{id=1}:recv{space=Data pn=4}: quinn_proto::connection: got frame Ack(Ack { largest: 4, delay: 171, ecn: Some(EcnCounts { ect0: 5, ect1: 0, ce: 0 }), ranges: "[0..=4]" })
+2024-04-03T04:52:17.989471Z TRACE drive{id=1}:recv{space=Data pn=4}: quinn_proto::connection: got frame Close(Application(ApplicationClose { error_code: 0, reason: b"done" }))
+2024-04-03T04:52:17.989476Z TRACE drive{id=1}: quinn_proto::connection: connection closed
+2024-04-03T04:52:17.989482Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5334 total_sent=4782 bytes_to_send=1
+2024-04-03T04:52:17.989490Z TRACE drive{id=1}:send{space=Data pn=7}: quinn_proto::connection: sending CONNECTION_CLOSE
+2024-04-03T04:52:17.989495Z TRACE drive{id=1}:send{space=Data pn=7}: quinn_proto::connection: ACK ArrayRangeSet([2..5]), Delay = 53us
+2024-04-03T04:52:17.989502Z TRACE drive{id=1}: quinn_proto::connection: sending 38 bytes in 1 datagrams
+2024-04-03T04:52:17.989511Z  INFO connection{remote=127.0.0.1:56209 protocol=hq-29}: server: connection closed
+2024-04-03T04:52:17.989617Z  INFO server: accepting connection
+2024-04-03T04:52:17.989706Z DEBUG quinn_proto::endpoint: ignoring non-initial packet for unknown connection 90fcb04083c0aa22076d4542500540736578a3ad
+2024-04-03T04:52:17.989803Z TRACE first recv:frame{ty=CRYPTO}: quinn_proto::connection: consumed 392 CRYPTO bytes
+2024-04-03T04:52:17.989949Z TRACE first recv: quinn_proto::connection: Handshake keys ready
+2024-04-03T04:52:17.989953Z TRACE first recv: quinn_proto::connection: wrote 96 Initial CRYPTO bytes
+2024-04-03T04:52:17.989961Z TRACE first recv: quinn_proto::connection: Data keys ready
+2024-04-03T04:52:17.989967Z TRACE first recv: quinn_proto::connection: wrote 194 Handshake CRYPTO bytes
+2024-04-03T04:52:17.989974Z TRACE first recv: quinn_proto::connection: 0-RTT enabled
+2024-04-03T04:52:17.989976Z TRACE quinn_proto::endpoint: new connection id=0 icid=90fcb04083c0aa22076d4542500540736578a3ad
+2024-04-03T04:52:17.990001Z  INFO connection{remote=127.0.0.1:56209 protocol=hq-29}: server: established
+2024-04-03T04:52:17.990007Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=0 bytes_to_send=1
+2024-04-03T04:52:17.990012Z TRACE drive{id=0}:send{space=Initial pn=0}: quinn_proto::connection: ACK ArrayRangeSet([0..1]), Delay = 227us
+2024-04-03T04:52:17.990016Z TRACE drive{id=0}:send{space=Initial pn=0}: quinn_proto::connection: CRYPTO: off 0 len 96
+2024-04-03T04:52:17.990021Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=0 bytes_to_send=1
+2024-04-03T04:52:17.990026Z TRACE drive{id=0}:send{space=Handshake pn=0}: quinn_proto::connection: CRYPTO: off 0 len 194
+2024-04-03T04:52:17.990029Z TRACE drive{id=0}:send{space=Handshake pn=0}: quinn_proto::connection::packet_builder: PADDING * 809
+2024-04-03T04:52:17.990032Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=0 bytes_to_send=1
+2024-04-03T04:52:17.990036Z TRACE drive{id=0}: quinn_proto::connection: sending 1200 bytes in 1 datagrams
+2024-04-03T04:52:17.990057Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=1200 bytes_to_send=1
+2024-04-03T04:52:17.990062Z TRACE drive{id=0}:send{space=Data pn=0}: quinn_proto::connection: NEW_CONNECTION_ID sequence=1 id=8a0dededfd3b433b
+2024-04-03T04:52:17.990066Z TRACE drive{id=0}:send{space=Data pn=0}: quinn_proto::connection: NEW_CONNECTION_ID sequence=2 id=51963b1c746b769b
+2024-04-03T04:52:17.990069Z TRACE drive{id=0}:send{space=Data pn=0}: quinn_proto::connection: NEW_CONNECTION_ID sequence=3 id=af7c080014b3cc1a
+2024-04-03T04:52:17.990073Z TRACE drive{id=0}:send{space=Data pn=0}: quinn_proto::connection: NEW_CONNECTION_ID sequence=4 id=679dc397796de436
+2024-04-03T04:52:17.990078Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=1200 bytes_to_send=1
+2024-04-03T04:52:17.990081Z TRACE drive{id=0}: quinn_proto::connection: sending 138 bytes in 1 datagrams
+2024-04-03T04:52:18.190138Z TRACE drive{id=1}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5334 total_sent=4820 bytes_to_send=1
+2024-04-03T04:52:18.190159Z TRACE drive{id=1}: quinn_proto::connection: got Data packet (41 bytes) from 127.0.0.1:56209 using id 0e072cf1af47507d
+2024-04-03T04:52:18.191715Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:18.191723Z TRACE drive{id=0}: quinn_proto::connection: got Initial packet (52 bytes) from 127.0.0.1:56209 using id ec55890d647bad7a
+2024-04-03T04:52:18.191738Z TRACE drive{id=0}:recv{space=Initial pn=1}:frame{ty=ACK}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=1184 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:18.191746Z TRACE drive{id=0}: quinn_proto::connection: got Handshake packet (1148 bytes) from 127.0.0.1:56209 using id ec55890d647bad7a
+2024-04-03T04:52:18.191752Z TRACE drive{id=0}:recv{space=Handshake pn=0}: quinn_proto::connection: discarding Initial keys
+2024-04-03T04:52:18.191757Z TRACE drive{id=0}:recv{space=Handshake pn=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=false total_recvd=2384 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:18.191762Z TRACE drive{id=0}:recv{space=Handshake pn=0}:frame{ty=ACK}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=2384 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:18.191769Z TRACE drive{id=0}:recv{space=Handshake pn=0}:frame{ty=CRYPTO}: quinn_proto::connection: consumed 52 CRYPTO bytes
+2024-04-03T04:52:18.191824Z TRACE drive{id=0}:recv{space=Handshake pn=0}: quinn_proto::connection: wrote 356 Data CRYPTO bytes
+2024-04-03T04:52:18.191829Z TRACE drive{id=0}:recv{space=Handshake pn=0}: quinn_proto::connection: discarding Handshake keys
+2024-04-03T04:52:18.191833Z TRACE drive{id=0}:recv{space=Handshake pn=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=2384 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:18.191838Z TRACE drive{id=0}:recv{space=Handshake pn=0}: quinn_proto::connection: established
+2024-04-03T04:52:18.191842Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=2384 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:18.191846Z TRACE drive{id=0}: quinn_proto::connection: got Data packet (1326 bytes) from 127.0.0.1:56209 using id ec55890d647bad7a
+2024-04-03T04:52:18.191852Z TRACE drive{id=0}:recv{space=Data pn=1}: quinn_proto::connection: got frame Ping
+2024-04-03T04:52:18.191857Z TRACE drive{id=0}:recv{space=Data pn=1}: quinn_proto::connection: got frame ImmediateAck
+2024-04-03T04:52:18.191874Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3710 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:18.191877Z TRACE drive{id=0}: quinn_proto::connection: got Data packet (138 bytes) from 127.0.0.1:56209 using id ec55890d647bad7a
+2024-04-03T04:52:18.191882Z TRACE drive{id=0}:recv{space=Data pn=2}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 1, retire_prior_to: 0, id: [5, 44, 199, 111, 242, 81, 137, 224], reset_token: ResetToken([91, 77, 130, 150, 66, 144, 24, 142, 68, 63, 4, 244, 158, 12, 91, 17]) })
+2024-04-03T04:52:18.191888Z TRACE drive{id=0}:recv{space=Data pn=2}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=1 id=052cc76ff25189e0 retire_prior_to=0
+2024-04-03T04:52:18.191893Z TRACE drive{id=0}:recv{space=Data pn=2}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 2, retire_prior_to: 0, id: [219, 95, 9, 255, 174, 89, 222, 2], reset_token: ResetToken([243, 237, 170, 238, 49, 186, 240, 101, 39, 209, 166, 214, 198, 101, 69, 141]) })
+2024-04-03T04:52:18.191897Z TRACE drive{id=0}:recv{space=Data pn=2}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=2 id=db5f09ffae59de02 retire_prior_to=0
+2024-04-03T04:52:18.191902Z TRACE drive{id=0}:recv{space=Data pn=2}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 3, retire_prior_to: 0, id: [42, 70, 75, 47, 141, 161, 191, 193], reset_token: ResetToken([104, 59, 219, 170, 46, 72, 125, 246, 203, 220, 106, 244, 235, 182, 214, 168]) })
+2024-04-03T04:52:18.191906Z TRACE drive{id=0}:recv{space=Data pn=2}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=3 id=2a464b2f8da1bfc1 retire_prior_to=0
+2024-04-03T04:52:18.191910Z TRACE drive{id=0}:recv{space=Data pn=2}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 4, retire_prior_to: 0, id: [89, 42, 119, 78, 72, 169, 105, 102], reset_token: ResetToken([123, 220, 173, 166, 220, 129, 183, 19, 84, 69, 16, 248, 67, 84, 23, 23]) })
+2024-04-03T04:52:18.191914Z TRACE drive{id=0}:recv{space=Data pn=2}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=4 id=592a774e48a96966 retire_prior_to=0
+2024-04-03T04:52:18.191920Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3848 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:18.191927Z TRACE drive{id=0}:send{space=Data pn=1}: quinn_proto::connection: ACK ArrayRangeSet([1..3]), Delay = 218us
+2024-04-03T04:52:18.191931Z TRACE drive{id=0}:send{space=Data pn=1}: quinn_proto::connection: CRYPTO: off 0 len 356
+2024-04-03T04:52:18.191936Z TRACE drive{id=0}:send{space=Data pn=1}: quinn_proto::connection: RETIRE_CONNECTION_ID sequence=0
+2024-04-03T04:52:18.191942Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3848 total_sent=1338 bytes_to_send=1
+2024-04-03T04:52:18.191946Z TRACE drive{id=0}: quinn_proto::connection: sending 397 bytes in 1 datagrams
+2024-04-03T04:52:18.191950Z TRACE drive{id=0}:send{space=Data pn=2}: quinn_proto::connection::packet_builder: PADDING * 1298
+2024-04-03T04:52:18.191954Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3848 total_sent=1735 bytes_to_send=1
+2024-04-03T04:52:18.191957Z TRACE drive{id=0}: quinn_proto::connection: writing MTUD probe probe_size=1326
+2024-04-03T04:52:18.191959Z TRACE drive{id=0}: quinn_proto::connection: sending 1326 bytes in 1 datagrams
+2024-04-03T04:52:18.393977Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3848 total_sent=3061 bytes_to_send=1
+2024-04-03T04:52:18.393995Z TRACE drive{id=0}: quinn_proto::connection: got Data packet (55 bytes) from 127.0.0.1:56209 using id ec55890d647bad7a
+2024-04-03T04:52:18.394008Z TRACE drive{id=0}:recv{space=Data pn=3}: quinn_proto::connection: got frame Ack(Ack { largest: 2, delay: 127, ecn: Some(EcnCounts { ect0: 3, ect1: 0, ce: 0 }), ranges: "[0..=2]" })
+2024-04-03T04:52:18.394020Z TRACE drive{id=0}:recv{space=Data pn=3}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1326
+2024-04-03T04:52:18.394025Z TRACE drive{id=0}:recv{space=Data pn=3}:frame{ty=ACK}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3848 total_sent=3061 bytes_to_send=1
+2024-04-03T04:52:18.394032Z TRACE drive{id=0}:recv{space=Data pn=3}: quinn_proto::connection: got stream frame id=client bidirectional stream 0 offset=0 len=17 fin=true
+2024-04-03T04:52:18.394039Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=3903 total_sent=3061 bytes_to_send=1
+2024-04-03T04:52:18.394042Z TRACE drive{id=0}: quinn_proto::connection: got Data packet (1389 bytes) from 127.0.0.1:56209 using id ec55890d647bad7a
+2024-04-03T04:52:18.394047Z TRACE drive{id=0}:recv{space=Data pn=4}: quinn_proto::connection: got frame Ping
+2024-04-03T04:52:18.394051Z TRACE drive{id=0}:recv{space=Data pn=4}: quinn_proto::connection: got frame ImmediateAck
+2024-04-03T04:52:18.394067Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5292 total_sent=3061 bytes_to_send=1
+2024-04-03T04:52:18.394071Z TRACE drive{id=0}: quinn_proto::connection: got Data packet (54 bytes) from 127.0.0.1:56209 using id ec55890d647bad7a
+2024-04-03T04:52:18.394075Z TRACE drive{id=0}:recv{space=Data pn=5}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 5, retire_prior_to: 0, id: [79, 135, 116, 58, 164, 56, 218, 115], reset_token: ResetToken([69, 39, 216, 43, 176, 134, 152, 38, 180, 127, 188, 129, 66, 109, 69, 150]) })
+2024-04-03T04:52:18.394079Z TRACE drive{id=0}:recv{space=Data pn=5}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=5 id=4f87743aa438da73 retire_prior_to=0
+2024-04-03T04:52:18.394084Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5346 total_sent=3061 bytes_to_send=1
+2024-04-03T04:52:18.394089Z TRACE drive{id=0}:send{space=Data pn=3}: quinn_proto::connection: ACK ArrayRangeSet([3..6]), Delay = 139us
+2024-04-03T04:52:18.394096Z TRACE drive{id=0}: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2024-04-03T04:52:18.394100Z TRACE drive{id=0}:send{space=Data pn=4}: quinn_proto::connection::packet_builder: PADDING * 1361
+2024-04-03T04:52:18.394104Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5346 total_sent=3095 bytes_to_send=1
+2024-04-03T04:52:18.394107Z TRACE drive{id=0}: quinn_proto::connection: writing MTUD probe probe_size=1389
+2024-04-03T04:52:18.394110Z TRACE drive{id=0}: quinn_proto::connection: sending 1389 bytes in 1 datagrams
+2024-04-03T04:52:18.394126Z  INFO connection{remote=127.0.0.1:56209 protocol=hq-29}:request: server: content=GET /Cargo.toml\r\n
+2024-04-03T04:52:18.394191Z TRACE connection{remote=127.0.0.1:56209 protocol=hq-29}:request: quinn_proto::connection::streams: wrote 235 bytes stream=client bidirectional stream 0
+2024-04-03T04:52:18.394211Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5346 total_sent=4484 bytes_to_send=1
+2024-04-03T04:52:18.394229Z TRACE drive{id=0}:send{space=Data pn=5}: quinn_proto::connection::streams::state: MAX_STREAMS (Bi) value=100
+2024-04-03T04:52:18.394234Z TRACE drive{id=0}:send{space=Data pn=5}: quinn_proto::connection::streams::state: STREAM id=client bidirectional stream 0 off=0 len=235 fin=true
+2024-04-03T04:52:18.394242Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5346 total_sent=4484 bytes_to_send=1
+2024-04-03T04:52:18.394246Z TRACE drive{id=0}: quinn_proto::connection: sending 268 bytes in 1 datagrams
+2024-04-03T04:52:18.595565Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5346 total_sent=4752 bytes_to_send=1
+2024-04-03T04:52:18.595583Z TRACE drive{id=0}: quinn_proto::connection: got Data packet (35 bytes) from 127.0.0.1:56209 using id ec55890d647bad7a
+2024-04-03T04:52:18.595595Z TRACE drive{id=0}:recv{space=Data pn=6}: quinn_proto::connection: got frame Ack(Ack { largest: 5, delay: 93, ecn: Some(EcnCounts { ect0: 6, ect1: 0, ce: 0 }), ranges: "[3..=5]" })
+2024-04-03T04:52:18.595604Z TRACE drive{id=0}:recv{space=Data pn=6}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1389
+2024-04-03T04:52:18.595612Z TRACE drive{id=0}:recv{space=Data pn=6}:frame{ty=ACK}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5346 total_sent=4752 bytes_to_send=1
+2024-04-03T04:52:18.595618Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=5381 total_sent=4752 bytes_to_send=1
+2024-04-03T04:52:18.595621Z TRACE drive{id=0}: quinn_proto::connection: got Data packet (1420 bytes) from 127.0.0.1:56209 using id ec55890d647bad7a
+2024-04-03T04:52:18.595626Z TRACE drive{id=0}:recv{space=Data pn=7}: quinn_proto::connection: got frame Ping
+2024-04-03T04:52:18.595629Z TRACE drive{id=0}:recv{space=Data pn=7}: quinn_proto::connection: got frame ImmediateAck
+2024-04-03T04:52:18.595645Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=6801 total_sent=4752 bytes_to_send=1
+2024-04-03T04:52:18.595650Z TRACE drive{id=0}:send{space=Data pn=6}: quinn_proto::connection: ACK ArrayRangeSet([6..8]), Delay = 110us
+2024-04-03T04:52:18.595655Z TRACE drive{id=0}:send{space=Data pn=6}: quinn_proto::connection::streams::state: MAX_STREAMS (Bi) value=101
+2024-04-03T04:52:18.595662Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=6801 total_sent=4752 bytes_to_send=1
+2024-04-03T04:52:18.595666Z TRACE drive{id=0}: quinn_proto::connection: sending 37 bytes in 1 datagrams
+2024-04-03T04:52:18.595670Z TRACE drive{id=0}:send{space=Data pn=7}: quinn_proto::connection::packet_builder: PADDING * 1392
+2024-04-03T04:52:18.595675Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=6801 total_sent=4789 bytes_to_send=1
+2024-04-03T04:52:18.595679Z TRACE drive{id=0}: quinn_proto::connection: writing MTUD probe probe_size=1420
+2024-04-03T04:52:18.595682Z TRACE drive{id=0}: quinn_proto::connection: sending 1420 bytes in 1 datagrams
+2024-04-03T04:52:18.595689Z  INFO connection{remote=127.0.0.1:56209 protocol=hq-29}:request: server: complete
+2024-04-03T04:52:18.595860Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=6801 total_sent=6209 bytes_to_send=1
+2024-04-03T04:52:18.595864Z TRACE drive{id=0}: quinn_proto::connection: got Data packet (42 bytes) from 127.0.0.1:56209 using id ec55890d647bad7a
+2024-04-03T04:52:18.595869Z TRACE drive{id=0}:recv{space=Data pn=8}: quinn_proto::connection: got frame Ack(Ack { largest: 5, delay: 141, ecn: Some(EcnCounts { ect0: 6, ect1: 0, ce: 0 }), ranges: "[3..=5]" })
+2024-04-03T04:52:18.595874Z TRACE drive{id=0}:recv{space=Data pn=8}: quinn_proto::connection: got frame Close(Application(ApplicationClose { error_code: 0, reason: b"done" }))
+2024-04-03T04:52:18.595879Z TRACE drive{id=0}: quinn_proto::connection: connection closed
+2024-04-03T04:52:18.595882Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=6843 total_sent=6209 bytes_to_send=1
+2024-04-03T04:52:18.595886Z TRACE drive{id=0}:send{space=Data pn=8}: quinn_proto::connection: sending CONNECTION_CLOSE
+2024-04-03T04:52:18.595891Z TRACE drive{id=0}:send{space=Data pn=8}: quinn_proto::connection: ACK ArrayRangeSet([6..9]), Delay = 26us
+2024-04-03T04:52:18.595904Z TRACE drive{id=0}: quinn_proto::connection: sending 38 bytes in 1 datagrams
+2024-04-03T04:52:18.595910Z  INFO connection{remote=127.0.0.1:56209 protocol=hq-29}: server: connection closed
+2024-04-03T04:52:18.796901Z TRACE drive{id=0}: quinn_proto::connection::paths: testing anti_amplification_blocked result=false validated=true total_recvd=6843 total_sent=6247 bytes_to_send=1
+2024-04-03T04:52:18.796919Z TRACE drive{id=0}: quinn_proto::connection: got Data packet (41 bytes) from 127.0.0.1:56209 using id ec55890d647bad7a
+2024-04-03T04:52:19.354924Z TRACE drive{id=1}: quinn_proto::connection: timeout timer=Close
+2024-04-03T04:52:19.789736Z TRACE drive{id=0}: quinn_proto::connection: timeout timer=Close
