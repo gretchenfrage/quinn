@@ -11,8 +11,8 @@ use crate::{
     coding::{self, BufExt, BufMutExt, UnexpectedEnd},
     range_set::ArrayRangeSet,
     shared::{ConnectionId, EcnCodepoint},
-    Dir, ResetToken, StreamId, TransportError, TransportErrorCode, VarInt, MAX_CID_SIZE,
-    RESET_TOKEN_SIZE,
+    Dir, ResetToken, StreamId, TransmitDebug, TransportError, TransportErrorCode, VarInt,
+    MAX_CID_SIZE, RESET_TOKEN_SIZE,
 };
 
 #[cfg(feature = "arbitrary")]
@@ -219,10 +219,15 @@ pub enum Close {
 }
 
 impl Close {
-    pub(crate) fn encode<W: BufMut>(&self, out: &mut W, max_len: usize) {
+    pub(crate) fn encode<W: BufMut>(
+        &self,
+        out: &mut W,
+        max_len: usize,
+        transmit_debug: &mut TransmitDebug,
+    ) {
         match *self {
-            Self::Connection(ref x) => x.encode(out, max_len),
-            Self::Application(ref x) => x.encode(out, max_len),
+            Self::Connection(ref x) => x.encode(out, max_len, transmit_debug),
+            Self::Application(ref x) => x.encode(out, max_len, transmit_debug),
         }
     }
 
@@ -284,8 +289,13 @@ impl FrameStruct for ConnectionClose {
 }
 
 impl ConnectionClose {
-    pub(crate) fn encode<W: BufMut>(&self, out: &mut W, max_len: usize) {
-        out.write(Type::CONNECTION_CLOSE); // 1 byte
+    pub(crate) fn encode<W: BufMut>(
+        &self,
+        out: &mut W,
+        max_len: usize,
+        transmit_debug: &mut TransmitDebug,
+    ) {
+        transmit_debug.start_frame(out, Type::CONNECTION_CLOSE); // 1 byte
         out.write(self.error_code); // <= 8 bytes
         let ty = self.frame_type.map_or(0, |x| x.0);
         out.write_var(ty); // <= 8 bytes
@@ -327,8 +337,13 @@ impl FrameStruct for ApplicationClose {
 }
 
 impl ApplicationClose {
-    pub(crate) fn encode<W: BufMut>(&self, out: &mut W, max_len: usize) {
-        out.write(Type::APPLICATION_CLOSE); // 1 byte
+    pub(crate) fn encode<W: BufMut>(
+        &self,
+        out: &mut W,
+        max_len: usize,
+        transmit_debug: &mut TransmitDebug,
+    ) {
+        transmit_debug.start_frame(out, Type::APPLICATION_CLOSE); // 1 byte
         out.write(self.error_code); // <= 8 bytes
         let max_len = max_len - 3 - VarInt::from_u64(self.reason.len() as u64).unwrap().size();
         let actual_len = self.reason.len().min(max_len);

@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::{
     coding::{self, BufExt, BufMutExt},
-    crypto, ConnectionId,
+    crypto, ConnectionId, TransmitDebug,
 };
 
 // Due to packet number encryption, it is impossible to fully decode a header
@@ -20,7 +20,7 @@ use crate::{
 // This information allows us to fully decode and decrypt the packet.
 #[allow(unreachable_pub)] // fuzzing only
 #[cfg_attr(test, derive(Clone))]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PartialDecode {
     plain_header: PlainHeader,
     buf: io::Cursor<BytesMut>,
@@ -232,8 +232,7 @@ impl Packet {
     }
 }
 
-#[cfg_attr(test, derive(Clone))]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum Header {
     Initial {
         dst_cid: ConnectionId,
@@ -268,8 +267,13 @@ pub(crate) enum Header {
 }
 
 impl Header {
-    pub(crate) fn encode(&self, w: &mut BytesMut) -> PartialEncode {
+    pub(crate) fn encode(
+        &self,
+        w: &mut BytesMut,
+        transmit_debug: &mut TransmitDebug,
+    ) -> PartialEncode {
         use self::Header::*;
+        transmit_debug.log_header(self);
         let start = w.len();
         match *self {
             Initial {

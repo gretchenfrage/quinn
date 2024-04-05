@@ -30,8 +30,8 @@ use crate::{
     },
     token::ResetToken,
     transport_parameters::TransportParameters,
-    Dir, EndpointConfig, Frame, Side, StreamId, Transmit, TransportError, TransportErrorCode,
-    VarInt, MAX_STREAM_COUNT, MIN_INITIAL_SIZE, TIMER_GRANULARITY,
+    Dir, EndpointConfig, Frame, Side, StreamId, Transmit, TransmitDebug, TransportError,
+    TransportErrorCode, VarInt, MAX_STREAM_COUNT, MIN_INITIAL_SIZE, TIMER_GRANULARITY,
 };
 
 mod ack_frequency;
@@ -459,6 +459,8 @@ impl Connection {
         max_datagrams: usize,
         buf: &mut BytesMut,
     ) -> Option<Transmit> {
+        let mut transmit_debug = TransmitDebug::new();
+
         assert!(max_datagrams != 0);
         let max_datagrams = match self.config.enable_segmentation_offload {
             false => 1,
@@ -493,9 +495,10 @@ impl Connection {
                     false,
                     self,
                     self.version,
+                    &mut transmit_debug,
                 )?;
                 trace!("validating previous path with PATH_CHALLENGE {:08x}", token);
-                buf.write(frame::Type::PATH_CHALLENGE);
+                transmit_debug.start_frame(buf, frame::Type::PATH_CHALLENGE);
                 buf.write(token);
                 self.stats.frame_tx.path_challenge += 1;
 
@@ -513,6 +516,7 @@ impl Connection {
                     ecn: None,
                     segment_size: None,
                     src_ip: self.local_ip,
+                    debug: Some(transmit_debug),
                 });
             }
         }
@@ -724,6 +728,7 @@ impl Connection {
                 ack_eliciting,
                 self,
                 self.version,
+                &mut transmit_debug,
             )?);
             coalesce = coalesce && !builder.short_header;
 
@@ -760,14 +765,18 @@ impl Connection {
                     match self.state {
                         State::Closed(state::Closed { ref reason }) => {
                             if space_id == SpaceId::Data || reason.is_transport_layer() {
-                                reason.encode(buf, max_frame_size)
+                                reason.encode(buf, max_frame_size, &mut transmit_debug)
                             } else {
                                 frame::ConnectionClose {
                                     error_code: TransportErrorCode::APPLICATION_ERROR,
                                     frame_type: None,
                                     reason: Bytes::new(),
                                 }
-                                .encode(buf, max_frame_size)
+                                .encode(
+                                    buf,
+                                    max_frame_size,
+                                    &mut transmit_debug,
+                                )
                             }
                         }
                         State::Draining => frame::ConnectionClose {
@@ -775,7 +784,7 @@ impl Connection {
                             frame_type: None,
                             reason: Bytes::new(),
                         }
-                        .encode(buf, max_frame_size),
+                        .encode(buf, max_frame_size, &mut transmit_debug),
                         _ => unreachable!(
                             "tried to make a close packet when the connection wasn't closed"
                         ),
@@ -802,8 +811,9 @@ impl Connection {
                     // `unwrap` guaranteed to succeed because `builder_storage` was populated just
                     // above.
                     let mut builder = builder_storage.take().unwrap();
+                    let mut transmit_debug = TransmitDebug::new();
                     trace!("PATH_RESPONSE {:08x} (off-path)", token);
-                    buf.write(frame::Type::PATH_RESPONSE);
+                    transmit_debug.start_frame(buf, frame::Type::PATH_RESPONSE);
                     buf.write(token);
                     self.stats.frame_tx.path_response += 1;
                     builder.pad_to(MIN_INITIAL_SIZE);
@@ -823,12 +833,19 @@ impl Connection {
                         ecn: None,
                         segment_size: None,
                         src_ip: self.local_ip,
+                        debug: Some(transmit_debug),
                     });
                 }
             }
 
-            let sent =
-                self.populate_packet(now, space_id, buf, builder.max_size, builder.exact_number);
+            let sent = self.populate_packet(
+                now,
+                space_id,
+                buf,
+                builder.max_size,
+                builder.exact_number,
+                &mut transmit_debug,
+            );
 
             // ACK-only packets should only be sent when explicitly allowed. If we write them due
             // to any other reason, there is a bug which leads to one component announcing write
@@ -894,15 +911,16 @@ impl Connection {
                 true,
                 self,
                 self.version,
+                &mut transmit_debug,
             )?;
 
             // We implement MTU probes as ping packets padded up to the probe size
-            buf.write(frame::Type::PING);
+            transmit_debug.start_frame(buf, frame::Type::PING);
             self.stats.frame_tx.ping += 1;
 
             // If supported by the peer, we want no delays to the probe's ACK
             if self.peer_supports_ack_frequency() {
-                buf.write(frame::Type::IMMEDIATE_ACK);
+                transmit_debug.start_frame(buf, frame::Type::IMMEDIATE_ACK);
                 self.stats.frame_tx.immediate_ack += 1;
             }
 
@@ -941,6 +959,7 @@ impl Connection {
                 _ => Some(self.path.current_mtu() as usize),
             },
             src_ip: self.local_ip,
+            debug: Some(transmit_debug),
         })
     }
 
@@ -2952,6 +2971,7 @@ impl Connection {
         buf: &mut BytesMut,
         max_size: usize,
         pn: u64,
+        transmit_debug: &mut TransmitDebug,
     ) -> SentFrames {
         let mut sent = SentFrames::default();
         let space = &mut self.spaces[space_id];
@@ -2960,7 +2980,7 @@ impl Connection {
 
         // HANDSHAKE_DONE
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
-            buf.write(frame::Type::HANDSHAKE_DONE);
+            transmit_debug.start_frame(buf, frame::Type::HANDSHAKE_DONE);
             sent.retransmits.get_or_create().handshake_done = true;
             // This is just a u8 counter and the frame is typically just sent once
             self.stats.frame_tx.handshake_done =
@@ -2970,7 +2990,7 @@ impl Connection {
         // PING
         if mem::replace(&mut space.ping_pending, false) {
             trace!("PING");
-            buf.write(frame::Type::PING);
+            transmit_debug.start_frame(buf, frame::Type::PING);
             sent.non_retransmits = true;
             self.stats.frame_tx.ping += 1;
         }
@@ -2978,7 +2998,7 @@ impl Connection {
         // IMMEDIATE_ACK
         if mem::replace(&mut space.immediate_ack_pending, false) {
             trace!("IMMEDIATE_ACK");
-            buf.write(frame::Type::IMMEDIATE_ACK);
+            transmit_debug.start_frame(buf, frame::Type::IMMEDIATE_ACK);
             sent.non_retransmits = true;
             self.stats.frame_tx.immediate_ack += 1;
         }
@@ -3034,7 +3054,7 @@ impl Connection {
                 sent.non_retransmits = true;
                 sent.requires_padding = true;
                 trace!("PATH_CHALLENGE {:08x}", token);
-                buf.write(frame::Type::PATH_CHALLENGE);
+                transmit_debug.start_frame(buf, frame::Type::PATH_CHALLENGE);
                 buf.write(token);
                 self.stats.frame_tx.path_challenge += 1;
             }
@@ -3046,7 +3066,7 @@ impl Connection {
                 sent.non_retransmits = true;
                 sent.requires_padding = true;
                 trace!("PATH_RESPONSE {:08x}", token);
-                buf.write(frame::Type::PATH_RESPONSE);
+                transmit_debug.start_frame(buf, frame::Type::PATH_RESPONSE);
                 buf.write(token);
                 self.stats.frame_tx.path_response += 1;
             }
@@ -3101,6 +3121,7 @@ impl Connection {
                 &mut sent.retransmits,
                 &mut self.stats.frame_tx,
                 max_size,
+                transmit_debug,
             );
         }
 
@@ -3133,7 +3154,7 @@ impl Connection {
                 None => break,
             };
             trace!(sequence = seq, "RETIRE_CONNECTION_ID");
-            buf.write(frame::Type::RETIRE_CONNECTION_ID);
+            transmit_debug.start_frame(buf, frame::Type::RETIRE_CONNECTION_ID);
             buf.write_var(seq);
             sent.retransmits.get_or_create().retire_cids.push(seq);
             self.stats.frame_tx.retire_connection_id += 1;

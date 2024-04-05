@@ -8,7 +8,7 @@ use super::{spaces::SentPacket, Connection, SentFrames};
 use crate::{
     frame::{self, Close},
     packet::{Header, LongType, PacketNumber, PartialEncode, SpaceId, FIXED_BIT},
-    TransportError, TransportErrorCode,
+    TransmitDebug, TransportError, TransportErrorCode,
 };
 
 pub(super) struct PacketBuilder {
@@ -42,6 +42,7 @@ impl PacketBuilder {
         ack_eliciting: bool,
         conn: &mut Connection,
         version: u32,
+        transmit_debug: &mut TransmitDebug,
     ) -> Option<Self> {
         // Initiate key update if we're approaching the confidentiality limit
         let sent_with_keys = conn.spaces[space_id].sent_with_keys;
@@ -122,7 +123,7 @@ impl PacketBuilder {
                 version,
             },
         };
-        let partial_encode = header.encode(buffer);
+        let partial_encode = header.encode(buffer, transmit_debug);
         if conn.peer_params.grease_quic_bit && conn.rng.gen() {
             buffer[partial_encode.start] ^= FIXED_BIT;
         }

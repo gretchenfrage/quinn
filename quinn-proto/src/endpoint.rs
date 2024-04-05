@@ -28,8 +28,8 @@ use crate::{
         EndpointEventInner, IssuedCid,
     },
     transport_parameters::TransportParameters,
-    ResetToken, RetryToken, Side, Transmit, TransportConfig, TransportError, INITIAL_MTU,
-    MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
+    ResetToken, RetryToken, Side, Transmit, TransmitDebug, TransportConfig, TransportError,
+    INITIAL_MTU, MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
 };
 
 /// The main entry point to the library
@@ -145,6 +145,7 @@ impl Endpoint {
                 dst_cid,
                 version,
             }) => {
+                let mut transmit_debug = TransmitDebug::new();
                 if self.server_config.is_none() {
                     debug!("dropping packet with unsupported version");
                     return None;
@@ -156,7 +157,7 @@ impl Endpoint {
                     src_cid: dst_cid,
                     dst_cid: src_cid,
                 }
-                .encode(buf);
+                .encode(buf, &mut transmit_debug);
                 // Grease with a reserved version
                 if version != 0x0a1a_2a3a {
                     buf.write::<u32>(0x0a1a_2a3a);
@@ -172,6 +173,7 @@ impl Endpoint {
                     size: buf.len(),
                     segment_size: None,
                     src_ip: local_ip,
+                    debug: Some(transmit_debug),
                 }));
             }
             Err(e) => {
@@ -324,6 +326,8 @@ impl Endpoint {
         self.rng.fill_bytes(&mut buf[0..padding_len]);
         buf[0] = 0b0100_0000 | buf[0] >> 2;
         buf.extend_from_slice(&ResetToken::new(&*self.config.reset_key, dst_cid));
+        let mut transmit_debug = TransmitDebug::new();
+        transmit_debug.log_stateless_reset();
 
         debug_assert!(buf.len() < inciting_dgram_len);
 
@@ -333,6 +337,7 @@ impl Endpoint {
             size: buf.len(),
             segment_size: None,
             src_ip: addresses.local_ip,
+            debug: Some(transmit_debug),
         })
     }
 
@@ -646,6 +651,7 @@ impl Endpoint {
         if incoming.remote_address_validated() {
             return Err(RetryError(incoming));
         }
+        let mut transmit_debug = TransmitDebug::new();
         let server_config = self.server_config.as_ref().unwrap();
 
         // First Initial
@@ -675,7 +681,7 @@ impl Endpoint {
             version: incoming.version,
         };
 
-        let encode = header.encode(buf);
+        let encode = header.encode(buf, &mut transmit_debug);
         buf.put_slice(&token);
         buf.extend_from_slice(&server_config.crypto.retry_tag(
             incoming.version,
@@ -690,6 +696,7 @@ impl Endpoint {
             size: buf.len(),
             segment_size: None,
             src_ip: incoming.addresses.local_ip,
+            debug: Some(transmit_debug),
         })
     }
 
@@ -750,6 +757,8 @@ impl Endpoint {
         reason: TransportError,
         buf: &mut BytesMut,
     ) -> Transmit {
+        let mut transmit_debug = TransmitDebug::new();
+
         // We don't need to worry about CID collisions in initial closes because the peer
         // shouldn't respond, and if it does, and the CID collides, we'll just drop the
         // unexpected response.
@@ -763,10 +772,10 @@ impl Endpoint {
             version,
         };
 
-        let partial_encode = header.encode(buf);
+        let partial_encode = header.encode(buf, &mut transmit_debug);
         let max_len =
             INITIAL_MTU as usize - partial_encode.header_len - crypto.packet.local.tag_len();
-        frame::Close::from(reason).encode(buf, max_len);
+        frame::Close::from(reason).encode(buf, max_len, &mut transmit_debug);
         buf.resize(buf.len() + crypto.packet.local.tag_len(), 0);
         partial_encode.finish(buf, &*crypto.header.local, Some((0, &*crypto.packet.local)));
         Transmit {
@@ -775,6 +784,7 @@ impl Endpoint {
             size: buf.len(),
             segment_size: None,
             src_ip: addresses.local_ip,
+            debug: Some(transmit_debug),
         }
     }
 

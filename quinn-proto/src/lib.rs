@@ -20,6 +20,8 @@
 #![allow(clippy::too_many_arguments)]
 #![warn(clippy::use_self)]
 
+use crate::{coding::BufMutExt, packet::Header};
+use bytes::BufMut;
 use std::{
     fmt,
     net::{IpAddr, SocketAddr},
@@ -289,6 +291,106 @@ pub struct Transmit {
     pub segment_size: Option<usize>,
     /// Optional source IP address for the datagram
     pub src_ip: Option<IpAddr>,
+    /// Extra debugging info
+    pub debug: Option<TransmitDebug>,
+}
+
+/// Extra debugging info for an outgoing packet
+#[derive(Debug)]
+pub struct TransmitDebug {
+    items: Vec<TransmitDebugItem>,
+}
+
+#[derive(Debug)]
+enum TransmitDebugItem {
+    Header(Header),
+    Frame(frame::Type),
+    StatelessReset,
+}
+
+impl TransmitDebug {
+    fn new() -> Self {
+        TransmitDebug { items: Vec::new() }
+    }
+
+    fn log_header(&mut self, header: &Header) {
+        self.items.push(TransmitDebugItem::Header(header.clone()));
+    }
+
+    fn start_frame<W: BufMut>(&mut self, buf: &mut W, frame_type: frame::Type) {
+        buf.write(frame_type);
+        self.items.push(TransmitDebugItem::Frame(frame_type));
+    }
+
+    fn log_stateless_reset(&mut self) {
+        self.items.push(TransmitDebugItem::StatelessReset);
+    }
+}
+
+impl fmt::Display for TransmitDebug {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        struct B64<'a, B>(&'a B);
+        impl<'a, B: std::borrow::Borrow<[u8]>> fmt::Display for B64<'a, B> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                let mut bin = [0; 8];
+                for i in 0..(6.min(self.0.borrow().len())) {
+                    bin[7 - i] = self.0.borrow()[i];
+                }
+                let mut int = u64::from_be_bytes(bin);
+                let mut b64 = [0; 8];
+                for i in 0..6 {
+                    const ALPHA: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+                    b64[i] = ALPHA[(int & 0x3f) as usize];
+                    int >>= 6;
+                }
+                f.write_str(std::str::from_utf8(&b64).unwrap())
+            }
+        }
+
+        const INDENT: &str = "    ";
+        for (i, item) in self.items.iter().enumerate() {
+            match item {
+                &TransmitDebugItem::Header(ref header) => match header {
+                    &Header::Initial {
+                        ref dst_cid,
+                        ref src_cid,
+                        ref token,
+                        ref number,
+                        ref version,
+                    } => write!(f, "INITIAL v{} {} → {} #{:?} token={}", version, B64(src_cid), B64(dst_cid), number, B64(token))?,
+                    &Header::Long {
+                        ref ty,
+                        ref dst_cid,
+                        ref src_cid,
+                        ref number,
+                        ref version,
+                    } => write!(f, "LONG ({:?}) v{} {} → {} #{:?}", ty, version, B64(src_cid), B64(dst_cid), number)?,
+                    &Header::Retry {
+                        ref dst_cid,
+                        ref src_cid,
+                        ref version,
+                    } => write!(f, "RETRY v{} {} → {}", version, B64(src_cid), B64(dst_cid))?,
+                    &Header::Short {
+                        spin,
+                        key_phase,
+                        ref dst_cid,
+                        ref number,
+                    } => write!(f, "SHORT |→ {} #{:?} spin={} key_phase={}", B64(dst_cid), number, spin as u8, key_phase as u8)?,
+                    &Header::VersionNegotiate {
+                        ref random,
+                        ref src_cid,
+                        ref dst_cid,
+                    } => write!(f, "VERSION_NEGOTIATE {} → {} random={}", B64(src_cid), B64(dst_cid), random)?,
+                }
+                &TransmitDebugItem::Frame(ref frame_type) => write!(f, "{}{}", INDENT, frame_type)?,
+                &TransmitDebugItem::StatelessReset => write!(f, "STATELESS RESET")?,
+            }
+            if i + 1 < self.items.len() {
+                writeln!(f)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 //

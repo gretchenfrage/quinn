@@ -579,6 +579,7 @@ impl State {
 #[derive(Debug, Default)]
 struct TransmitState {
     outgoing: VecDeque<udp::Transmit>,
+    outgoing_debug: VecDeque<proto::TransmitDebug>,
     /// The aggregateed contents length of the packets in the transmit queue
     contents_len: usize,
 }
@@ -594,23 +595,32 @@ impl TransmitState {
         }
 
         let contents_len = transmit.size;
-        self.outgoing.push_back(udp_transmit(
+        let (item, item_debug) = udp_transmit(
             transmit,
             response_buffer.split_to(contents_len).freeze(),
-        ));
+        );
+        self.outgoing.push_back(item);
+        self.outgoing_debug.push_back(item_debug);
         self.contents_len = self.contents_len.saturating_add(contents_len);
     }
 
     fn enqueue(&mut self, t: proto::Transmit, buf: Bytes) {
         let contents_len = buf.len();
-        self.outgoing.push_back(udp_transmit(t, buf));
+        let (item, item_debug) = udp_transmit(t, buf);
+        self.outgoing.push_back(item);
+        self.outgoing_debug.push_back(item_debug);
         self.contents_len = self.contents_len.saturating_add(contents_len);
     }
 
     fn dequeue(&mut self, sent: usize) {
         self.contents_len = self
             .contents_len
-            .saturating_sub(self.outgoing.drain(..sent).map(|t| t.contents.len()).sum());
+            .saturating_sub(self.outgoing.drain(..sent)
+                .zip(self.outgoing_debug.drain(..sent))
+                .map(|(t, dbg)| {
+                    tracing::debug!("transmitting to {}:\n{}", t.destination, dbg);
+                    t.contents.len()
+                }).sum());
     }
 
     fn transmits(&self) -> &[udp::Transmit] {
@@ -619,14 +629,14 @@ impl TransmitState {
 }
 
 #[inline]
-fn udp_transmit(t: proto::Transmit, buffer: Bytes) -> udp::Transmit {
-    udp::Transmit {
+fn udp_transmit(t: proto::Transmit, buffer: Bytes) -> (udp::Transmit, proto::TransmitDebug) {
+    (udp::Transmit {
         destination: t.destination,
         ecn: t.ecn.map(udp_ecn),
         contents: buffer,
         segment_size: t.segment_size,
         src_ip: t.src_ip,
-    }
+    }, t.debug.unwrap())
 }
 
 #[inline]

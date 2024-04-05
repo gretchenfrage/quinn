@@ -17,7 +17,7 @@ use crate::{
     connection::stats::FrameStats,
     frame::{self, FrameStruct, StreamMetaVec},
     transport_parameters::TransportParameters,
-    Dir, Side, StreamId, TransportError, VarInt, MAX_STREAM_COUNT,
+    Dir, Side, StreamId, TransmitDebug, TransportError, VarInt, MAX_STREAM_COUNT,
 };
 
 #[allow(unreachable_pub)] // fuzzing only
@@ -370,6 +370,7 @@ impl StreamsState {
         retransmits: &mut ThinRetransmits,
         stats: &mut FrameStats,
         max_size: usize,
+        transmit_debug: &mut TransmitDebug,
     ) {
         // RESET_STREAM
         while buf.len() + frame::ResetStream::SIZE_BOUND < max_size {
@@ -432,7 +433,7 @@ impl StreamsState {
             }
 
             retransmits.get_or_create().max_data = true;
-            buf.write(frame::Type::MAX_DATA);
+            transmit_debug.start_frame(buf, frame::Type::MAX_DATA);
             buf.write(max);
             stats.max_data += 1;
         }
@@ -457,7 +458,7 @@ impl StreamsState {
             rs.record_sent_max_stream_data(max);
 
             trace!(stream = %id, max = max, "MAX_STREAM_DATA");
-            buf.write(frame::Type::MAX_STREAM_DATA);
+            transmit_debug.start_frame(buf, frame::Type::MAX_STREAM_DATA);
             buf.write(id);
             buf.write_var(max);
             stats.max_stream_data += 1;
@@ -477,10 +478,13 @@ impl StreamsState {
                 "MAX_STREAMS ({:?})",
                 dir
             );
-            buf.write(match dir {
-                Dir::Uni => frame::Type::MAX_STREAMS_UNI,
-                Dir::Bi => frame::Type::MAX_STREAMS_BIDI,
-            });
+            transmit_debug.start_frame(
+                buf,
+                match dir {
+                    Dir::Uni => frame::Type::MAX_STREAMS_UNI,
+                    Dir::Bi => frame::Type::MAX_STREAMS_BIDI,
+                },
+            );
             buf.write_var(self.max_remote[dir as usize]);
             match dir {
                 Dir::Uni => stats.max_streams_uni += 1,
