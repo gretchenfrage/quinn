@@ -107,7 +107,7 @@ impl<'a> RetryToken<'a> {
 ///
 /// Used for an endpoint to securely communicate that it has lost state for a connection.
 #[allow(clippy::derived_hash_with_manual_eq)] // Custom PartialEq impl matches derived semantics
-#[derive(Debug, Copy, Clone, Hash)]
+#[derive(Copy, Clone, Hash)]
 pub(crate) struct ResetToken([u8; RESET_TOKEN_SIZE]);
 
 impl ResetToken {
@@ -143,6 +143,15 @@ impl std::ops::Deref for ResetToken {
 }
 
 impl fmt::Display for ResetToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.iter() {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for ResetToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in self.iter() {
             write!(f, "{byte:02x}")?;

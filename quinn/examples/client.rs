@@ -18,6 +18,7 @@ use url::Url;
 
 mod common;
 
+
 /// HTTP/0.9 over QUIC client
 #[derive(Parser, Debug)]
 #[clap(name = "client")]
@@ -168,3 +169,4 @@ fn strip_ipv6_brackets(host: &str) -> &str {
 fn duration_secs(x: &Duration) -> f32 {
     x.as_secs() as f32 + x.subsec_nanos() as f32 * 1e-9
 }
+

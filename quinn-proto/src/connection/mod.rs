@@ -992,7 +992,7 @@ impl Connection {
     #[tracing::instrument(skip_all)]
     pub fn handle_event(&mut self, event: ConnectionEvent) {
         tracing::Span::current().follows_from(&event.span);
-        tracing::debug!("internal event: connection handling event from endpoint: {:#?}", event);
+        tracing::debug!("internal event: connection handling event from endpoint:\n{:#?}", event);
         use self::ConnectionEventInner::*;
         match event.inner {
             Datagram {

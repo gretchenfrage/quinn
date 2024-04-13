@@ -20,7 +20,6 @@ use crate::{
 // This information allows us to fully decode and decrypt the packet.
 #[allow(unreachable_pub)] // fuzzing only
 #[cfg_attr(test, derive(Clone))]
-#[derive(Debug)]
 pub struct PartialDecode {
     plain_header: PlainHeader,
     buf: io::Cursor<BytesMut>,
@@ -216,6 +215,17 @@ impl PartialDecode {
     }
 }
 
+impl fmt::Debug for PartialDecode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("PartialDecode")
+            .field("plain_header", &self.plain_header)
+            // buf is binary data, summarize it
+            .field("buf.get_ref().len()", &self.buf.get_ref().len())
+            .field("buf.position()", &self.buf.position())
+            .finish_non_exhaustive()
+    }
+}
+
 pub(crate) struct Packet {
     pub(crate) header: Header,
     pub(crate) header_data: Bytes,
@@ -279,7 +289,7 @@ pub(crate) enum Header {
 
 impl Header {
     pub(crate) fn encode(&self, w: &mut BytesMut) -> PartialEncode {
-        tracing::debug!("encoding packet header {:#?}", self);
+        tracing::debug!("encoding packet header: {:#?}", self);
         use self::Header::*;
         let start = w.len();
         match *self {

@@ -91,7 +91,7 @@ impl Endpoint {
         event: EndpointEvent,
     ) -> Option<ConnectionEvent> {
         tracing::Span::current().follows_from(&event.span);
-        tracing::debug!("internal event: endpoint handling event from connection {}:{:#?}", ch.0, event);
+        tracing::debug!("internal event: endpoint handling event from connection {}:\n{:#?}", ch.0, event.inner);
 
         use EndpointEventInner::*;
         match event.inner {
