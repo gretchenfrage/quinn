@@ -1,0 +1,1318 @@
+  2024-04-13T21:38:31.671873Z DEBUG quinn_proto::endpoint: API event: endpoint connecting to [::1]:4433
+    at quinn-proto/src/endpoint.rs:374
+    in quinn_proto::endpoint::connect
+
+  2024-04-13T21:38:31.671997Z DEBUG quinn_proto::packet: encoding packet header: Initial(
+    InitialHeader {
+        dst_cid: <29663aa5b12ae69b7070bcf11725fa015a0900a9>,
+        src_cid: <64e7b2eb986df7d7>,
+        token: b"",
+        number: 0,
+        version: 1,
+    },
+)
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.672014Z DEBUG quinn_proto::frame: encoding frame header: CRYPTO
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.672024Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.672056Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.693251Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.693280Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 0
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.693314Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 434712856 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Initial(
+            PlainInitialHeader {
+                dst_cid: <64e7b2eb986df7d7>,
+                src_cid: <1a2a29d611149bca>,
+                token_pos: 24..24,
+                len: 120,
+                version: 1,
+            },
+        ),
+        buf.get_ref().len(): 146,
+        buf.position(): 26,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): Some(
+        1054,
+    ),
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694170Z DEBUG quinn_proto::connection: API effect: connection handshake data ready
+    at quinn-proto/src/connection/mod.rs:1957
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694253Z DEBUG quinn_proto::connection: internal effect: connection updating peer's reset token
+    at quinn-proto/src/connection/mod.rs:2419
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694277Z DEBUG quinn_proto::connection: internal effect: connection asking endpoint for first cids
+    at quinn-proto/src/connection/mod.rs:2987
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694289Z DEBUG quinn_proto::connection: API effect: connection established
+    at quinn-proto/src/connection/mod.rs:2434
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694312Z DEBUG quinn_proto::packet: encoding packet header: Initial(
+    InitialHeader {
+        dst_cid: <1a2a29d611149bca>,
+        src_cid: <64e7b2eb986df7d7>,
+        token: b"",
+        number: 1,
+        version: 1,
+    },
+)
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694337Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694356Z DEBUG quinn_proto::packet: encoding packet header: Long {
+    ty: Handshake,
+    dst_cid: <1a2a29d611149bca>,
+    src_cid: <64e7b2eb986df7d7>,
+    number: 0,
+    version: 1,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694374Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694383Z DEBUG quinn_proto::frame: encoding frame header: CRYPTO
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694400Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694414Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: true,
+    key_phase: false,
+    dst_cid: <1a2a29d611149bca>,
+    number: 0,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694438Z DEBUG quinn_proto::frame: encoding frame header: PING
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694448Z DEBUG quinn_proto::frame: encoding frame header: IMMEDIATE_ACK
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694461Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694507Z DEBUG quinn_proto::endpoint: internal event: endpoint handling event from connection 0:
+ResetToken(
+    [::1]:4433,
+    ad21578d2ae37b9ae4437ef0c93a1533,
+)
+    at quinn-proto/src/endpoint.rs:94
+    in quinn_proto::endpoint::handle_event
+
+  2024-04-13T21:38:31.694531Z DEBUG quinn_proto::endpoint: internal event: endpoint handling event from connection 0:
+NeedIdentifiers(
+    Instant {
+        tv_sec: 433431,
+        tv_nsec: 434712856,
+    },
+    4,
+)
+    at quinn-proto/src/endpoint.rs:94
+    in quinn_proto::endpoint::handle_event
+
+  2024-04-13T21:38:31.694561Z DEBUG quinn_proto::endpoint: internal effect: sending new identifiers to connections
+    at quinn-proto/src/endpoint.rs:440
+    in quinn_proto::endpoint::handle_event
+
+  2024-04-13T21:38:31.694610Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.694622Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.694631Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+NewIdentifiers(
+    [
+        IssuedCid {
+            sequence: 1,
+            id: <7838ed42def728f7>,
+            reset_token: 89f0b468ef2cb49460bf5af120ca2ec8,
+        },
+        IssuedCid {
+            sequence: 2,
+            id: <777c6dd17b19cedc>,
+            reset_token: ccbea1d230e5ced0b2d7e3ad562ad27f,
+        },
+        IssuedCid {
+            sequence: 3,
+            id: <03862937947f72ca>,
+            reset_token: 84ed53d3d3e942fc253ee8c003f1e95d,
+        },
+        IssuedCid {
+            sequence: 4,
+            id: <f8b69cd3379c0f65>,
+            reset_token: c0283dfb22475baf025c204d815f9d89,
+        },
+    ],
+    Instant { tv_sec: 433431, tv_nsec: 434712856 },
+)
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694737Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: true,
+    key_phase: false,
+    dst_cid: <1a2a29d611149bca>,
+    number: 1,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694759Z DEBUG quinn_proto::frame: encoding frame header: NEW_CONNECTION_ID
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694771Z DEBUG quinn_proto::frame: encoding frame header: NEW_CONNECTION_ID
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694784Z DEBUG quinn_proto::frame: encoding frame header: NEW_CONNECTION_ID
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694794Z DEBUG quinn_proto::frame: encoding frame header: NEW_CONNECTION_ID
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694816Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.694877Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.702338Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.702357Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 0
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.702381Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 443817252 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: false,
+            dst_cid: <64e7b2eb986df7d7>,
+        },
+        buf.get_ref().len(): 138,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.715561Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.715580Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 0
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.715597Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.715607Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 0
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.715618Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.715627Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 0
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.715649Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 457041834 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: true,
+            dst_cid: <7838ed42def728f7>,
+        },
+        buf.get_ref().len(): 397,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.715721Z DEBUG quinn_proto::connection::streams::state: API effect: StreamEvent::Finished, id: client bidirectional stream 0
+    at quinn-proto/src/connection/streams/state.rs:612
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.715789Z DEBUG quinn_proto::connection: internal effect: connection retiring connection id(s)
+    at quinn-proto/src/connection/mod.rs:2724
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.715807Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 457041834 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: true,
+            dst_cid: <7838ed42def728f7>,
+        },
+        buf.get_ref().len(): 1326,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.715904Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 457041834 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: true,
+            dst_cid: <7838ed42def728f7>,
+        },
+        buf.get_ref().len(): 133,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.715962Z DEBUG quinn_proto::connection::streams::state: API effect: StreamEvent::Readable, stream: client bidirectional stream 0
+    at quinn-proto/src/connection/streams/state.rs:567
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.715985Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: false,
+    key_phase: false,
+    dst_cid: <1a2a29d611149bca>,
+    number: 2,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716004Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716022Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716037Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: false,
+    key_phase: false,
+    dst_cid: <1a2a29d611149bca>,
+    number: 3,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716051Z DEBUG quinn_proto::frame: encoding frame header: PING
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716062Z DEBUG quinn_proto::frame: encoding frame header: IMMEDIATE_ACK
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716076Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716107Z DEBUG quinn_proto::endpoint: internal event: endpoint handling event from connection 0:
+RetireConnectionId(
+    Instant {
+        tv_sec: 433431,
+        tv_nsec: 457041834,
+    },
+    0,
+    true,
+)
+    at quinn-proto/src/endpoint.rs:94
+    in quinn_proto::endpoint::handle_event
+
+  2024-04-13T21:38:31.716137Z DEBUG quinn_proto::endpoint: internal effect: sending new identifiers to connections
+    at quinn-proto/src/endpoint.rs:440
+    in quinn_proto::endpoint::handle_event
+
+  2024-04-13T21:38:31.716189Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.716202Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.716222Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+NewIdentifiers(
+    [
+        IssuedCid {
+            sequence: 5,
+            id: <cb72b167316859a5>,
+            reset_token: 41355c9b00e6958a9ebd3af2893f340e,
+        },
+    ],
+    Instant { tv_sec: 433431, tv_nsec: 457041834 },
+)
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716266Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: false,
+    key_phase: false,
+    dst_cid: <1a2a29d611149bca>,
+    number: 4,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716286Z DEBUG quinn_proto::frame: encoding frame header: NEW_CONNECTION_ID
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716300Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716336Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.716356Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: false,
+    key_phase: false,
+    dst_cid: <1a2a29d611149bca>,
+    number: 5,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716377Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716375Z DEBUG quinn_proto::endpoint: API event: endpoint connecting to [::1]:4433
+    at quinn-proto/src/endpoint.rs:374
+    in quinn_proto::endpoint::connect
+
+  2024-04-13T21:38:31.716389Z DEBUG quinn_proto::frame: encoding frame header: APPLICATION_CLOSE
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716408Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.716721Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.716742Z DEBUG quinn_proto::packet: encoding packet header: Initial(
+    InitialHeader {
+        dst_cid: <a4520903ac8ad1f2d261b620778c21c0e4b8a064>,
+        src_cid: <bc27073e97f117fe>,
+        token: b"",
+        number: 0,
+        version: 1,
+    },
+)
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.716772Z DEBUG quinn_proto::frame: encoding frame header: CRYPTO
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.716788Z DEBUG quinn_proto::packet: encoding packet header: Long {
+    ty: ZeroRtt,
+    dst_cid: <a4520903ac8ad1f2d261b620778c21c0e4b8a064>,
+    src_cid: <bc27073e97f117fe>,
+    number: 0,
+    version: 1,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.716815Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.716844Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.736451Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.736474Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 0
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.736486Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.736498Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 0
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.736518Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 477944811 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: false,
+            dst_cid: <7838ed42def728f7>,
+        },
+        buf.get_ref().len(): 37,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.736564Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 477944811 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: false,
+            dst_cid: <7838ed42def728f7>,
+        },
+        buf.get_ref().len(): 1389,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.736630Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: false,
+    key_phase: false,
+    dst_cid: <1a2a29d611149bca>,
+    number: 6,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.736648Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.736657Z DEBUG quinn_proto::frame: encoding frame header: APPLICATION_CLOSE
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.736667Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.736697Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.736815Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.736826Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 0
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.736840Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 478318360 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: false,
+            dst_cid: <7838ed42def728f7>,
+        },
+        buf.get_ref().len(): 38,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.737584Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.737592Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 1
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.737600Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.737606Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 1
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.737619Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 479086226 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Initial(
+            PlainInitialHeader {
+                dst_cid: <bc27073e97f117fe>,
+                src_cid: <aa43f31abd0259ff>,
+                token_pos: 24..24,
+                len: 125,
+                version: 1,
+            },
+        ),
+        buf.get_ref().len(): 151,
+        buf.position(): 26,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): Some(
+        1049,
+    ),
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.737899Z DEBUG quinn_proto::connection: API effect: connection handshake data ready
+    at quinn-proto/src/connection/mod.rs:1957
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.737946Z DEBUG quinn_proto::connection: internal effect: connection updating peer's reset token
+    at quinn-proto/src/connection/mod.rs:2419
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.737959Z DEBUG quinn_proto::connection: internal effect: connection asking endpoint for first cids
+    at quinn-proto/src/connection/mod.rs:2987
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.737969Z DEBUG quinn_proto::connection: API effect: connection established
+    at quinn-proto/src/connection/mod.rs:2434
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738009Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 479086226 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: false,
+            dst_cid: <bc27073e97f117fe>,
+        },
+        buf.get_ref().len(): 130,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738024Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.738052Z DEBUG quinn_proto::connection::streams::state: API effect: StreamEvent::Readable, stream: client bidirectional stream 0
+    at quinn-proto/src/connection/streams/state.rs:567
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738061Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 1
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.738079Z DEBUG quinn_proto::packet: encoding packet header: Initial(
+    InitialHeader {
+        dst_cid: <aa43f31abd0259ff>,
+        src_cid: <bc27073e97f117fe>,
+        token: b"",
+        number: 1,
+        version: 1,
+    },
+)
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738100Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738114Z DEBUG quinn_proto::packet: encoding packet header: Long {
+    ty: Handshake,
+    dst_cid: <aa43f31abd0259ff>,
+    src_cid: <bc27073e97f117fe>,
+    number: 0,
+    version: 1,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738132Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738141Z DEBUG quinn_proto::frame: encoding frame header: CRYPTO
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738153Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: true,
+    key_phase: false,
+    dst_cid: <aa43f31abd0259ff>,
+    number: 2,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738170Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738181Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738192Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: true,
+    key_phase: false,
+    dst_cid: <aa43f31abd0259ff>,
+    number: 3,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738213Z DEBUG quinn_proto::frame: encoding frame header: PING
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738222Z DEBUG quinn_proto::frame: encoding frame header: IMMEDIATE_ACK
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738232Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738260Z DEBUG quinn_proto::endpoint: internal event: endpoint handling event from connection 1:
+ResetToken(
+    [::1]:4433,
+    91f9f812109844226c5393d86535f4ae,
+)
+    at quinn-proto/src/endpoint.rs:94
+    in quinn_proto::endpoint::handle_event
+
+  2024-04-13T21:38:31.738276Z DEBUG quinn_proto::endpoint: internal event: endpoint handling event from connection 1:
+NeedIdentifiers(
+    Instant {
+        tv_sec: 433431,
+        tv_nsec: 479086226,
+    },
+    4,
+)
+    at quinn-proto/src/endpoint.rs:94
+    in quinn_proto::endpoint::handle_event
+
+  2024-04-13T21:38:31.738272Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 479514701 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: false,
+            dst_cid: <bc27073e97f117fe>,
+        },
+        buf.get_ref().len(): 138,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.738307Z DEBUG quinn_proto::endpoint: internal effect: sending new identifiers to connections
+    at quinn-proto/src/endpoint.rs:440
+    in quinn_proto::endpoint::handle_event
+
+  2024-04-13T21:38:31.738345Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.738354Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.738344Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+NewIdentifiers(
+    [
+        IssuedCid {
+            sequence: 1,
+            id: <7b36405ce0085fc8>,
+            reset_token: 8faebb5d286ee66b515f8d03ff607939,
+        },
+        IssuedCid {
+            sequence: 2,
+            id: <8841a773308ebb19>,
+            reset_token: ea1128c3619b21eadc6667bd1f7ae745,
+        },
+        IssuedCid {
+            sequence: 3,
+            id: <ca966f6d83af4d77>,
+            reset_token: 98b385d84414a16364af7bec0f914ec3,
+        },
+        IssuedCid {
+            sequence: 4,
+            id: <30ac3e30ce116e55>,
+            reset_token: 7d6d22e201e1e3e6aef979e9f45e2ca9,
+        },
+    ],
+    Instant { tv_sec: 433431, tv_nsec: 479086226 },
+)
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.742769Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: true,
+    key_phase: false,
+    dst_cid: <aa43f31abd0259ff>,
+    number: 4,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.742792Z DEBUG quinn_proto::frame: encoding frame header: NEW_CONNECTION_ID
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.742804Z DEBUG quinn_proto::frame: encoding frame header: NEW_CONNECTION_ID
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.742814Z DEBUG quinn_proto::frame: encoding frame header: NEW_CONNECTION_ID
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.742825Z DEBUG quinn_proto::frame: encoding frame header: NEW_CONNECTION_ID
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.742839Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.742878Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.742921Z DEBUG quinn_proto::packet: encoding packet header: Long {
+    ty: Handshake,
+    dst_cid: <aa43f31abd0259ff>,
+    src_cid: <bc27073e97f117fe>,
+    number: 1,
+    version: 1,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.742951Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.745408Z DEBUG quinn_proto::frame: encoding frame header: CONNECTION_CLOSE
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.745421Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: true,
+    key_phase: false,
+    dst_cid: <aa43f31abd0259ff>,
+    number: 5,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.745439Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.745449Z DEBUG quinn_proto::frame: encoding frame header: APPLICATION_CLOSE
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.745461Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.745487Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.758863Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.758883Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 1
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.758895Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.758901Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 1
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.758918Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 500354746 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: true,
+            dst_cid: <bc27073e97f117fe>,
+        },
+        buf.get_ref().len(): 400,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.758958Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 500354746 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: true,
+            dst_cid: <bc27073e97f117fe>,
+        },
+        buf.get_ref().len(): 1326,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.759017Z DEBUG quinn_proto::packet: encoding packet header: Long {
+    ty: Handshake,
+    dst_cid: <aa43f31abd0259ff>,
+    src_cid: <bc27073e97f117fe>,
+    number: 2,
+    version: 1,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.759034Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.759042Z DEBUG quinn_proto::frame: encoding frame header: CONNECTION_CLOSE
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.759051Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: true,
+    key_phase: false,
+    dst_cid: <aa43f31abd0259ff>,
+    number: 6,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.759064Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.759071Z DEBUG quinn_proto::frame: encoding frame header: APPLICATION_CLOSE
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.759079Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.759120Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.763053Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.763073Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 1
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.763094Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 504541220 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: true,
+            dst_cid: <7b36405ce0085fc8>,
+        },
+        buf.get_ref().len(): 30,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.763150Z DEBUG quinn_proto::packet: encoding packet header: Long {
+    ty: Handshake,
+    dst_cid: <aa43f31abd0259ff>,
+    src_cid: <bc27073e97f117fe>,
+    number: 3,
+    version: 1,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.763167Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.763175Z DEBUG quinn_proto::frame: encoding frame header: CONNECTION_CLOSE
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.763186Z DEBUG quinn_proto::packet: encoding packet header: Short {
+    spin: true,
+    key_phase: false,
+    dst_cid: <aa43f31abd0259ff>,
+    number: 7,
+}
+    at quinn-proto/src/packet.rs:292
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.763200Z DEBUG quinn_proto::frame: encoding frame header: ACK_ECN
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.763207Z DEBUG quinn_proto::frame: encoding frame header: APPLICATION_CLOSE
+    at quinn-proto/src/frame.rs:46
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.763216Z DEBUG quinn_proto::connection: IO effect: Transmitting normally
+    at quinn-proto/src/connection/mod.rs:938
+    in quinn_proto::connection::poll_transmit
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.763262Z DEBUG quinn::runtime::tokio: IO effect: transmitted datagram
+    at quinn/src/runtime/tokio.rs:65
+    in quinn::runtime::tokio::poll_send entry
+    in quinn::runtime::tokio::poll_send
+
+  2024-04-13T21:38:31.765690Z DEBUG quinn_proto::endpoint: IO event: endpoint handling datagram from [::1]:4433
+    at quinn-proto/src/endpoint.rs:143
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.765708Z DEBUG quinn_proto::endpoint: internal effect: attributing datagram to existing connection 1
+    at quinn-proto/src/endpoint.rs:201
+    in quinn_proto::endpoint::handle
+
+  2024-04-13T21:38:31.765734Z DEBUG quinn_proto::connection: internal event: connection handling event from endpoint:
+Datagram {
+    now: Instant { tv_sec: 433431, tv_nsec: 507189082 },
+    remote: [::1]:4433,
+    ecn: Some(Ect0),
+    first_decode: PartialDecode {
+        plain_header: Short {
+            spin: true,
+            dst_cid: <7b36405ce0085fc8>,
+        },
+        buf.get_ref().len(): 40,
+        buf.position(): 9,
+        ..
+    },
+    remaining.as_ref().map(|b| b.len()): None,
+}
+    at quinn-proto/src/connection/mod.rs:995
+    in quinn_proto::connection::handle_event
+    in quinn::connection::process_conn_events
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:31.953014Z DEBUG quinn_proto::connection: timer event: connection handling Close timeout
+    at quinn-proto/src/connection/mod.rs:1074
+    in quinn_proto::connection::handle_timeout
+    in quinn::connection::drive_timer
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.953024Z DEBUG quinn_proto::connection: internal effect: connection reached close tiemr
+    at quinn-proto/src/connection/mod.rs:1078
+    in quinn_proto::connection::handle_timeout
+    in quinn::connection::drive_timer
+    in quinn::connection::drive with id: 0
+
+  2024-04-13T21:38:31.953043Z DEBUG quinn_proto::endpoint: internal event: endpoint handling event from connection 0:
+Drained
+    at quinn-proto/src/endpoint.rs:94
+    in quinn_proto::endpoint::handle_event
+
+  2024-04-13T21:38:32.006219Z DEBUG quinn_proto::connection: timer event: connection handling Close timeout
+    at quinn-proto/src/connection/mod.rs:1074
+    in quinn_proto::connection::handle_timeout
+    in quinn::connection::drive_timer
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:32.006248Z DEBUG quinn_proto::connection: internal effect: connection reached close tiemr
+    at quinn-proto/src/connection/mod.rs:1078
+    in quinn_proto::connection::handle_timeout
+    in quinn::connection::drive_timer
+    in quinn::connection::drive with id: 1
+
+  2024-04-13T21:38:32.006311Z DEBUG quinn_proto::endpoint: internal event: endpoint handling event from connection 1:
+Drained
+    at quinn-proto/src/endpoint.rs:94
+    in quinn_proto::endpoint::handle_event
+
+[44.334638, 44.365727, 26.523736, 26.534968]
+

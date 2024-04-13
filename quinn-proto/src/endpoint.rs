@@ -523,7 +523,7 @@ impl Endpoint {
     }
 
     /// Attempt to accept this incoming connection (an error may still occur)
-    #[tracing::instrument]
+    #[tracing::instrument(skip_all)]
     pub fn accept(
         &mut self,
         mut incoming: Incoming,
@@ -673,7 +673,7 @@ impl Endpoint {
     }
 
     /// Reject this incoming connection attempt
-    #[tracing::instrument]
+    #[tracing::instrument(skip_all)]
     pub fn refuse(&mut self, incoming: Incoming, buf: &mut BytesMut) -> Transmit {
         tracing::Span::current().follows_from(&incoming.span);
         tracing::debug!("API event: endpoint refusing Incoming");
@@ -691,7 +691,7 @@ impl Endpoint {
     /// Respond with a retry packet, requiring the client to retry with address validation
     ///
     /// Errors if `incoming.remote_address_validated()` is true.
-    #[tracing::instrument]
+    #[tracing::instrument(skip_all)]
     pub fn retry(
         &mut self,
         incoming: Incoming,
