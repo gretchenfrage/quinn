@@ -27,8 +27,8 @@ use crate::{
         PartialDecode, PlainInitialHeader,
     },
     shared::{
-        ConnectionEvent, ConnectionEventInner, ConnectionId, EcnCodepoint, EndpointEvent,
-        EndpointEventInner, IssuedCid,
+        ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
+        EndpointEvent, EndpointEventInner, IssuedCid,
     },
     token::TokenDecodeError,
     transport_parameters::{PreferredAddress, TransportParameters},
@@ -51,6 +51,8 @@ pub struct Endpoint {
     allow_mtud: bool,
     /// Time at which a stateless reset was most recently sent
     last_stateless_reset: Option<Instant>,
+    /// Buffered 0-rtt messages for pending incoming connections
+    incoming_buffered: Slab<Vec<(DatagramConnectionEvent, tracing::Span)>>,
 }
 
 impl Endpoint {
@@ -74,6 +76,7 @@ impl Endpoint {
             server_config,
             allow_mtud,
             last_stateless_reset: None,
+            incoming_buffered: Slab::new(),
         }
     }
 
@@ -85,13 +88,21 @@ impl Endpoint {
     /// Process `EndpointEvent`s emitted from related `Connection`s
     ///
     /// In turn, processing this event may return a `ConnectionEvent` for the same `Connection`.
+    #[tracing::instrument(skip_all)]
     pub fn handle_event(
         &mut self,
         ch: ConnectionHandle,
         event: EndpointEvent,
     ) -> Option<ConnectionEvent> {
+        tracing::Span::current().follows_from(&event.span);
+        tracing::debug!(
+            "internal event: endpoint handling event from connection {}:\n{:#?}",
+            ch.0,
+            event.inner
+        );
+
         use EndpointEventInner::*;
-        match event.0 {
+        match event.inner {
             NeedIdentifiers(now, n) => {
                 return Some(self.send_new_identifiers(now, ch, n));
             }
@@ -127,6 +138,7 @@ impl Endpoint {
     }
 
     /// Process an incoming UDP datagram
+    #[tracing::instrument(skip_all)]
     pub fn handle(
         &mut self,
         now: Instant,
@@ -136,6 +148,8 @@ impl Endpoint {
         data: BytesMut,
         buf: &mut Vec<u8>,
     ) -> Option<DatagramEvent> {
+        tracing::debug!("IO event: endpoint handling datagram from {:?}", remote);
+
         let datagram_len = data.len();
         let (first_decode, remaining) = match PartialDecode::new(
             data,
@@ -170,12 +184,14 @@ impl Endpoint {
                 for &version in &self.config.supported_versions {
                     buf.write(version);
                 }
+                tracing::debug!("IO effect: Transmitting version negotiation");
                 return Some(DatagramEvent::Response(Transmit {
                     destination: remote,
                     ecn: None,
                     size: buf.len(),
                     segment_size: None,
                     src_ip: local_ip,
+                    span: tracing::Span::current(),
                 }));
             }
             Err(e) => {
@@ -189,17 +205,37 @@ impl Endpoint {
         //
 
         let addresses = FourTuple { remote, local_ip };
-        if let Some(ch) = self.index.get(&addresses, &first_decode) {
-            return Some(DatagramEvent::ConnectionEvent(
-                ch,
-                ConnectionEvent(ConnectionEventInner::Datagram {
-                    now,
-                    remote: addresses.remote,
-                    ecn,
-                    first_decode,
-                    remaining,
-                }),
-            ));
+        if let Some(route_to) = self.index.get(&addresses, &first_decode) {
+            let event = DatagramConnectionEvent {
+                now,
+                remote: addresses.remote,
+                ecn,
+                first_decode,
+                remaining,
+            };
+            match route_to {
+                RouteDatagramTo::Incoming(incoming_idx) => {
+                    tracing::debug!(
+                        "internal effect: attributing datagram to existing incoming connection {}",
+                        incoming_idx
+                    );
+                    self.incoming_buffered[incoming_idx].push((event, tracing::Span::current()));
+                    return None;
+                }
+                RouteDatagramTo::Connection(ch) => {
+                    tracing::debug!(
+                        "internal effect: attributing datagram to existing connection {}",
+                        ch.0
+                    );
+                    return Some(DatagramEvent::ConnectionEvent(
+                        ch,
+                        ConnectionEvent {
+                            inner: ConnectionEventInner::Datagram(event),
+                            span: tracing::Span::current(),
+                        },
+                    ));
+                }
+            }
         }
 
         //
@@ -318,10 +354,7 @@ impl Endpoint {
             }
         };
 
-        debug!(
-            "sending stateless reset for {} to {}",
-            dst_cid, addresses.remote
-        );
+        debug!("encoding stateless reset for {}", dst_cid);
         self.last_stateless_reset = Some(now);
         // Resets with at least this much padding can't possibly be distinguished from real packets
         const IDEAL_MIN_PADDING_LEN: usize = MIN_PADDING_LEN + MAX_CID_SIZE;
@@ -338,16 +371,19 @@ impl Endpoint {
 
         debug_assert!(buf.len() < inciting_dgram_len);
 
+        tracing::debug!("IO effect: Transmittings stateless reset");
         Some(Transmit {
             destination: addresses.remote,
             ecn: None,
             size: buf.len(),
             segment_size: None,
             src_ip: addresses.local_ip,
+            span: tracing::Span::current(),
         })
     }
 
     /// Initiate a connection
+    #[tracing::instrument(skip_all)]
     pub fn connect(
         &mut self,
         now: Instant,
@@ -355,6 +391,8 @@ impl Endpoint {
         remote: SocketAddr,
         server_name: &str,
     ) -> Result<(ConnectionHandle, Connection), ConnectError> {
+        tracing::debug!("API event: endpoint connecting to {:?}", remote);
+
         if self.cids_exhausted() {
             return Err(ConnectError::CidsExhausted);
         }
@@ -420,7 +458,11 @@ impl Endpoint {
                 reset_token: ResetToken::new(&*self.config.reset_key, &id),
             });
         }
-        ConnectionEvent(ConnectionEventInner::NewIdentifiers(ids, now))
+        tracing::debug!("internal effect: sending new identifiers to connections");
+        ConnectionEvent {
+            inner: ConnectionEventInner::NewIdentifiers(ids, now),
+            span: tracing::Span::current(),
+        }
     }
 
     /// Generate a connection ID for `ch`
@@ -489,6 +531,11 @@ impl Endpoint {
             }
         };
 
+        tracing::debug!("API effect: new Incoming connection");
+        let incoming_idx = self.incoming_buffered.insert(Vec::new());
+        self.index
+            .insert_initial_incoming(orig_dst_cid, incoming_idx);
+
         Some(DatagramEvent::NewConnection(Incoming {
             addresses,
             ecn,
@@ -501,10 +548,13 @@ impl Endpoint {
             crypto,
             retry_src_cid,
             orig_dst_cid,
+            span: tracing::Span::current(),
+            incoming_idx,
         }))
     }
 
     /// Attempt to accept this incoming connection (an error may still occur)
+    #[tracing::instrument(skip_all)]
     pub fn accept(
         &mut self,
         mut incoming: Incoming,
@@ -512,6 +562,11 @@ impl Endpoint {
         buf: &mut Vec<u8>,
         server_config: Option<Arc<ServerConfig>>,
     ) -> Result<(ConnectionHandle, Connection), AcceptError> {
+        tracing::Span::current().follows_from(&incoming.span);
+        tracing::debug!("API event: endpoint accepting Incoming");
+
+        let incoming_buffered = self.incoming_buffered.remove(incoming.incoming_idx);
+
         let packet_number = incoming.packet.header.number.expand(0);
         let InitialHeader {
             src_cid,
@@ -601,6 +656,8 @@ impl Endpoint {
         if dst_cid.len() != 0 {
             self.index.insert_initial(dst_cid, ch);
         }
+        tracing::debug!("direct internal effect: having connection handle first packet");
+
         match conn.handle_first_packet(
             now,
             incoming.addresses.remote,
@@ -611,11 +668,28 @@ impl Endpoint {
         ) {
             Ok(()) => {
                 trace!(id = ch.0, icid = %dst_cid, "new connection");
+
+                for (event, span) in incoming_buffered {
+                    conn.handle_event(ConnectionEvent {
+                        inner: ConnectionEventInner::Datagram(event),
+                        span,
+                    });
+                }
+
                 Ok((ch, conn))
             }
             Err(e) => {
                 debug!("handshake failed: {}", e);
-                self.handle_event(ch, EndpointEvent(EndpointEventInner::Drained));
+                tracing::debug!(
+                    "direct internal effect: connection drained because handshake failed"
+                );
+                self.handle_event(
+                    ch,
+                    EndpointEvent {
+                        inner: EndpointEventInner::Drained,
+                        span: tracing::Span::current(),
+                    },
+                );
                 let response = match e {
                     ConnectionError::TransportError(ref e) => Some(self.initial_close(
                         version,
@@ -662,7 +736,13 @@ impl Endpoint {
     }
 
     /// Reject this incoming connection attempt
+    #[tracing::instrument(skip_all)]
     pub fn refuse(&mut self, incoming: Incoming, buf: &mut Vec<u8>) -> Transmit {
+        tracing::Span::current().follows_from(&incoming.span);
+        tracing::debug!("API event: endpoint refusing Incoming");
+
+        self.incoming_buffered.remove(incoming.incoming_idx);
+
         self.initial_close(
             incoming.packet.header.version,
             incoming.addresses,
@@ -676,11 +756,17 @@ impl Endpoint {
     /// Respond with a retry packet, requiring the client to retry with address validation
     ///
     /// Errors if `incoming.remote_address_validated()` is true.
+    #[tracing::instrument(skip_all)]
     pub fn retry(&mut self, incoming: Incoming, buf: &mut Vec<u8>) -> Result<Transmit, RetryError> {
+        tracing::Span::current().follows_from(&incoming.span);
+        tracing::debug!("API event: endpoint retrying Incoming");
+
         if incoming.remote_address_validated() {
             return Err(RetryError(incoming));
         }
         let server_config = self.server_config.as_ref().unwrap();
+
+        self.incoming_buffered.remove(incoming.incoming_idx);
 
         // First Initial
         // The peer will use this as the DCID of its following Initials. Initial DCIDs are
@@ -715,12 +801,14 @@ impl Endpoint {
         ));
         encode.finish(buf, &*incoming.crypto.header.local, None);
 
+        tracing::debug!("IO effect: Transmitting retry packet");
         Ok(Transmit {
             destination: incoming.addresses.remote,
             ecn: None,
             size: buf.len(),
             segment_size: None,
             src_ip: incoming.addresses.local_ip,
+            span: tracing::Span::current(),
         })
     }
 
@@ -814,12 +902,15 @@ impl Endpoint {
         frame::Close::from(reason).encode(buf, max_len);
         buf.resize(buf.len() + crypto.packet.local.tag_len(), 0);
         partial_encode.finish(buf, &*crypto.header.local, Some((0, &*crypto.packet.local)));
+
+        tracing::debug!("IO effect: Transmitting initial close");
         Transmit {
             destination: addresses.remote,
             ecn: None,
             size: buf.len(),
             segment_size: None,
             src_ip: addresses.local_ip,
+            span: tracing::Span::current(),
         }
     }
 
@@ -874,13 +965,20 @@ impl fmt::Debug for Endpoint {
     }
 }
 
+/// Other protocol state than endpoint incoming datagram can be routed to
+#[derive(Copy, Clone, Debug)]
+enum RouteDatagramTo {
+    Incoming(usize),
+    Connection(ConnectionHandle),
+}
+
 /// Maps packets to existing connections
 #[derive(Default, Debug)]
 struct ConnectionIndex {
     /// Identifies connections based on the initial DCID the peer utilized
     ///
     /// Uses a standard `HashMap` to protect against hash collision attacks.
-    connection_ids_initial: HashMap<ConnectionId, ConnectionHandle>,
+    connection_ids_initial: HashMap<ConnectionId, RouteDatagramTo>,
     /// Identifies connections based on locally created CIDs
     ///
     /// Uses a cheaper hash function since keys are locally created
@@ -897,9 +995,20 @@ struct ConnectionIndex {
 }
 
 impl ConnectionIndex {
+    /* /// Associate a connection with its initial destination CID
+    fn insert_initial(&mut self, dst_cid: ConnectionId, connection: ConnectionHandle) {
+    } */
+
+    /// Associate an incoming connection with its initial destination CID
+    fn insert_initial_incoming(&mut self, dst_cid: ConnectionId, incoming_key: usize) {
+        self.connection_ids_initial
+            .insert(dst_cid, RouteDatagramTo::Incoming(incoming_key));
+    }
+
     /// Associate a connection with its initial destination CID
     fn insert_initial(&mut self, dst_cid: ConnectionId, connection: ConnectionHandle) {
-        self.connection_ids_initial.insert(dst_cid, connection);
+        self.connection_ids_initial
+            .insert(dst_cid, RouteDatagramTo::Connection(connection));
     }
 
     /// Associate a connection with its first locally-chosen destination CID if used, or otherwise
@@ -940,10 +1049,10 @@ impl ConnectionIndex {
     }
 
     /// Find the existing connection that `datagram` should be routed to, if any
-    fn get(&self, addresses: &FourTuple, datagram: &PartialDecode) -> Option<ConnectionHandle> {
+    fn get(&self, addresses: &FourTuple, datagram: &PartialDecode) -> Option<RouteDatagramTo> {
         if datagram.dst_cid().len() != 0 {
             if let Some(&ch) = self.connection_ids.get(datagram.dst_cid()) {
-                return Some(ch);
+                return Some(RouteDatagramTo::Connection(ch));
             }
         }
         if datagram.is_initial() || datagram.is_0rtt() {
@@ -953,7 +1062,7 @@ impl ConnectionIndex {
         }
         if datagram.dst_cid().len() == 0 {
             if let Some(&ch) = self.connection_remotes.get(addresses) {
-                return Some(ch);
+                return Some(RouteDatagramTo::Connection(ch));
             }
         }
         let data = datagram.data();
@@ -963,6 +1072,7 @@ impl ConnectionIndex {
         self.connection_reset_tokens
             .get(addresses.remote, &data[data.len() - RESET_TOKEN_SIZE..])
             .cloned()
+            .map(RouteDatagramTo::Connection)
     }
 }
 
@@ -1025,6 +1135,8 @@ pub struct Incoming {
     crypto: Keys,
     retry_src_cid: Option<ConnectionId>,
     orig_dst_cid: ConnectionId,
+    span: tracing::Span,
+    incoming_idx: usize,
 }
 
 impl Incoming {
@@ -1059,6 +1171,7 @@ impl fmt::Debug for Incoming {
             // rest is too big and not meaningful enough
             .field("retry_src_cid", &self.retry_src_cid)
             .field("orig_dst_cid", &self.orig_dst_cid)
+            .field("incoming_idx", &self.incoming_idx)
             .finish_non_exhaustive()
     }
 }

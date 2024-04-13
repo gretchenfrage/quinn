@@ -5,26 +5,64 @@ use bytes::{Buf, BufMut, BytesMut};
 use crate::{coding::BufExt, packet::PartialDecode, ResetToken, MAX_CID_SIZE};
 
 /// Events sent from an Endpoint to a Connection
-#[derive(Debug)]
-pub struct ConnectionEvent(pub(crate) ConnectionEventInner);
+pub struct ConnectionEvent {
+    pub(crate) inner: ConnectionEventInner,
+    /// Tracing span providing context for the creation of this ConnectionEvent
+    pub span: tracing::Span,
+}
 
-#[derive(Debug)]
+impl fmt::Debug for ConnectionEvent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self.inner {
+            ConnectionEventInner::Datagram(DatagramConnectionEvent {
+                now,
+                remote,
+                ecn,
+                first_decode,
+                remaining,
+            }) => f
+                .debug_struct("Datagram")
+                .field("now", &format_args!("{:?}", now))
+                .field("remote", &format_args!("{:?}", remote))
+                .field("ecn", &format_args!("{:?}", ecn))
+                .field("first_decode", first_decode)
+                .field(
+                    "remaining.as_ref().map(|b| b.len())",
+                    &remaining.as_ref().map(|b| b.len()),
+                )
+                .finish(),
+            ConnectionEventInner::NewIdentifiers(cids, now) => f
+                .debug_tuple("NewIdentifiers")
+                .field(cids)
+                .field(&format_args!("{:?}", now))
+                .finish(),
+        }
+    }
+}
+
 pub(crate) enum ConnectionEventInner {
     /// A datagram has been received for the Connection
-    Datagram {
-        now: Instant,
-        remote: SocketAddr,
-        ecn: Option<EcnCodepoint>,
-        first_decode: PartialDecode,
-        remaining: Option<BytesMut>,
-    },
+    Datagram(DatagramConnectionEvent),
     /// New connection identifiers have been issued for the Connection
     NewIdentifiers(Vec<IssuedCid>, Instant),
 }
 
-/// Events sent from a Connection to an Endpoint
+/// Variant of [`ConnectionEventInner`].
 #[derive(Debug)]
-pub struct EndpointEvent(pub(crate) EndpointEventInner);
+pub(crate) struct DatagramConnectionEvent {
+    pub(crate) now: Instant,
+    pub(crate) remote: SocketAddr,
+    pub(crate) ecn: Option<EcnCodepoint>,
+    pub(crate) first_decode: PartialDecode,
+    pub(crate) remaining: Option<BytesMut>,
+}
+
+/// Events sent from a Connection to an Endpoint
+pub struct EndpointEvent {
+    pub(crate) inner: EndpointEventInner,
+    /// Tracing span providing context for the creation of this EndpointEvent
+    pub span: tracing::Span,
+}
 
 impl EndpointEvent {
     /// Construct an event that indicating that a `Connection` will no longer emit events
@@ -32,14 +70,29 @@ impl EndpointEvent {
     /// Useful for notifying an `Endpoint` that a `Connection` has been destroyed outside of the
     /// usual state machine flow, e.g. when being dropped by the user.
     pub fn drained() -> Self {
-        Self(EndpointEventInner::Drained)
+        EndpointEvent {
+            inner: EndpointEventInner::Drained,
+            span: tracing::Span::current(),
+        }
     }
 
     /// Determine whether this is the last event a `Connection` will emit
     ///
     /// Useful for determining when connection-related event loop state can be freed.
     pub fn is_drained(&self) -> bool {
-        self.0 == EndpointEventInner::Drained
+        self.inner == EndpointEventInner::Drained
+    }
+}
+
+impl fmt::Debug for EndpointEvent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::EndpointEventInner::*;
+        match &self.inner {
+            Drained => f.write_str("Drained"),
+            ResetToken(a, t) => write!(f, "ResetToken({:?}, {:?})", a, t),
+            NeedIdentifiers(i, n) => write!(f, "NeedIdentifiers({:?}, {})", i, n),
+            RetireConnectionId(i, n, b) => write!(f, "RetireConnectionId({:?}, {}, {})", i, n, b),
+        }
     }
 }
 
@@ -123,16 +176,21 @@ impl ::std::ops::DerefMut for ConnectionId {
 
 impl fmt::Debug for ConnectionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.bytes[0..self.len as usize].fmt(f)
+        write!(f, "<")?;
+        for byte in self.iter() {
+            write!(f, "{byte:02x}")?;
+        }
+        write!(f, ">")
     }
 }
 
 impl fmt::Display for ConnectionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<")?;
         for byte in self.iter() {
             write!(f, "{byte:02x}")?;
         }
-        Ok(())
+        write!(f, ">")
     }
 }
 

@@ -291,6 +291,8 @@ pub struct Transmit {
     pub segment_size: Option<usize>,
     /// Optional source IP address for the datagram
     pub src_ip: Option<IpAddr>,
+    /// Tracing span providing context for the creation of this Transmit
+    pub span: tracing::Span,
 }
 
 //

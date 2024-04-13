@@ -1024,6 +1024,7 @@ impl State {
     }
 
     /// If this returns `Err`, the endpoint is dead, so the driver should exit immediately.
+    #[tracing::instrument(skip_all)]
     fn process_conn_events(
         &mut self,
         shared: &Shared,
@@ -1125,6 +1126,7 @@ impl State {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     fn drive_timer(&mut self, cx: &mut Context) -> bool {
         // Check whether we need to (re)set the timer. If so, we must poll again to ensure the
         // timer is registered with the runtime (and check whether it's already

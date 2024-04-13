@@ -14,7 +14,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use proto::crypto::rustls::QuicServerConfig;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use tracing::{error, info, info_span};
+use tracing::{debug, error, info, info_span};
 use tracing_futures::Instrument as _;
 
 mod common;
@@ -45,12 +45,16 @@ struct Opt {
     /// Maximum number of concurrent connections to allow
     #[clap(long = "connection-limit")]
     connection_limit: Option<usize>,
+    /// Transmit 0-RTT responses to 0-RTT requests
+    #[clap(long = "0rtt")]
+    zero_rtt: bool,
 }
 
 fn main() {
     tracing::subscriber::set_global_default(
         tracing_subscriber::FmtSubscriber::builder()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .pretty()
             .finish(),
     )
     .unwrap();
@@ -119,6 +123,7 @@ async fn run(options: Opt) -> Result<()> {
     let mut server_crypto = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)?;
+    server_crypto.max_early_data_size = u32::MAX;
     server_crypto.alpn_protocols = common::ALPN_QUIC_HTTP.iter().map(|&x| x.into()).collect();
     if options.keylog {
         server_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
@@ -142,17 +147,17 @@ async fn run(options: Opt) -> Result<()> {
             .connection_limit
             .map_or(false, |n| endpoint.open_connections() >= n)
         {
-            info!("refusing due to open connection limit");
+            info!("rejecting due to open connection limit");
             conn.refuse();
         } else if Some(conn.remote_address()) == options.block {
-            info!("refusing blocked client IP address");
+            info!("rejecting blocked client IP address");
             conn.refuse();
         } else if options.stateless_retry && !conn.remote_address_validated() {
             info!("requiring connection to validate its address");
             conn.retry().unwrap();
         } else {
             info!("accepting connection");
-            let fut = handle_connection(root.clone(), conn);
+            let fut = handle_connection(root.clone(), conn, options.zero_rtt);
             tokio::spawn(async move {
                 if let Err(e) = fut.await {
                     error!("connection failed: {reason}", reason = e.to_string())
@@ -164,8 +169,16 @@ async fn run(options: Opt) -> Result<()> {
     Ok(())
 }
 
-async fn handle_connection(root: Arc<Path>, conn: quinn::Incoming) -> Result<()> {
-    let connection = conn.await?;
+async fn handle_connection(root: Arc<Path>, conn: quinn::Incoming, zero_rtt: bool) -> Result<()> {
+    let connecting = conn.accept()?;
+    let connection = if zero_rtt {
+        match connecting.into_0rtt() {
+            Ok((connection, _)) => connection,
+            Err(connecting) => connecting.await?,
+        }
+    } else {
+        connecting.await?
+    };
     let span = info_span!(
         "connection",
         remote = %connection.remote_address(),
@@ -192,6 +205,10 @@ async fn handle_connection(root: Arc<Path>, conn: quinn::Incoming) -> Result<()>
                 }
                 Ok(s) => s,
             };
+            let (_, ref recv) = stream;
+            if recv.is_0rtt() && !zero_rtt {
+                debug!("0-rtt request received, but 0-rtt response disabled")
+            }
             let fut = handle_request(root.clone(), stream);
             tokio::spawn(
                 async move {

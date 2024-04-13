@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, io, ops::Range, str};
+use std::{cmp::Ordering, fmt, io, ops::Range, str};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use thiserror::Error;
@@ -20,7 +20,6 @@ use crate::{
 // This information allows us to fully decode and decrypt the packet.
 #[allow(unreachable_pub)] // fuzzing only
 #[cfg_attr(test, derive(Clone))]
-#[derive(Debug)]
 pub struct PartialDecode {
     plain_header: PlainHeader,
     buf: io::Cursor<BytesMut>,
@@ -216,6 +215,17 @@ impl PartialDecode {
     }
 }
 
+impl fmt::Debug for PartialDecode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("PartialDecode")
+            .field("plain_header", &self.plain_header)
+            // buf is binary data, summarize it
+            .field("buf.get_ref().len()", &self.buf.get_ref().len())
+            .field("buf.position()", &self.buf.position())
+            .finish_non_exhaustive()
+    }
+}
+
 pub(crate) struct Packet {
     pub(crate) header: Header,
     pub(crate) header_data: Bytes,
@@ -279,6 +289,7 @@ pub(crate) enum Header {
 
 impl Header {
     pub(crate) fn encode(&self, w: &mut Vec<u8>) -> PartialEncode {
+        tracing::debug!("encoding packet header: {:#?}", self);
         use self::Header::*;
         let start = w.len();
         match *self {
@@ -639,7 +650,7 @@ pub(crate) struct InitialHeader {
 }
 
 // An encoded packet number
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub(crate) enum PacketNumber {
     U8(u8),
     U16(u16),
@@ -737,6 +748,18 @@ impl PacketNumber {
             candidate - win
         } else {
             candidate
+        }
+    }
+}
+
+impl fmt::Debug for PacketNumber {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::PacketNumber::*;
+        match *self {
+            U8(n) => n.fmt(f),
+            U16(n) => n.fmt(f),
+            U24(n) => n.fmt(f),
+            U32(n) => n.fmt(f),
         }
     }
 }
