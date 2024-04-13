@@ -51,12 +51,20 @@ struct UdpSocket {
 }
 
 impl AsyncUdpSocket for UdpSocket {
-    fn poll_send(&self, cx: &mut Context, transmits: &[udp::Transmit]) -> Poll<io::Result<usize>> {
+    #[tracing::instrument(skip_all)]
+    fn poll_send(&self, cx: &mut Context, transmits: &[(udp::Transmit, tracing::Span)]) -> Poll<io::Result<usize>> {
         let inner = &self.inner;
         let io = &self.io;
         loop {
             ready!(io.poll_send_ready(cx))?;
             if let Ok(res) = io.try_io(Interest::WRITABLE, || inner.send(io.into(), transmits)) {
+                if !tracing::Span::current().is_disabled() {
+                    for (_, cause_span) in &transmits[..res] {
+                        let entry_span = tracing::span!(tracing::Level::INFO, "poll_send entry").entered();
+                        entry_span.follows_from(cause_span);
+                        tracing::debug!("IO effect: transmitted datagram");
+                    }
+                }
                 return Poll::Ready(Ok(res));
             }
         }

@@ -162,7 +162,7 @@ pub struct Connection {
     /// Total number of outgoing packets that have been deemed lost
     lost_packets: u64,
     events: VecDeque<Event>,
-    endpoint_events: VecDeque<EndpointEventInner>,
+    endpoint_events: VecDeque<EndpointEvent>,
     /// Whether the spin bit is in use for this connection
     spin_enabled: bool,
     /// Outgoing spin bit state
@@ -380,6 +380,7 @@ impl Connection {
     /// - a call was made to `handle_timeout`
     #[must_use]
     pub fn poll_timeout(&mut self) -> Option<Instant> {
+        // TODO: timeout span causation stuff
         self.timers.next_timeout()
     }
 
@@ -399,6 +400,7 @@ impl Connection {
         }
 
         if let Some(err) = self.error.take() {
+            tracing::debug!("API effect: connection lost due to {:?}", err);
             return Some(Event::ConnectionLost { reason: err });
         }
 
@@ -408,7 +410,7 @@ impl Connection {
     /// Return endpoint-facing events
     #[must_use]
     pub fn poll_endpoint_events(&mut self) -> Option<EndpointEvent> {
-        self.endpoint_events.pop_front().map(EndpointEvent)
+        self.endpoint_events.pop_front()
     }
 
     /// Provide control over streams
@@ -453,6 +455,7 @@ impl Connection {
     /// `max_datagrams` specifies how many datagrams can be returned inside a
     /// single Transmit using GSO. This must be at least 1.
     #[must_use]
+    #[tracing::instrument(skip_all)]
     pub fn poll_transmit(
         &mut self,
         now: Instant,
@@ -507,12 +510,14 @@ impl Connection {
 
                 builder.finish(self, buf);
                 self.stats.udp_tx.on_sent(1, buf.len());
+                tracing::debug!("IO effect: Transmitting PATH_CHALLENGE for previous path");
                 return Some(Transmit {
                     destination,
                     size: buf.len(),
                     ecn: None,
                     segment_size: None,
                     src_ip: self.local_ip,
+                    span: tracing::Span::current(),
                 });
             }
         }
@@ -817,12 +822,14 @@ impl Connection {
                         buf,
                     );
                     self.stats.udp_tx.on_sent(1, buf.len());
+                    tracing::debug!("IO effect: Transmitting off-path PATH_RESPONSE");
                     return Some(Transmit {
                         destination: remote,
                         size: buf.len(),
                         ecn: None,
                         segment_size: None,
                         src_ip: self.local_ip,
+                        span: tracing::Span::current(),
                     });
                 }
             }
@@ -928,6 +935,7 @@ impl Connection {
 
         self.stats.udp_tx.on_sent(num_datagrams, buf.len());
 
+        tracing::debug!("IO effect: Transmitting normally");
         Some(Transmit {
             destination: self.path.remote,
             size: buf.len(),
@@ -941,6 +949,7 @@ impl Connection {
                 _ => Some(self.path.current_mtu() as usize),
             },
             src_ip: self.local_ip,
+            span: tracing::Span::current(),
         })
     }
 
@@ -980,9 +989,12 @@ impl Connection {
     /// Will execute protocol logic upon receipt of a connection event, in turn preparing signals
     /// (including application `Event`s, `EndpointEvent`s and outgoing datagrams) that should be
     /// extracted through the relevant methods.
+    #[tracing::instrument(skip_all)]
     pub fn handle_event(&mut self, event: ConnectionEvent) {
+        tracing::Span::current().follows_from(&event.span);
+        tracing::debug!("internal event: connection handling event from endpoint: {:#?}", event);
         use self::ConnectionEventInner::*;
-        match event.0 {
+        match event.inner {
             Datagram {
                 now,
                 remote,
@@ -1051,17 +1063,23 @@ impl Connection {
     /// It is most efficient to call this immediately after the system clock reaches the latest
     /// `Instant` that was output by `poll_timeout`; however spurious extra calls will simply
     /// no-op and therefore are safe.
+    #[tracing::instrument(skip_all)]
     pub fn handle_timeout(&mut self, now: Instant) {
         for &timer in &Timer::VALUES {
             if !self.timers.is_expired(timer, now) {
                 continue;
             }
             self.timers.stop(timer);
-            trace!(timer = ?timer, "timeout");
+            let _span = tracing::span!(tracing::Level::INFO, "handle_timeout loop iteration");
+            tracing::debug!("timer event: connection handling {:?} timeout", timer);
             match timer {
                 Timer::Close => {
                     self.state = State::Drained;
-                    self.endpoint_events.push_back(EndpointEventInner::Drained);
+                    tracing::debug!("internal effect: connection reached close tiemr");
+                    self.endpoint_events.push_back(EndpointEvent {
+                        inner: EndpointEventInner::Drained,
+                        span: tracing::Span::current(),
+                    });
                 }
                 Timer::Idle => {
                     self.kill(ConnectionError::TimedOut);
@@ -1094,8 +1112,12 @@ impl Connection {
                             "push a new cid to peer RETIRE_PRIOR_TO field {}",
                             self.local_cid_state.retire_prior_to()
                         );
+                        tracing::debug!("internal effect: connection rotating through connection id(s)");
                         self.endpoint_events
-                            .push_back(EndpointEventInner::NeedIdentifiers(now, num_new_cid));
+                            .push_back(EndpointEvent {
+                                inner: EndpointEventInner::NeedIdentifiers(now, num_new_cid),
+                                span: tracing::Span::current(),
+                            });
                     }
                 }
                 Timer::MaxAckDelay => {
@@ -1801,6 +1823,7 @@ impl Connection {
     ///
     /// Decrypting the first packet in the `Endpoint` allows stateless packet handling to be more
     /// efficient.
+    #[tracing::instrument(skip_all)]
     pub(crate) fn handle_first_packet(
         &mut self,
         now: Instant,
@@ -1810,8 +1833,7 @@ impl Connection {
         packet: InitialPacket,
         remaining: Option<BytesMut>,
     ) -> Result<(), ConnectionError> {
-        let span = trace_span!("first recv");
-        let _guard = span.enter();
+        tracing::debug!("internal event: connection handling first packet");
         debug_assert!(self.side.is_server());
         let len = packet.header_data.len() + packet.payload.len();
         self.path.total_recvd = len as u64;
@@ -1932,6 +1954,7 @@ impl Connection {
         while let Some(chunk) = space.crypto_stream.read(usize::MAX, true) {
             trace!("consumed {} CRYPTO bytes", chunk.bytes.len());
             if self.crypto.read_handshake(&chunk.bytes)? {
+                tracing::debug!("API effect: connection handshake data ready");
                 self.events.push_back(Event::HandshakeDataReady);
             }
         }
@@ -2207,7 +2230,11 @@ impl Connection {
             }
         }
         if !was_drained && self.state.is_drained() {
-            self.endpoint_events.push_back(EndpointEventInner::Drained);
+            tracing::debug!("internal effect: connection is drained");
+            self.endpoint_events.push_back(EndpointEvent {
+                inner: EndpointEventInner::Drained,
+                span: tracing::Span::current(),
+            });
             // Close timer may have been started previously, e.g. if we sent a close and got a
             // stateless reset in response
             self.timers.stop(Timer::Close);
@@ -2389,8 +2416,12 @@ impl Connection {
                         }
                     }
                     if let Some(token) = params.stateless_reset_token {
+                        tracing::debug!("internal effect: connection updating peer's reset token");
                         self.endpoint_events
-                            .push_back(EndpointEventInner::ResetToken(self.path.remote, token));
+                            .push_back(EndpointEvent {
+                                inner: EndpointEventInner::ResetToken(self.path.remote, token),
+                                span: tracing::Span::current(),
+                            });
                     }
                     self.handle_peer_params(params)?;
                     self.issue_first_cids(now);
@@ -2400,9 +2431,9 @@ impl Connection {
                     self.discard_space(now, SpaceId::Handshake);
                 }
 
+                tracing::debug!("API effect: connection established");
                 self.events.push_back(Event::Connected);
                 self.state = State::Established;
-                trace!("established");
                 Ok(())
             }
             Header::Initial(InitialHeader {
@@ -2690,12 +2721,16 @@ impl Connection {
                     let allow_more_cids = self
                         .local_cid_state
                         .on_cid_retirement(sequence, self.peer_params.issue_cids_limit())?;
+                    tracing::debug!("internal effect: connection retiring connection id(s)");
                     self.endpoint_events
-                        .push_back(EndpointEventInner::RetireConnectionId(
-                            now,
-                            sequence,
-                            allow_more_cids,
-                        ));
+                        .push_back(EndpointEvent {
+                            inner: EndpointEventInner::RetireConnectionId(
+                                now,
+                                sequence,
+                                allow_more_cids,
+                            ),
+                            span: tracing::Span::current(),
+                        });
                 }
                 Frame::NewConnectionId(frame) => {
                     trace!(
@@ -2773,6 +2808,7 @@ impl Connection {
                         .datagrams
                         .received(datagram, &self.config.datagram_receive_buffer_size)?
                     {
+                        tracing::debug!("API effect: connection received unreliable datagram");
                         self.events.push_back(Event::DatagramReceived);
                     }
                 }
@@ -2928,11 +2964,15 @@ impl Connection {
     }
 
     fn set_reset_token(&mut self, reset_token: ResetToken) {
+        tracing::debug!("internal effect: connection setting its reset token");
         self.endpoint_events
-            .push_back(EndpointEventInner::ResetToken(
-                self.path.remote,
-                reset_token,
-            ));
+            .push_back(EndpointEvent {
+                inner: EndpointEventInner::ResetToken(
+                    self.path.remote,
+                    reset_token,
+                ),
+                span: tracing::Span::current(),
+            });
         self.peer_params.stateless_reset_token = Some(reset_token);
     }
 
@@ -2944,8 +2984,12 @@ impl Connection {
 
         // Subtract 1 to account for the CID we supplied while handshaking
         let n = self.peer_params.issue_cids_limit() - 1;
+        tracing::debug!("internal effect: connection asking endpoint for first cids");
         self.endpoint_events
-            .push_back(EndpointEventInner::NeedIdentifiers(now, n));
+            .push_back(EndpointEvent {
+                inner: EndpointEventInner::NeedIdentifiers(now, n),
+                span: tracing::Span::current(),
+            });
     }
 
     fn populate_packet(
@@ -3465,9 +3509,13 @@ impl Connection {
     /// Terminate the connection instantly, without sending a close packet
     fn kill(&mut self, reason: ConnectionError) {
         self.close_common();
+        tracing::debug!("internal effect: connection drained because {:?}", reason);
+        self.endpoint_events.push_back(EndpointEvent {
+            inner: EndpointEventInner::Drained,
+            span: tracing::Span::current(),
+        });
         self.error = Some(reason);
         self.state = State::Drained;
-        self.endpoint_events.push_back(EndpointEventInner::Drained);
     }
 
     /// Storage size required for the largest packet known to be supported by the current path

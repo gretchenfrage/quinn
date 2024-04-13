@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, io, ops::Range, str};
+use std::{cmp::Ordering, io, ops::Range, str, fmt};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use thiserror::Error;
@@ -279,6 +279,7 @@ pub(crate) enum Header {
 
 impl Header {
     pub(crate) fn encode(&self, w: &mut BytesMut) -> PartialEncode {
+        tracing::debug!("encoding packet header {:#?}", self);
         use self::Header::*;
         let start = w.len();
         match *self {
@@ -639,7 +640,7 @@ pub(crate) struct InitialHeader {
 }
 
 // An encoded packet number
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub(crate) enum PacketNumber {
     U8(u8),
     U16(u16),
@@ -737,6 +738,18 @@ impl PacketNumber {
             candidate - win
         } else {
             candidate
+        }
+    }
+}
+
+impl fmt::Debug for PacketNumber {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::PacketNumber::*;
+        match *self {
+            U8(n) => n.fmt(f),
+            U16(n) => n.fmt(f),
+            U24(n) => n.fmt(f),
+            U32(n) => n.fmt(f),
         }
     }
 }

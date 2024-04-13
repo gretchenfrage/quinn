@@ -324,6 +324,7 @@ impl StreamsState {
         };
 
         if stream.try_stop(error_code) {
+            tracing::debug!(%id, "API effect: StreamEvent::Stopped");
             self.events
                 .push_back(StreamEvent::Stopped { id, error_code });
             self.on_stream_frame(false, id);
@@ -563,6 +564,7 @@ impl StreamsState {
         if stream.initiator() == self.side {
             // Notifying about the opening of locally-initiated streams would be redundant.
             if notify_readable {
+                tracing::debug!(%stream, "API effect: StreamEvent::Readable");
                 self.events.push_back(StreamEvent::Readable { id: stream });
             }
             return;
@@ -572,6 +574,7 @@ impl StreamsState {
             *next = stream.index() + 1;
             self.opened[stream.dir() as usize] = true;
         } else if notify_readable {
+            tracing::debug!(%stream, "API effect: StreamEvent::Readable");
             self.events.push_back(StreamEvent::Readable { id: stream });
         }
     }
@@ -606,6 +609,7 @@ impl StreamsState {
 
         entry.remove_entry();
         self.stream_freed(id, StreamHalf::Send);
+        tracing::debug!(%id, "API effect: StreamEvent::Finished");
         self.events.push_back(StreamEvent::Finished { id });
     }
 
@@ -657,6 +661,7 @@ impl StreamsState {
         let current = &mut self.max[dir as usize];
         if count > *current {
             *current = count;
+            tracing::debug!("API effect: StreamEvent::Available");
             self.events.push_back(StreamEvent::Available { dir });
         }
 
@@ -689,6 +694,7 @@ impl StreamsState {
         {
             if ss.increase_max_data(offset) {
                 if write_limit > 0 {
+                    tracing::debug!(%id, "API effect: StreamEvent::Writable due to max data increase");
                     self.events.push_back(StreamEvent::Writable { id });
                 } else if !ss.connection_blocked {
                     // The stream is still blocked on the connection flow control
@@ -715,9 +721,11 @@ impl StreamsState {
     }
 
     /// Yield stream events
+    #[tracing::instrument(skip_all)]
     pub(crate) fn poll(&mut self) -> Option<StreamEvent> {
         if let Some(dir) = Dir::iter().find(|&i| mem::replace(&mut self.opened[i as usize], false))
         {
+            tracing::debug!("API effect: StreamEvent::Opened");
             return Some(StreamEvent::Opened { dir });
         }
 
@@ -734,6 +742,7 @@ impl StreamsState {
                 // If it's no longer sensible to write to a stream (even to detect an error) then don't
                 // report it.
                 if stream.is_writable() && stream.max_data > stream.offset() {
+                    tracing::debug!(%id, "API effect: StreamEvent::Writable");
                     return Some(StreamEvent::Writable { id });
                 }
             }

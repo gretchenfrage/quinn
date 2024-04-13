@@ -570,7 +570,7 @@ impl State {
 
 #[derive(Debug, Default)]
 struct TransmitState {
-    outgoing: VecDeque<udp::Transmit>,
+    outgoing: VecDeque<(udp::Transmit, tracing::Span)>,
     /// The aggregateed contents length of the packets in the transmit queue
     contents_len: usize,
 }
@@ -602,23 +602,23 @@ impl TransmitState {
     fn dequeue(&mut self, sent: usize) {
         self.contents_len = self
             .contents_len
-            .saturating_sub(self.outgoing.drain(..sent).map(|t| t.contents.len()).sum());
+            .saturating_sub(self.outgoing.drain(..sent).map(|(t, _)| t.contents.len()).sum());
     }
 
-    fn transmits(&self) -> &[udp::Transmit] {
+    fn transmits(&self) -> &[(udp::Transmit, tracing::Span)] {
         self.outgoing.as_slices().0
     }
 }
 
 #[inline]
-fn udp_transmit(t: proto::Transmit, buffer: Bytes) -> udp::Transmit {
-    udp::Transmit {
+fn udp_transmit(t: proto::Transmit, buffer: Bytes) -> (udp::Transmit, tracing::Span) {
+    (udp::Transmit {
         destination: t.destination,
         ecn: t.ecn.map(udp_ecn),
         contents: buffer,
         segment_size: t.segment_size,
         src_ip: t.src_ip,
-    }
+    }, t.span)
 }
 
 #[inline]

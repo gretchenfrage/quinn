@@ -43,6 +43,7 @@ impl coding::Codec for Type {
         Ok(Self(buf.get_var()?))
     }
     fn encode<B: BufMut>(&self, buf: &mut B) {
+        tracing::debug!("encoding frame header {:?}", self);
         buf.write_var(self.0);
     }
 }

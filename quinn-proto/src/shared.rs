@@ -6,7 +6,11 @@ use crate::{coding::BufExt, packet::PartialDecode, ResetToken, MAX_CID_SIZE};
 
 /// Events sent from an Endpoint to a Connection
 #[derive(Debug)]
-pub struct ConnectionEvent(pub(crate) ConnectionEventInner);
+pub struct ConnectionEvent {
+    pub(crate) inner: ConnectionEventInner,
+    /// Tracing span providing context for the creation of this ConnectionEvent
+    pub span: tracing::Span,
+}
 
 #[derive(Debug)]
 pub(crate) enum ConnectionEventInner {
@@ -24,7 +28,11 @@ pub(crate) enum ConnectionEventInner {
 
 /// Events sent from a Connection to an Endpoint
 #[derive(Debug)]
-pub struct EndpointEvent(pub(crate) EndpointEventInner);
+pub struct EndpointEvent {
+    pub(crate) inner: EndpointEventInner,
+    /// Tracing span providing context for the creation of this EndpointEvent
+    pub span: tracing::Span,
+}
 
 impl EndpointEvent {
     /// Construct an event that indicating that a `Connection` will no longer emit events
@@ -32,14 +40,17 @@ impl EndpointEvent {
     /// Useful for notifying an `Endpoint` that a `Connection` has been destroyed outside of the
     /// usual state machine flow, e.g. when being dropped by the user.
     pub fn drained() -> Self {
-        Self(EndpointEventInner::Drained)
+        EndpointEvent {
+            inner: EndpointEventInner::Drained,
+            span: tracing::Span::current(),
+        }
     }
 
     /// Determine whether this is the last event a `Connection` will emit
     ///
     /// Useful for determining when connection-related event loop state can be freed.
     pub fn is_drained(&self) -> bool {
-        self.0 == EndpointEventInner::Drained
+        self.inner == EndpointEventInner::Drained
     }
 }
 
@@ -123,16 +134,21 @@ impl ::std::ops::DerefMut for ConnectionId {
 
 impl fmt::Debug for ConnectionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.bytes[0..self.len as usize].fmt(f)
+        write!(f, "[")?;
+        for byte in self.iter() {
+            write!(f, "{byte:02x}")?;
+        }
+        write!(f, "]")
     }
 }
 
 impl fmt::Display for ConnectionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[")?;
         for byte in self.iter() {
             write!(f, "{byte:02x}")?;
         }
-        Ok(())
+        write!(f, "]")
     }
 }
 

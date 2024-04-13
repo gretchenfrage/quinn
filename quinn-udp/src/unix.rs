@@ -156,7 +156,7 @@ impl UdpSocketState {
         })
     }
 
-    pub fn send(&self, socket: UdpSockRef<'_>, transmits: &[Transmit]) -> io::Result<usize> {
+    pub fn send(&self, socket: UdpSockRef<'_>, transmits: &[(Transmit, tracing::Span)]) -> io::Result<usize> {
         send(self, socket.0, transmits)
     }
 
@@ -213,7 +213,7 @@ fn send(
     #[allow(unused_variables)] // only used on Linux
     state: &UdpSocketState,
     io: SockRef<'_>,
-    transmits: &[Transmit],
+    transmits: &[(Transmit, tracing::Span)],
 ) -> io::Result<usize> {
     #[allow(unused_mut)] // only mutable on FreeBSD
     let mut encode_src_ip = true;
@@ -238,7 +238,7 @@ fn send(
     // TODO: Replace this with uninit_array once it becomes MSRV-stable
     let mut addrs: [MaybeUninit<socket2::SockAddr>; BATCH_SIZE] =
         unsafe { MaybeUninit::uninit().assume_init() };
-    for (i, transmit) in transmits.iter().enumerate().take(BATCH_SIZE) {
+    for (i, (transmit, _)) in transmits.iter().enumerate().take(BATCH_SIZE) {
         let dst_addr = unsafe {
             ptr::write(
                 addrs[i].as_mut_ptr(),
@@ -301,7 +301,7 @@ fn send(
                     // - EMSGSIZE is expected for MTU probes. Future work might be able to avoid
                     //   these by automatically clamping the MTUD upper bound to the interface MTU.
                     if e.raw_os_error() != Some(libc::EMSGSIZE) {
-                        log_sendmsg_error(&state.last_send_error, e, &transmits[0]);
+                        log_sendmsg_error(&state.last_send_error, e, &transmits[0].0);
                     }
 
                     // The ERRORS section in https://man7.org/linux/man-pages/man2/sendmmsg.2.html
