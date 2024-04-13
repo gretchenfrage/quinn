@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
-use tracing::{error, info, info_span};
+use tracing::{debug, error, info, info_span};
 use tracing_futures::Instrument as _;
 
 mod common;
@@ -37,12 +37,19 @@ struct Opt {
     /// Address to listen on
     #[clap(long = "listen", default_value = "[::1]:4433")]
     listen: SocketAddr,
+    /// Client address to block
+    #[clap(long = "block")]
+    block: Option<SocketAddr>,
+    /// Transmit 0-RTT responses to 0-RTT requests
+    #[clap(long = "0rtt")]
+    zero_rtt: bool,
 }
 
 fn main() {
     tracing::subscriber::set_global_default(
         tracing_subscriber::FmtSubscriber::builder()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .pretty()
             .finish(),
     )
     .unwrap();
@@ -124,6 +131,7 @@ async fn run(options: Opt) -> Result<()> {
         .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(certs, key)?;
+    server_crypto.max_early_data_size = u32::MAX;
     server_crypto.alpn_protocols = common::ALPN_QUIC_HTTP.iter().map(|&x| x.into()).collect();
     if options.keylog {
         server_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
@@ -132,9 +140,6 @@ async fn run(options: Opt) -> Result<()> {
     let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
     transport_config.max_concurrent_uni_streams(0_u8.into());
-    if options.stateless_retry {
-        server_config.use_retry(true);
-    }
 
     let root = Arc::<Path>::from(options.root.clone());
     if !root.exists() {
@@ -145,8 +150,7 @@ async fn run(options: Opt) -> Result<()> {
     eprintln!("listening on {}", endpoint.local_addr()?);
 
     while let Some(conn) = endpoint.accept().await {
-        info!("connection incoming");
-        let fut = handle_connection(root.clone(), conn);
+        let fut = handle_connection(root.clone(), conn, options.zero_rtt);
         tokio::spawn(async move {
             if let Err(e) = fut.await {
                 error!("connection failed: {reason}", reason = e.to_string())
@@ -157,8 +161,15 @@ async fn run(options: Opt) -> Result<()> {
     Ok(())
 }
 
-async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<()> {
-    let connection = conn.await?;
+async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting, zero_rtt: bool) -> Result<()> {
+    let connection = if zero_rtt {
+        match conn.into_0rtt() {
+            Ok((connection, _)) => connection,
+            Err(conn) => conn.await?,
+        }
+    } else {
+        conn.await?
+    };
     let span = info_span!(
         "connection",
         remote = %connection.remote_address(),
@@ -185,6 +196,10 @@ async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<(
                 }
                 Ok(s) => s,
             };
+            let (_, ref recv) = stream;
+            if recv.is_0rtt() && !zero_rtt {
+                debug!("0-rtt request received, but 0-rtt response disabled")
+            }
             let fut = handle_request(root.clone(), stream);
             tokio::spawn(
                 async move {
