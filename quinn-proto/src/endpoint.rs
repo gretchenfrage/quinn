@@ -27,8 +27,8 @@ use crate::{
         PartialDecode, PlainInitialHeader,
     },
     shared::{
-        ConnectionEvent, ConnectionEventInner, DatagramConnectionEvent, ConnectionId, EcnCodepoint, EndpointEvent,
-        EndpointEventInner, IssuedCid,
+        ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
+        EndpointEvent, EndpointEventInner, IssuedCid,
     },
     transport_parameters::{PreferredAddress, TransportParameters},
     ResetToken, RetryToken, Side, Transmit, TransportConfig, TransportError, INITIAL_MTU,
@@ -499,7 +499,8 @@ impl Endpoint {
         };
 
         let incoming_idx = self.incoming_buffered.insert(Vec::new());
-        self.index.insert_initial_incoming(orig_dst_cid, incoming_idx);
+        self.index
+            .insert_initial_incoming(orig_dst_cid, incoming_idx);
 
         Some(DatagramEvent::NewConnection(Incoming {
             addresses,
@@ -940,14 +941,16 @@ impl ConnectionIndex {
     fn insert_initial(&mut self, dst_cid: ConnectionId, connection: ConnectionHandle) {
     } */
 
-    /// Associate an incoming connection with its initial destination CID 
+    /// Associate an incoming connection with its initial destination CID
     fn insert_initial_incoming(&mut self, dst_cid: ConnectionId, incoming_key: usize) {
-        self.connection_ids_initial.insert(dst_cid, RouteDatagramTo::Incoming(incoming_key));
+        self.connection_ids_initial
+            .insert(dst_cid, RouteDatagramTo::Incoming(incoming_key));
     }
 
     /// Associate a connection with its initial destination CID
     fn insert_initial(&mut self, dst_cid: ConnectionId, connection: ConnectionHandle) {
-        self.connection_ids_initial.insert(dst_cid, RouteDatagramTo::Connection(connection));
+        self.connection_ids_initial
+            .insert(dst_cid, RouteDatagramTo::Connection(connection));
     }
 
     /// Associate a connection with its first locally-chosen destination CID if used, or otherwise

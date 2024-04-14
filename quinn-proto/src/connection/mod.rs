@@ -25,8 +25,8 @@ use crate::{
     packet::{Header, InitialHeader, InitialPacket, LongType, Packet, PartialDecode, SpaceId},
     range_set::ArrayRangeSet,
     shared::{
-        ConnectionEvent, ConnectionEventInner, ConnectionId, EcnCodepoint, EndpointEvent,
-        EndpointEventInner, DatagramConnectionEvent,
+        ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
+        EndpointEvent, EndpointEventInner,
     },
     token::ResetToken,
     transport_parameters::TransportParameters,
