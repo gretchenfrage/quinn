@@ -517,20 +517,22 @@ impl Endpoint {
         self.index
             .insert_initial_incoming(orig_dst_cid, incoming_idx);
 
-        Some(DatagramEvent::NewConnection(Incoming {
-            addresses,
-            ecn,
-            packet: InitialPacket {
-                header,
-                header_data: packet.header_data,
-                payload: packet.payload,
+        Some(DatagramEvent::NewConnection(Incoming(Some(
+            IncomingInner {
+                addresses,
+                ecn,
+                packet: InitialPacket {
+                    header,
+                    header_data: packet.header_data,
+                    payload: packet.payload,
+                },
+                rest,
+                crypto,
+                retry_src_cid,
+                orig_dst_cid,
+                incoming_idx,
             },
-            rest,
-            crypto,
-            retry_src_cid,
-            orig_dst_cid,
-            incoming_idx,
-        }))
+        ))))
     }
 
     /// Attempt to accept this incoming connection (an error may still occur)
@@ -541,6 +543,7 @@ impl Endpoint {
         buf: &mut BytesMut,
         server_config: Option<Arc<ServerConfig>>,
     ) -> Result<(ConnectionHandle, Connection), AcceptError> {
+        let mut incoming = incoming.0.take().unwrap();
         let incoming_buffer = self.incoming_buffers.remove(incoming.incoming_idx);
 
         let packet_number = incoming.packet.header.number.expand(0);
@@ -627,7 +630,7 @@ impl Endpoint {
             tls,
             Some(server_config),
             transport_config,
-            incoming.remote_address_validated(),
+            incoming.retry_src_cid.is_some(),
         );
         if dst_cid.len() != 0 {
             self.index.insert_initial(dst_cid, ch);
@@ -700,8 +703,7 @@ impl Endpoint {
 
     /// Reject this incoming connection attempt
     pub fn refuse(&mut self, incoming: Incoming, buf: &mut BytesMut) -> Transmit {
-        self.incoming_buffers.remove(incoming.incoming_idx);
-
+        let incoming = self.clean_up_incoming(incoming);
         self.initial_close(
             incoming.packet.header.version,
             incoming.addresses,
@@ -723,9 +725,10 @@ impl Endpoint {
         if incoming.remote_address_validated() {
             return Err(RetryError(incoming));
         }
-        let server_config = self.server_config.as_ref().unwrap();
 
-        self.incoming_buffers.remove(incoming.incoming_idx);
+        let incoming = self.clean_up_incoming(incoming);
+
+        let server_config = self.server_config.as_ref().unwrap();
 
         // First Initial
         let mut random_bytes = vec![0u8; RetryToken::RANDOM_BYTES_LEN];
@@ -770,6 +773,22 @@ impl Endpoint {
             segment_size: None,
             src_ip: incoming.addresses.local_ip,
         })
+    }
+
+    /// Ignore this incoming connection attempt, not sending any packet in response
+    ///
+    /// Doing this actively, rather than merely dropping the [`Incoming`], is necessary to prevent
+    /// memory leaks due to state within [`Endpoint`] tracking the existing of the incoming
+    /// connection.
+    pub fn ignore(&mut self, incoming: Incoming) {
+        self.clean_up_incoming(incoming);
+    }
+
+    fn clean_up_incoming(&mut self, mut incoming: Incoming) -> IncomingInner {
+        let incoming = incoming.0.take().unwrap();
+        self.index.remove_initial_incoming(incoming.orig_dst_cid);
+        self.incoming_buffers.remove(incoming.incoming_idx);
+        incoming
     }
 
     fn add_connection(
@@ -965,6 +984,11 @@ impl ConnectionIndex {
             .insert(dst_cid, RouteDatagramTo::Incoming(incoming_key));
     }
 
+    /// Remove an association between an incoming connection and its initial destination CID
+    fn remove_initial_incoming(&mut self, dst_cid: ConnectionId) {
+        self.connection_ids_initial.remove(&dst_cid);
+    }
+
     /// Associate a connection with its initial destination CID
     fn insert_initial(&mut self, dst_cid: ConnectionId, connection: ConnectionHandle) {
         self.connection_ids_initial
@@ -1087,7 +1111,9 @@ pub enum DatagramEvent {
 }
 
 /// An incoming connection for which the server has not yet begun its part of the handshake.
-pub struct Incoming {
+pub struct Incoming(Option<IncomingInner>);
+
+struct IncomingInner {
     addresses: FourTuple,
     ecn: Option<EcnCodepoint>,
     packet: InitialPacket,
@@ -1104,12 +1130,12 @@ impl Incoming {
     ///
     /// This has the same behavior as [`Connection::local_ip`]
     pub fn local_ip(&self) -> Option<IpAddr> {
-        self.addresses.local_ip
+        self.0.as_ref().unwrap().addresses.local_ip
     }
 
     /// The peer's UDP address.
     pub fn remote_address(&self) -> SocketAddr {
-        self.addresses.remote
+        self.0.as_ref().unwrap().addresses.remote
     }
 
     /// Whether the socket address that is initiating this connection has been validated.
@@ -1117,21 +1143,30 @@ impl Incoming {
     /// This means that the sender of the initial packet has proved that they can receive traffic
     /// sent to `self.remote_address()`.
     pub fn remote_address_validated(&self) -> bool {
-        self.retry_src_cid.is_some()
+        self.0.as_ref().unwrap().retry_src_cid.is_some()
     }
 }
 
 impl fmt::Debug for Incoming {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let inner = self.0.as_ref().unwrap();
         f.debug_struct("Incoming")
-            .field("addresses", &self.addresses)
-            .field("ecn", &self.ecn)
+            .field("addresses", &inner.addresses)
+            .field("ecn", &inner.ecn)
             // packet doesn't implement debug
             // rest is too big and not meaningful enough
-            .field("retry_src_cid", &self.retry_src_cid)
-            .field("orig_dst_cid", &self.orig_dst_cid)
-            .field("incoming_idx", &self.incoming_idx)
+            .field("retry_src_cid", &inner.retry_src_cid)
+            .field("orig_dst_cid", &inner.orig_dst_cid)
+            .field("incoming_idx", &inner.incoming_idx)
             .finish_non_exhaustive()
+    }
+}
+
+impl Drop for Incoming {
+    fn drop(&mut self) {
+        if self.0.is_some() {
+            warn!("quinn_proto::Incoming dropped without passing to Endpoint::accept/refuse/retry/ignore (may cause memory leak)");
+        }
     }
 }
 

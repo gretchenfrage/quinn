@@ -400,6 +400,10 @@ impl EndpointInner {
         state.transmit_state.respond(transmit, response_buffer);
         Ok(())
     }
+
+    pub(crate) fn ignore(&self, incoming: proto::Incoming) {
+        self.state.lock().unwrap().inner.ignore(incoming);
+    }
 }
 
 #[derive(Debug)]
