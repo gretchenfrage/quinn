@@ -51,7 +51,7 @@ pub struct Endpoint {
     /// Time at which a stateless reset was most recently sent
     last_stateless_reset: Option<Instant>,
     /// Buffered 0-rtt messages for pending incoming connections
-    incoming_buffered: Slab<Vec<DatagramConnectionEvent>>,
+    incoming_buffers: Slab<IncomingBuffer>,
 }
 
 impl Endpoint {
@@ -75,7 +75,7 @@ impl Endpoint {
             server_config,
             allow_mtud,
             last_stateless_reset: None,
-            incoming_buffered: Slab::new(),
+            incoming_buffers: Slab::new(),
         }
     }
 
@@ -201,7 +201,22 @@ impl Endpoint {
             };
             match route_to {
                 RouteDatagramTo::Incoming(incoming_idx) => {
-                    self.incoming_buffered[incoming_idx].push(event);
+                    let incoming_buffer = &mut self.incoming_buffers[incoming_idx];
+                    let server_config = self.server_config.as_ref().unwrap();
+                    let buffer_limit = (server_config.transport.receive_window.into_inner()
+                        as usize)
+                        .saturating_mul(2)
+                        .max(10_000);
+
+                    if let Some(total_bytes) = incoming_buffer
+                        .total_bytes
+                        .checked_add(datagram_len)
+                        .filter(|&total_bytes| total_bytes <= buffer_limit)
+                    {
+                        incoming_buffer.datagrams.push(event);
+                        incoming_buffer.total_bytes = total_bytes;
+                    }
+
                     return None;
                 }
                 RouteDatagramTo::Connection(ch) => {
@@ -498,7 +513,7 @@ impl Endpoint {
             }
         };
 
-        let incoming_idx = self.incoming_buffered.insert(Vec::new());
+        let incoming_idx = self.incoming_buffers.insert(Default::default());
         self.index
             .insert_initial_incoming(orig_dst_cid, incoming_idx);
 
@@ -526,7 +541,7 @@ impl Endpoint {
         buf: &mut BytesMut,
         server_config: Option<Arc<ServerConfig>>,
     ) -> Result<(ConnectionHandle, Connection), AcceptError> {
-        let incoming_buffered = self.incoming_buffered.remove(incoming.incoming_idx);
+        let incoming_buffer = self.incoming_buffers.remove(incoming.incoming_idx);
 
         let packet_number = incoming.packet.header.number.expand(0);
         let InitialHeader {
@@ -629,7 +644,7 @@ impl Endpoint {
             Ok(()) => {
                 trace!(id = ch.0, icid = %dst_cid, "new connection");
 
-                for event in incoming_buffered {
+                for event in incoming_buffer.datagrams {
                     conn.handle_event(ConnectionEvent(ConnectionEventInner::Datagram(event)))
                 }
 
@@ -685,7 +700,7 @@ impl Endpoint {
 
     /// Reject this incoming connection attempt
     pub fn refuse(&mut self, incoming: Incoming, buf: &mut BytesMut) -> Transmit {
-        self.incoming_buffered.remove(incoming.incoming_idx);
+        self.incoming_buffers.remove(incoming.incoming_idx);
 
         self.initial_close(
             incoming.packet.header.version,
@@ -710,7 +725,7 @@ impl Endpoint {
         }
         let server_config = self.server_config.as_ref().unwrap();
 
-        self.incoming_buffered.remove(incoming.incoming_idx);
+        self.incoming_buffers.remove(incoming.incoming_idx);
 
         // First Initial
         let mut random_bytes = vec![0u8; RetryToken::RANDOM_BYTES_LEN];
@@ -907,7 +922,14 @@ impl fmt::Debug for Endpoint {
     }
 }
 
-/// Other protocol state than endpoint incoming datagram can be routed to
+/// Buffered 0-rtt messages for a pending incoming connection
+#[derive(Default)]
+struct IncomingBuffer {
+    datagrams: Vec<DatagramConnectionEvent>,
+    total_bytes: usize,
+}
+
+/// Part of protocol state incoming datagram can be routed to
 #[derive(Copy, Clone, Debug)]
 enum RouteDatagramTo {
     Incoming(usize),
@@ -937,10 +959,6 @@ struct ConnectionIndex {
 }
 
 impl ConnectionIndex {
-    /* /// Associate a connection with its initial destination CID
-    fn insert_initial(&mut self, dst_cid: ConnectionId, connection: ConnectionHandle) {
-    } */
-
     /// Associate an incoming connection with its initial destination CID
     fn insert_initial_incoming(&mut self, dst_cid: ConnectionId, incoming_key: usize) {
         self.connection_ids_initial
