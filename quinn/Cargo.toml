@@ -58,6 +58,11 @@ clap = { version = "4", features = ["derive"] }
 tokio = { version = "1.28.1", features = ["rt", "rt-multi-thread", "time", "macros", "sync", "io-util", "io-std"] }
 tracing-subscriber = { version = "0.3.0", default-features = false, features = ["env-filter", "fmt", "ansi", "time", "local-time"] }
 tracing-futures = { version = "0.2.0", default-features = false, features = ["std-future"] }
+tracing-opentelemetry = "0.23"
+opentelemetry = "0.22"
+opentelemetry-otlp = "0.15"
+opentelemetry_sdk = { version = "0.22", features = ["rt-tokio"] }
+opentelemetry-semantic-conventions = "0.14"
 url = "2"
 futures = "0.3"
 

@@ -20,6 +20,8 @@ use rustls::pki_types::CertificateDer;
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tracing::{error, info};
 use url::Url;
+use tracing_subscriber::prelude::*;
+use opentelemetry_otlp::WithExportConfig as _;
 
 mod common;
 
@@ -63,13 +65,6 @@ struct Opt {
 }
 
 fn main() {
-    tracing::subscriber::set_global_default(
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .pretty()
-            .finish(),
-    )
-    .unwrap();
     let opt = Opt::parse();
     let code = {
         if let Err(e) = run(opt) {
@@ -84,6 +79,29 @@ fn main() {
 
 #[tokio::main]
 async fn run(options: Opt) -> Result<()> {
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::Registry::default()
+            .with(tracing_opentelemetry::layer()
+                .with_tracer(opentelemetry_otlp::new_pipeline()
+                    .tracing()
+                    .with_exporter(opentelemetry_otlp::new_exporter()
+                        .tonic()
+                        .with_endpoint("http://localhost:4317"))
+                    .with_trace_config(opentelemetry_sdk::trace::config()
+                        .with_resource(opentelemetry_sdk::Resource::new(
+                            vec![
+                                opentelemetry::KeyValue::new(
+                                    opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+                                    "quinn-client-example"
+                                ),
+                            ]
+                        )))
+                    .install_batch(opentelemetry_sdk::runtime::Tokio)
+                    .unwrap()
+                )
+            )
+    ).unwrap();
+
     let mut roots = rustls::RootCertStore::empty();
     if let Some(ca_path) = options.ca.as_ref() {
         roots.add(CertificateDer::from(fs::read(ca_path)?))?;

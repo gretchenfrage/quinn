@@ -16,6 +16,8 @@ use proto::crypto::rustls::QuicServerConfig;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tracing::{debug, error, info, info_span};
 use tracing_futures::Instrument as _;
+use tracing_subscriber::prelude::*;
+use opentelemetry_otlp::WithExportConfig as _;
 
 mod common;
 
@@ -51,13 +53,6 @@ struct Opt {
 }
 
 fn main() {
-    tracing::subscriber::set_global_default(
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .pretty()
-            .finish(),
-    )
-    .unwrap();
     let opt = Opt::parse();
     let code = {
         if let Err(e) = run(opt) {
@@ -72,6 +67,29 @@ fn main() {
 
 #[tokio::main]
 async fn run(options: Opt) -> Result<()> {
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::Registry::default()
+            .with(tracing_opentelemetry::layer()
+                .with_tracer(opentelemetry_otlp::new_pipeline()
+                    .tracing()
+                    .with_exporter(opentelemetry_otlp::new_exporter()
+                        .tonic()
+                        .with_endpoint("http://localhost:4317"))
+                    .with_trace_config(opentelemetry_sdk::trace::config()
+                        .with_resource(opentelemetry_sdk::Resource::new(
+                            vec![
+                                opentelemetry::KeyValue::new(
+                                    opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+                                    "quinn-server-example"
+                                ),
+                            ]
+                        )))
+                    .install_batch(opentelemetry_sdk::runtime::Tokio)
+                    .unwrap()
+                )
+            )
+    ).unwrap();
+
     let (certs, key) = if let (Some(key_path), Some(cert_path)) = (&options.key, &options.cert) {
         let key = fs::read(key_path).context("failed to read private key")?;
         let key = if key_path.extension().map_or(false, |x| x == "der") {
