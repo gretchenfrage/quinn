@@ -459,12 +459,17 @@ impl Connection {
     /// `max_datagrams` specifies how many datagrams can be returned inside a
     /// single Transmit using GSO. This must be at least 1.
     #[must_use]
+    #[tracing::instrument]
     pub fn poll_transmit(
         &mut self,
         now: Instant,
         max_datagrams: usize,
         buf: &mut BytesMut,
     ) -> Option<Transmit> {
+        for space in SpaceId::iter() {
+            debug!("self.spaces[{:?}].crypto.is_some() = {}", space, self.spaces[space].crypto.is_some())
+        }
+
         assert!(max_datagrams != 0);
         let max_datagrams = match self.config.enable_segmentation_offload {
             false => 1,
@@ -951,19 +956,26 @@ impl Connection {
     }
 
     /// Indicate what types of frames are ready to send for the given space
+    #[tracing::instrument(skip_all, fields(space_id))]
     fn space_can_send(&self, space_id: SpaceId) -> SendableFrames {
         if self.spaces[space_id].crypto.is_some() {
             let can_send = self.spaces[space_id].can_send(&self.streams);
             if !can_send.is_empty() {
+                debug!(?space_id, ?can_send, "space_can_send");
                 return can_send;
             }
         }
 
         if space_id != SpaceId::Data {
+            debug!(?space_id, can_send=?SendableFrames::empty(), "space_can_send");
             return SendableFrames::empty();
         }
 
         if self.spaces[space_id].crypto.is_some() && self.can_send_1rtt() {
+            debug!(?space_id, can_send=?SendableFrames {
+                other: true,
+                acks: false,
+            }, "space_can_send");
             return SendableFrames {
                 other: true,
                 acks: false,
@@ -974,10 +986,12 @@ impl Connection {
             let mut can_send = self.spaces[space_id].can_send(&self.streams);
             can_send.other |= self.can_send_1rtt();
             if !can_send.is_empty() {
+                debug!(?space_id, ?can_send, "space_can_send");
                 return can_send;
             }
         }
 
+        debug!(?space_id, can_send=?SendableFrames::empty(), "space_can_send");
         SendableFrames::empty()
     }
 
@@ -1730,6 +1744,7 @@ impl Connection {
         self.path.rtt.pto_base() + max_ack_delay
     }
 
+    #[tracing::instrument(fields(space_id))]
     fn on_packet_authenticated(
         &mut self,
         now: Instant,
@@ -2408,7 +2423,7 @@ impl Connection {
 
                 self.events.push_back(Event::Connected);
                 self.state = State::Established;
-                trace!("established");
+                trace!("established"); // important
                 Ok(())
             }
             Header::Initial(InitialHeader {
@@ -2482,6 +2497,7 @@ impl Connection {
     }
 
     /// Process an Initial or Handshake packet payload
+    #[tracing::instrument(skip_all, fields(space=?packet.header.space()))]
     fn process_early_payload(
         &mut self,
         now: Instant,
@@ -2536,6 +2552,7 @@ impl Connection {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     fn process_payload(
         &mut self,
         now: Instant,
@@ -2993,6 +3010,7 @@ impl Connection {
         }
 
         // ACK
+        debug!(can_send=%space.pending_acks.can_send());
         if space.pending_acks.can_send() {
             Self::populate_acks(
                 now,
@@ -3178,6 +3196,7 @@ impl Connection {
     ///
     /// This method assumes ACKs are pending, and should only be called if
     /// `!PendingAcks::ranges().is_empty()` returns `true`.
+    #[tracing::instrument(skip(sent, space, buf, stats))]
     fn populate_acks(
         now: Instant,
         receiving_ecn: bool,
@@ -3186,6 +3205,7 @@ impl Connection {
         buf: &mut BytesMut,
         stats: &mut ConnectionStats,
     ) {
+        debug!(space.pending_acks=?space.pending_acks, "populate_acks");
         debug_assert!(!space.pending_acks.ranges().is_empty());
 
         // 0-RTT packets must never carry acks (which would have to be of handshake packets)

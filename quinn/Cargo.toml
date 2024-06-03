@@ -64,6 +64,8 @@ tracing-subscriber = { version = "0.3.0", default-features = false, features = [
 tracing-futures = { version = "0.2.0", default-features = false, features = ["std-future"] }
 url = "2"
 
+tracing-bunyan-formatter = "0.3"
+
 [[example]]
 name = "server"
 required-features = ["tls-rustls"]

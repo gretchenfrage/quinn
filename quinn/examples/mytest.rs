@@ -12,6 +12,7 @@ use tracing_subscriber::prelude::*;
 #[tokio::main]
 async fn main() {
     // init logging
+    /*
     let log_fmt = tracing_subscriber::fmt::format()
         .compact()
         //.json()
@@ -29,6 +30,15 @@ async fn main() {
         .with(log_filter)
         .with(stdout_log);
     tracing::subscriber::set_global_default(log_subscriber).expect("unable to install logger");
+    */
+
+    use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
+    use tracing_subscriber::Registry;
+    let formatting_layer = BunyanFormattingLayer::new("tracing_demo".into(), std::io::stdout);
+    let subscriber = Registry::default()
+        .with(JsonStorageLayer)
+        .with(formatting_layer);
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 
     // generate keys
     let rcgen_cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
@@ -54,18 +64,37 @@ async fn main() {
             server_config,
             "127.0.0.1:4433".to_socket_addrs().unwrap().next().unwrap(),
         )?;
-        loop {
+        for i in 0.. {
             let incoming = tokio::select! {
                 option = endpoint.accept() => match option { Some(incoming) => incoming, None => break },
                 result = &mut recv_stop_server => if result.is_ok() { break } else { continue },
             };
             // spawn subtask for connection
             tokio::spawn(log_err(async move {
+                info!("received incoming connection attempt");
                 // attempt to accept 0-RTT data
                 let conn = match incoming.accept()?.into_0rtt() {
                     Ok((conn, _)) => conn,
                     Err(connecting) => connecting.await?,
                 };
+                if false {
+                    // spawn task that writes a byte down-stream intermittently
+                    let conn = conn.clone();
+                    tokio::spawn(log_err(async move {
+                        let mut stream = conn.open_uni().await?;
+                        loop {
+                            let sleep = tokio::time::sleep(std::time::Duration::from_millis(333));
+                            tokio::pin!(sleep);
+                            tokio::select! {
+                                () = &mut sleep => (),
+                                _e = conn.closed() => break,
+                            };
+                            info!("writing a ping");
+                            stream.write_all(b"ping").await?;
+                        }
+                        Ok(())
+                    }).instrument(info_span!("server down stream")));
+                }
                 loop {
                     let mut stream = match conn.accept_uni().await {
                         Ok(stream) => stream,
@@ -74,27 +103,28 @@ async fn main() {
                     };
                     // spawn subtask for stream
                     tokio::spawn(log_err(async move {
+                        info!("received stream open");
                         let msg = stream.read_to_end(1 << 30).await?;
-                        info!(msg=%String::from_utf8_lossy(&msg), "received message");
+                        info!(msg=%String::from_utf8_lossy(&msg), "received message (stream closed)");
                         Ok(())
-                    }.instrument(info_span!("server stream"))));
+                    }).instrument(info_span!("server stream")));
                 }
                 Ok(())
-            }.instrument(info_span!("server conn"))));
+            }).instrument(info_span!("server conn", server_conn=%i)));
         }
         // shut down server endpoint cleanly
         endpoint.wait_idle().await;
         Ok(())
-    }.instrument(info_span!("server"))));
+    }).instrument(info_span!("server")));
 
     // start client
     async fn send_request(conn: &Connection, msg: &str) -> Result<(), Error> {
         let mut stream = conn.open_uni().await?;
-        debug!(%msg, "beginning write_all call");
+        info!(%msg, "beginning write_all call");
         stream.write_all(msg.as_bytes()).await?;
-        debug!(%msg, "returned write_all call, beginning finish call");
+        info!(%msg, "returned write_all call, beginning finish call");
         stream.finish().await?;
-        debug!(%msg, "returned finish call");
+        info!(%msg, "returned finish call");
         Ok(())
     }
     tasks.spawn(log_err(async move {
@@ -110,42 +140,45 @@ async fn main() {
         endpoint.set_default_client_config(ClientConfig::new(Arc::new(client_crypto)));
         // twice, so as to allow 0-rtt to work on the second time
         for i in 0..2 {
-            info!(%i, "client iteration");
-            let connecting = endpoint.connect(
-                "127.0.0.1:4433".to_socket_addrs().unwrap().next().unwrap(),
-                "localhost",
-            )?;
-            // attempt to transmit 0-RTT data
-            match connecting.into_0rtt() {
-                Ok((conn, zero_rtt_accepted)) => {
-                    debug!("attempting 0-rtt request");
-                    let send_request_0rtt = send_request(&conn, "0-rtt hello world");
-                    let mut send_request_0rtt_pinned = std::pin::pin!(send_request_0rtt);
-                    tokio::select! {
-                        result = &mut send_request_0rtt_pinned => result?,
-                        accepted = zero_rtt_accepted => {
-                            if accepted {
-                                debug!("0-rtt accepted");
-                                send_request_0rtt_pinned.await?;
-                            } else {
-                                debug!("0-rtt rejected");
-                                send_request(&conn, "1-rtt hello world (0-rtt was attempted)").await?;
+            async {
+                info!(%i, "client iteration");
+                let connecting = endpoint.connect(
+                    "127.0.0.1:4433".to_socket_addrs().unwrap().next().unwrap(),
+                    "localhost",
+                )?;
+                // attempt to transmit 0-RTT data
+                match connecting.into_0rtt() {
+                    Ok((conn, zero_rtt_accepted)) => {
+                        info!("attempting 0-rtt request");
+                        let send_request_0rtt = send_request(&conn, "0-rtt hello world");
+                        tokio::pin!(send_request_0rtt);
+                        tokio::select! {
+                            result = &mut send_request_0rtt => result?,
+                            accepted = zero_rtt_accepted => {
+                                if accepted {
+                                    info!("0-rtt accepted");
+                                    send_request_0rtt.await?;
+                                } else {
+                                    info!("0-rtt rejected");
+                                    send_request(&conn, "1-rtt hello world (0-rtt was attempted)").await?;
+                                }
                             }
                         }
                     }
+                    Err(connecting) => {
+                        info!("not attempting 0-rtt request");
+                        let conn = connecting.await?;
+                        send_request(&conn, "1-rtt hello world (0-rtt not attempted)").await?;
+                    }
                 }
-                Err(connecting) => {
-                    debug!("not attempting 0-rtt request");
-                    let conn = connecting.await?;
-                    send_request(&conn, "1-rtt hello world (0-rtt not attempted)").await?;
-                }
-            }
-            println!();
+                println!();
+                Ok::<(), Error>(())
+            }.instrument(info_span!("client conn", client_conn=%i)).await?;
         }
         // tell the server to shut down so this process doesn't idle forever
         let _ = send_stop_server.send(());
         Ok(())
-    }.instrument(info_span!("client"))));
+    }).instrument(info_span!("client")));
 
     while tasks.join_next().await.is_some() {}
 }
