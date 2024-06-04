@@ -986,9 +986,7 @@ impl Connection {
     /// Will execute protocol logic upon receipt of a connection event, in turn preparing signals
     /// (including application `Event`s, `EndpointEvent`s and outgoing datagrams) that should be
     /// extracted through the relevant methods.
-    //#[tracing::instrument]
     pub fn handle_event(&mut self, event: ConnectionEvent) {
-        //debug!("handle_event");
         use self::ConnectionEventInner::*;
         match event.0 {
             Datagram {
@@ -2075,7 +2073,6 @@ impl Connection {
         }
     }
 
-    #[tracing::instrument]
     fn handle_packet(
         &mut self,
         now: Instant,
@@ -2084,7 +2081,6 @@ impl Connection {
         packet: Option<Packet>,
         stateless_reset: bool,
     ) {
-        debug!("handle_packet");
         self.stats.udp_rx.ios += 1;
         if let Some(ref packet) = packet {
             trace!(

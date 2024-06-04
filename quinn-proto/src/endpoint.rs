@@ -502,7 +502,6 @@ impl Endpoint {
     }
 
     /// Attempt to accept this incoming connection (an error may still occur)
-    #[tracing::instrument(skip_all)]
     pub fn accept(
         &mut self,
         mut incoming: Incoming,
