@@ -12,7 +12,7 @@ use tracing_subscriber::prelude::*;
 #[tokio::main]
 async fn main() {
     // init logging
-    /*
+    
     let log_fmt = tracing_subscriber::fmt::format()
         .compact()
         //.json()
@@ -30,8 +30,8 @@ async fn main() {
         .with(log_filter)
         .with(stdout_log);
     tracing::subscriber::set_global_default(log_subscriber).expect("unable to install logger");
-    */
-
+    
+    /*
     use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
     use tracing_subscriber::Registry;
     let formatting_layer = BunyanFormattingLayer::new("tracing_demo".into(), std::io::stdout);
@@ -39,6 +39,7 @@ async fn main() {
         .with(JsonStorageLayer)
         .with(formatting_layer);
     tracing::subscriber::set_global_default(subscriber).unwrap();
+    */
 
     // generate keys
     let rcgen_cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
@@ -93,7 +94,7 @@ async fn main() {
                             stream.write_all(b"ping").await?;
                         }
                         Ok(())
-                    }).instrument(info_span!("server down stream")));
+                    }).instrument(info_span!("server_down_stream")));
                 }
                 loop {
                     let mut stream = match conn.accept_uni().await {
@@ -107,10 +108,10 @@ async fn main() {
                         let msg = stream.read_to_end(1 << 30).await?;
                         info!(msg=%String::from_utf8_lossy(&msg), "received message (stream closed)");
                         Ok(())
-                    }).instrument(info_span!("server stream")));
+                    }).instrument(info_span!("server_stream")));
                 }
                 Ok(())
-            }).instrument(info_span!("server conn", server_conn=%i)));
+            }).instrument(info_span!("server_conn", server_conn=%i)));
         }
         // shut down server endpoint cleanly
         endpoint.wait_idle().await;
@@ -173,7 +174,7 @@ async fn main() {
                 }
                 println!();
                 Ok::<(), Error>(())
-            }.instrument(info_span!("client conn", client_conn=%i)).await?;
+            }.instrument(info_span!("client_conn", client_conn=%i)).await?;
         }
         // tell the server to shut down so this process doesn't idle forever
         let _ = send_stop_server.send(());

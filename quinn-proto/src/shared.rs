@@ -8,7 +8,6 @@ use crate::{coding::BufExt, packet::PartialDecode, ResetToken, MAX_CID_SIZE};
 #[derive(Debug)]
 pub struct ConnectionEvent(pub(crate) ConnectionEventInner);
 
-#[derive(Debug)]
 pub(crate) enum ConnectionEventInner {
     /// A datagram has been received for the Connection
     Datagram {
@@ -20,6 +19,25 @@ pub(crate) enum ConnectionEventInner {
     },
     /// New connection identifiers have been issued for the Connection
     NewIdentifiers(Vec<IssuedCid>, Instant),
+}
+
+impl fmt::Debug for ConnectionEventInner {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &ConnectionEventInner::Datagram {
+                ref now, ref remote, ref ecn, ref first_decode, ..
+            } => f.debug_struct("Datagram")
+                .field("now", now)
+                .field("remote", remote)
+                .field("ecn", ecn)
+                .field("first_decode", first_decode)
+                .finish_non_exhaustive(),
+            &ConnectionEventInner::NewIdentifiers(ref a, ref b) => f.debug_tuple("NewIdentifiers")
+                .field(a)
+                .field(b)
+                .finish(),
+        }
+    }
 }
 
 /// Events sent from a Connection to an Endpoint
@@ -123,7 +141,10 @@ impl ::std::ops::DerefMut for ConnectionId {
 
 impl fmt::Debug for ConnectionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.bytes[0..self.len as usize].fmt(f)
+        for byte in self.iter() {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
     }
 }
 

@@ -611,12 +611,10 @@ impl PendingAcks {
     }
 
     pub(super) fn set_immediate_ack_required(&mut self) {
-        //tracing::debug!(immediate_ack_required=%self.immediate_ack_required, "set_immediate_ack_required");
         self.immediate_ack_required = true;
     }
 
     pub(super) fn on_max_ack_delay_timeout(&mut self) {
-        //tracing::debug!(immediate_ack_required=%self.immediate_ack_required, "on_max_ack_delay_timeout");
         self.immediate_ack_required = self.ack_eliciting_since_last_ack_sent > 0;
     }
 
@@ -627,7 +625,6 @@ impl PendingAcks {
 
     /// Whether any ACK frames can be sent
     pub(super) fn can_send(&self) -> bool {
-        tracing::debug!(immediate_ack_required=%self.immediate_ack_required, ranges=?self.ranges, "PendingAcks::can_send");
         self.immediate_ack_required && !self.ranges.is_empty()
     }
 
@@ -719,7 +716,6 @@ impl PendingAcks {
     ///
     /// This will suppress sending further ACKs until additional ACK eliciting frames arrive
     pub(super) fn acks_sent(&mut self) {
-        //tracing::debug!(immediate_ack_required=%self.immediate_ack_required, "acks_sent");
         // It is possible (though unlikely) that the ACKs we just sent do not cover all the
         // ACK-eliciting packets we have received (e.g. if there is not enough room in the packet to
         // fit all the ranges). To keep things simple, however, we assume they do. If there are
@@ -765,7 +761,6 @@ impl PendingAcks {
     /// Should be called immediately before a non-probing packet is composed, when we've already
     /// committed to sending a packet regardless.
     pub(super) fn maybe_ack_non_eliciting(&mut self) {
-        //tracing::debug!(immediate_ack_required=%self.immediate_ack_required, cond=%self.non_ack_eliciting_since_last_ack_sent > LAZY_ACK_THRESHOLD, "maybe_ack_non_eliciting");
         // If we're going to send a packet anyway, and we've received a significant number of
         // non-ACK-eliciting packets, then include an ACK to help the peer perform timely loss
         // detection even if they're not sending any ACK-eliciting packets themselves. Exact
