@@ -14,9 +14,14 @@ use std::{
 use assert_matches::assert_matches;
 use bytes::BytesMut;
 use lazy_static::lazy_static;
-use rustls::{Certificate, KeyLogFile, PrivateKey};
+use rustls::{
+    client::WebPkiServerVerifier,
+    pki_types::{CertificateDer, PrivateKeyDer},
+    KeyLogFile,
+};
 use tracing::{info_span, trace};
 
+use super::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use super::*;
 
 pub(super) const DEFAULT_MTU: usize = 1452;
@@ -207,7 +212,7 @@ impl Pair {
         let _guard = span.enter();
         let (client_ch, client_conn) = self
             .client
-            .connect(Instant::now(), config, self.server.addr, "localhost")
+            .connect(self.time, config, self.server.addr, "localhost")
             .unwrap();
         self.client.connections.insert(client_ch, client_conn);
         client_ch
@@ -293,6 +298,7 @@ pub(super) struct TestEndpoint {
     pub(super) captured_packets: Vec<Vec<u8>>,
     pub(super) capture_inbound_packets: bool,
     pub(super) incoming_connection_behavior: IncomingConnectionBehavior,
+    pub(super) waiting_incoming: Vec<Incoming>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -300,6 +306,7 @@ pub(super) enum IncomingConnectionBehavior {
     AcceptAll,
     RejectAll,
     Validate,
+    Wait,
 }
 
 impl TestEndpoint {
@@ -327,6 +334,7 @@ impl TestEndpoint {
             captured_packets: Vec::new(),
             capture_inbound_packets: false,
             incoming_connection_behavior: IncomingConnectionBehavior::AcceptAll,
+            waiting_incoming: Vec::new(),
         }
     }
 
@@ -345,7 +353,7 @@ impl TestEndpoint {
             }
         }
         let buffer_size = self.endpoint.config().get_max_udp_payload_size() as usize;
-        let mut buf = BytesMut::with_capacity(buffer_size);
+        let mut buf = Vec::with_capacity(buffer_size);
 
         while self.inbound.front().map_or(false, |x| x.0 <= now) {
             let (recv_time, ecn, packet) = self.inbound.pop_front().unwrap();
@@ -369,6 +377,9 @@ impl TestEndpoint {
                                     self.retry(incoming);
                                 }
                             }
+                            IncomingConnectionBehavior::Wait => {
+                                self.waiting_incoming.push(incoming);
+                            }
                         }
                     }
                     DatagramEvent::ConnectionEvent(ch, event) => {
@@ -381,8 +392,8 @@ impl TestEndpoint {
                     }
                     DatagramEvent::Response(transmit) => {
                         let size = transmit.size;
-                        self.outbound
-                            .extend(split_transmit(transmit, buf.split_to(size).freeze()));
+                        self.outbound.extend(split_transmit(transmit, &buf[..size]));
+                        buf.clear();
                     }
                 }
             }
@@ -391,7 +402,7 @@ impl TestEndpoint {
 
     pub(super) fn drive_outgoing(&mut self, now: Instant) {
         let buffer_size = self.endpoint.config().get_max_udp_payload_size() as usize;
-        let mut buf = BytesMut::with_capacity(buffer_size);
+        let mut buf = Vec::with_capacity(buffer_size);
 
         loop {
             let mut endpoint_events: Vec<(ConnectionHandle, EndpointEvent)> = vec![];
@@ -412,8 +423,8 @@ impl TestEndpoint {
                 }
                 while let Some(transmit) = conn.poll_transmit(now, MAX_DATAGRAMS, &mut buf) {
                     let size = transmit.size;
-                    self.outbound
-                        .extend(split_transmit(transmit, buf.split_to(size).freeze()));
+                    self.outbound.extend(split_transmit(transmit, &buf[..size]));
+                    buf.clear();
                 }
                 self.timeout = conn.poll_timeout();
             }
@@ -455,7 +466,7 @@ impl TestEndpoint {
         incoming: Incoming,
         now: Instant,
     ) -> Result<ConnectionHandle, ConnectionError> {
-        let mut buf = BytesMut::new();
+        let mut buf = Vec::new();
         match self.endpoint.accept(incoming, now, &mut buf, None) {
             Ok((ch, conn)) => {
                 self.connections.insert(ch, conn);
@@ -465,8 +476,7 @@ impl TestEndpoint {
             Err(error) => {
                 if let Some(transmit) = error.response {
                     let size = transmit.size;
-                    self.outbound
-                        .extend(split_transmit(transmit, buf.split_to(size).freeze()));
+                    self.outbound.extend(split_transmit(transmit, &buf[..size]));
                 }
                 self.accepted = Some(Err(error.cause.clone()));
                 Err(error.cause)
@@ -475,19 +485,17 @@ impl TestEndpoint {
     }
 
     pub(super) fn retry(&mut self, incoming: Incoming) {
-        let mut buf = BytesMut::new();
+        let mut buf = Vec::new();
         let transmit = self.endpoint.retry(incoming, &mut buf).unwrap();
         let size = transmit.size;
-        self.outbound
-            .extend(split_transmit(transmit, buf.split_to(size).freeze()));
+        self.outbound.extend(split_transmit(transmit, &buf[..size]));
     }
 
     pub(super) fn reject(&mut self, incoming: Incoming) {
-        let mut buf = BytesMut::new();
+        let mut buf = Vec::new();
         let transmit = self.endpoint.refuse(incoming, &mut buf);
         let size = transmit.size;
-        self.outbound
-            .extend(split_transmit(transmit, buf.split_to(size).freeze()));
+        self.outbound.extend(split_transmit(transmit, &buf[..size]));
     }
 
     pub(super) fn assert_accept(&mut self) -> ConnectionHandle {
@@ -549,18 +557,45 @@ pub(super) fn server_config() -> ServerConfig {
     ServerConfig::with_crypto(Arc::new(server_crypto()))
 }
 
-pub(super) fn server_config_with_cert(cert: Certificate, key: PrivateKey) -> ServerConfig {
+pub(super) fn server_config_with_cert(
+    cert: CertificateDer<'static>,
+    key: PrivateKeyDer<'static>,
+) -> ServerConfig {
     ServerConfig::with_crypto(Arc::new(server_crypto_with_cert(cert, key)))
 }
 
-pub(super) fn server_crypto() -> rustls::ServerConfig {
-    let cert = Certificate(CERTIFICATE.serialize_der().unwrap());
-    let key = PrivateKey(CERTIFICATE.serialize_private_key_der());
-    server_crypto_with_cert(cert, key)
+pub(super) fn server_crypto() -> QuicServerConfig {
+    server_crypto_inner(None, None)
 }
 
-pub(super) fn server_crypto_with_cert(cert: Certificate, key: PrivateKey) -> rustls::ServerConfig {
-    crate::crypto::rustls::server_config(vec![cert], key).unwrap()
+pub(super) fn server_crypto_with_alpn(alpn: Vec<Vec<u8>>) -> QuicServerConfig {
+    server_crypto_inner(None, Some(alpn))
+}
+
+pub(super) fn server_crypto_with_cert(
+    cert: CertificateDer<'static>,
+    key: PrivateKeyDer<'static>,
+) -> QuicServerConfig {
+    server_crypto_inner(Some((cert, key)), None)
+}
+
+fn server_crypto_inner(
+    identity: Option<(CertificateDer<'static>, PrivateKeyDer<'static>)>,
+    alpn: Option<Vec<Vec<u8>>>,
+) -> QuicServerConfig {
+    let (cert, key) = identity.unwrap_or_else(|| {
+        (
+            CERTIFIED_KEY.cert.der().clone(),
+            PrivateKeyDer::Pkcs8(CERTIFIED_KEY.key_pair.serialize_der().into()),
+        )
+    });
+
+    let mut config = QuicServerConfig::inner(vec![cert], key);
+    if let Some(alpn) = alpn {
+        config.alpn_protocols = alpn;
+    }
+
+    config.try_into().unwrap()
 }
 
 pub(super) fn client_config() -> ClientConfig {
@@ -575,23 +610,38 @@ pub(super) fn client_config_with_deterministic_pns() -> ClientConfig {
     cfg
 }
 
-pub(super) fn client_config_with_certs(certs: Vec<rustls::Certificate>) -> ClientConfig {
-    ClientConfig::new(Arc::new(client_crypto_with_certs(certs)))
+pub(super) fn client_config_with_certs(certs: Vec<CertificateDer<'static>>) -> ClientConfig {
+    ClientConfig::new(Arc::new(client_crypto_inner(Some(certs), None)))
 }
 
-pub(super) fn client_crypto() -> rustls::ClientConfig {
-    let cert = rustls::Certificate(CERTIFICATE.serialize_der().unwrap());
-    client_crypto_with_certs(vec![cert])
+pub(super) fn client_crypto() -> QuicClientConfig {
+    client_crypto_inner(None, None)
 }
 
-pub(super) fn client_crypto_with_certs(certs: Vec<rustls::Certificate>) -> rustls::ClientConfig {
+pub(super) fn client_crypto_with_alpn(protocols: Vec<Vec<u8>>) -> QuicClientConfig {
+    client_crypto_inner(None, Some(protocols))
+}
+
+fn client_crypto_inner(
+    certs: Option<Vec<CertificateDer<'static>>>,
+    alpn: Option<Vec<Vec<u8>>>,
+) -> QuicClientConfig {
     let mut roots = rustls::RootCertStore::empty();
-    for cert in certs {
-        roots.add(&cert).unwrap();
+    for cert in certs.unwrap_or_else(|| vec![CERTIFIED_KEY.cert.der().clone()]) {
+        roots.add(cert).unwrap();
     }
-    let mut config = crate::crypto::rustls::client_config(roots);
-    config.key_log = Arc::new(KeyLogFile::new());
-    config
+
+    let mut inner = QuicClientConfig::inner(
+        WebPkiServerVerifier::builder(Arc::new(roots))
+            .build()
+            .unwrap(),
+    );
+    inner.key_log = Arc::new(KeyLogFile::new());
+    if let Some(alpn) = alpn {
+        inner.alpn_protocols = alpn;
+    }
+
+    inner.try_into().unwrap()
 }
 
 pub(super) fn min_opt<T: Ord>(x: Option<T>, y: Option<T>) -> Option<T> {
@@ -606,7 +656,8 @@ pub(super) fn min_opt<T: Ord>(x: Option<T>, y: Option<T>) -> Option<T> {
 /// The maximum of datagrams TestEndpoint will produce via `poll_transmit`
 const MAX_DATAGRAMS: usize = 10;
 
-fn split_transmit(transmit: Transmit, mut buffer: Bytes) -> Vec<(Transmit, Bytes)> {
+fn split_transmit(transmit: Transmit, buffer: &[u8]) -> Vec<(Transmit, Bytes)> {
+    let mut buffer = Bytes::copy_from_slice(buffer);
     let segment_size = match transmit.segment_size {
         Some(segment_size) => segment_size,
         _ => return vec![(transmit, buffer)],
@@ -620,7 +671,7 @@ fn split_transmit(transmit: Transmit, mut buffer: Bytes) -> Vec<(Transmit, Bytes
         transmits.push((
             Transmit {
                 destination: transmit.destination,
-                size: buffer.len(),
+                size: contents.len(),
                 ecn: transmit.ecn,
                 segment_size: None,
                 src_ip: transmit.src_ip,
@@ -653,6 +704,6 @@ fn set_congestion_experienced(
 lazy_static! {
     pub static ref SERVER_PORTS: Mutex<RangeFrom<u16>> = Mutex::new(4433..);
     pub static ref CLIENT_PORTS: Mutex<RangeFrom<u16>> = Mutex::new(44433..);
-    pub(crate) static ref CERTIFICATE: rcgen::Certificate =
+    pub(crate) static ref CERTIFIED_KEY: rcgen::CertifiedKey =
         rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
 }

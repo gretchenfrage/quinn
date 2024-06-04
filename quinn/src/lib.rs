@@ -41,7 +41,7 @@
 #![warn(unreachable_pub)]
 #![warn(clippy::use_self)]
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 macro_rules! ready {
     ($e:expr $(,)?) => {
@@ -61,19 +61,18 @@ mod runtime;
 mod send_stream;
 mod work_limiter;
 
-use bytes::Bytes;
 pub use proto::{
-    congestion, crypto, AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ConfigError,
-    ConnectError, ConnectionClose, ConnectionError, EndpointConfig, IdleTimeout,
+    congestion, crypto, AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ClosedStream,
+    ConfigError, ConnectError, ConnectionClose, ConnectionError, EndpointConfig, IdleTimeout,
     MtuDiscoveryConfig, ServerConfig, StreamId, Transmit, TransportConfig, VarInt,
 };
-#[cfg(feature = "tls-rustls")]
+#[cfg(feature = "rustls")]
 pub use rustls;
 pub use udp;
 
 pub use crate::connection::{
     AcceptBi, AcceptUni, Connecting, Connection, OpenBi, OpenUni, ReadDatagram, SendDatagramError,
-    UnknownStream, ZeroRttAccepted,
+    ZeroRttAccepted,
 };
 pub use crate::endpoint::{Accept, Endpoint};
 pub use crate::incoming::{Incoming, IncomingFuture, RetryError};
@@ -84,7 +83,7 @@ pub use crate::runtime::AsyncStdRuntime;
 pub use crate::runtime::SmolRuntime;
 #[cfg(feature = "runtime-tokio")]
 pub use crate::runtime::TokioRuntime;
-pub use crate::runtime::{default_runtime, AsyncTimer, AsyncUdpSocket, Runtime};
+pub use crate::runtime::{default_runtime, AsyncTimer, AsyncUdpSocket, Runtime, UdpPoller};
 pub use crate::send_stream::{SendStream, StoppedError, WriteError};
 
 #[cfg(test)]
@@ -96,14 +95,26 @@ enum ConnectionEvent {
         error_code: VarInt,
         reason: bytes::Bytes,
     },
-    LocalAddressChanged,
     Proto(proto::ConnectionEvent),
+    Rebind(Arc<dyn AsyncUdpSocket>),
 }
 
-#[derive(Debug)]
-enum EndpointEvent {
-    Proto(proto::EndpointEvent),
-    Transmit(proto::Transmit, Bytes),
+fn udp_transmit<'a>(t: &proto::Transmit, buffer: &'a [u8]) -> udp::Transmit<'a> {
+    udp::Transmit {
+        destination: t.destination,
+        ecn: t.ecn.map(udp_ecn),
+        contents: buffer,
+        segment_size: t.segment_size,
+        src_ip: t.src_ip,
+    }
+}
+
+fn udp_ecn(ecn: proto::EcnCodepoint) -> udp::EcnCodepoint {
+    match ecn {
+        proto::EcnCodepoint::Ect0 => udp::EcnCodepoint::Ect0,
+        proto::EcnCodepoint::Ect1 => udp::EcnCodepoint::Ect1,
+        proto::EcnCodepoint::Ce => udp::EcnCodepoint::Ce,
+    }
 }
 
 /// Maximum number of datagrams processed in send/recv calls to make before moving on to other processing
@@ -119,18 +130,3 @@ const IO_LOOP_BOUND: usize = 160;
 /// Going much lower does not yield any noticeable difference, since a single `recvmmsg`
 /// batch of size 32 was observed to take 30us on some systems.
 const RECV_TIME_BOUND: Duration = Duration::from_micros(50);
-
-/// The maximum amount of time that should be spent in `sendmsg()` calls per endpoint iteration
-const SEND_TIME_BOUND: Duration = Duration::from_micros(50);
-
-/// The maximum size of content length of packets in the outgoing transmit queue. Transmit packets
-/// generated from the endpoint (retry or initial close) can be dropped when this limit is being execeeded.
-/// Chose to represent 100 MB of data.
-const MAX_TRANSMIT_QUEUE_CONTENTS_LEN: usize = 100_000_000;
-
-/// The maximum number of `IncomingConnection`s we allow to be enqueued at a time before we start
-/// rejecting new `IncomingConnection`s automatically. Assuming each `IncomingConnection` accounts
-/// for little over 1200 bytes of memory maximum, this should limit an endpoint's incoming
-/// connection queue memory consumption to under 100 MiB, a generous amount that still prevents
-/// memory exhaustion.
-const MAX_INCOMING_CONNECTIONS: usize = 1 << 16;

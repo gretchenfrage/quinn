@@ -10,7 +10,12 @@ use std::{
 
 use crate::runtime::TokioRuntime;
 use bytes::Bytes;
+use proto::{crypto::rustls::QuicClientConfig, RandomConnectionIdGenerator};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
+use rustls::{
+    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
+    RootCertStore,
+};
 use tokio::{
     runtime::{Builder, Runtime},
     time::{Duration, Instant},
@@ -19,7 +24,7 @@ use tracing::{error_span, info};
 use tracing_futures::Instrument as _;
 use tracing_subscriber::EnvFilter;
 
-use super::{ClientConfig, Endpoint, RecvStream, SendStream, TransportConfig};
+use super::{ClientConfig, Endpoint, EndpointConfig, RecvStream, SendStream, TransportConfig};
 
 #[test]
 fn handshake_timeout() {
@@ -30,8 +35,12 @@ fn handshake_timeout() {
         Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap()
     };
 
-    let mut client_config =
-        crate::ClientConfig::with_root_certificates(rustls::RootCertStore::empty());
+    // Avoid NoRootAnchors error
+    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+    let mut roots = RootCertStore::empty();
+    roots.add(cert.cert.into()).unwrap();
+
+    let mut client_config = crate::ClientConfig::with_root_certificates(Arc::new(roots)).unwrap();
     const IDLE_TIMEOUT: Duration = Duration::from_millis(500);
     let mut transport_config = crate::TransportConfig::default();
     transport_config
@@ -62,11 +71,16 @@ fn handshake_timeout() {
 #[tokio::test]
 async fn close_endpoint() {
     let _guard = subscribe();
+
+    // Avoid NoRootAnchors error
+    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+    let mut roots = RootCertStore::empty();
+    roots.add(cert.cert.into()).unwrap();
+
     let mut endpoint =
         Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
-    endpoint.set_default_client_config(ClientConfig::with_root_certificates(
-        rustls::RootCertStore::empty(),
-    ));
+    endpoint
+        .set_default_client_config(ClientConfig::with_root_certificates(Arc::new(roots)).unwrap());
 
     let conn = endpoint
         .connect(
@@ -131,7 +145,9 @@ fn read_after_close() {
             .expect("connection");
         let mut s = new_conn.open_uni().await.unwrap();
         s.write_all(MSG).await.unwrap();
-        s.finish().await.unwrap();
+        s.finish().unwrap();
+        // Wait for the stream to be closed, one way or another.
+        _ = s.stopped().await;
     });
     runtime.block_on(async move {
         let new_conn = endpoint
@@ -248,11 +264,17 @@ fn endpoint_with_config(transport_config: TransportConfig) -> Endpoint {
 }
 
 /// Constructs endpoints suitable for connecting to themselves and each other
-struct EndpointFactory(rcgen::Certificate);
+struct EndpointFactory {
+    cert: rcgen::CertifiedKey,
+    endpoint_config: EndpointConfig,
+}
 
 impl EndpointFactory {
     fn new() -> Self {
-        Self(rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap())
+        Self {
+            cert: rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap(),
+            endpoint_config: EndpointConfig::default(),
+        }
     }
 
     fn endpoint(&self) -> Endpoint {
@@ -260,22 +282,22 @@ impl EndpointFactory {
     }
 
     fn endpoint_with_config(&self, transport_config: TransportConfig) -> Endpoint {
-        let cert = &self.0;
-        let key = rustls::PrivateKey(cert.serialize_private_key_der());
-        let cert = rustls::Certificate(cert.serialize_der().unwrap());
+        let key = PrivateKeyDer::Pkcs8(self.cert.key_pair.serialize_der().into());
         let transport_config = Arc::new(transport_config);
         let mut server_config =
-            crate::ServerConfig::with_single_cert(vec![cert.clone()], key).unwrap();
+            crate::ServerConfig::with_single_cert(vec![self.cert.cert.der().clone()], key).unwrap();
         server_config.transport_config(transport_config.clone());
 
         let mut roots = rustls::RootCertStore::empty();
-        roots.add(&cert).unwrap();
-        let mut endpoint = Endpoint::server(
-            server_config,
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        roots.add(self.cert.cert.der().clone()).unwrap();
+        let mut endpoint = Endpoint::new(
+            self.endpoint_config.clone(),
+            Some(server_config),
+            UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap(),
+            Arc::new(TokioRuntime),
         )
         .unwrap();
-        let mut client_config = ClientConfig::with_root_certificates(roots);
+        let mut client_config = ClientConfig::with_root_certificates(Arc::new(roots)).unwrap();
         client_config.transport_config(transport_config);
         endpoint.set_default_client_config(client_config);
 
@@ -305,13 +327,13 @@ async fn zero_rtt() {
             info!("sending 0.5-RTT");
             let mut s = connection.open_uni().await.expect("open_uni");
             s.write_all(MSG0).await.expect("write");
-            s.finish().await.expect("finish");
+            s.finish().unwrap();
             established.await;
             info!("sending 1-RTT");
             let mut s = connection.open_uni().await.expect("open_uni");
             s.write_all(MSG1).await.expect("write");
             // The peer might close the connection before ACKing
-            let _ = s.finish().await;
+            let _ = s.finish();
         }
     });
 
@@ -355,7 +377,7 @@ async fn zero_rtt() {
         let mut s = c.open_uni().await.expect("0-RTT open uni");
         info!("sending 0-RTT");
         s.write_all(MSG0).await.expect("0-RTT write");
-        s.finish().await.expect("0-RTT finish");
+        s.finish().unwrap();
     });
 
     let mut stream = connection.accept_uni().await.expect("incoming streams");
@@ -468,11 +490,10 @@ fn run_echo(args: EchoArgs) {
         // We don't use the `endpoint` helper here because we want two different endpoints with
         // different addresses.
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        let key = rustls::PrivateKey(cert.serialize_private_key_der());
-        let cert_der = cert.serialize_der().unwrap();
-        let cert = rustls::Certificate(cert_der);
+        let key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+        let cert = CertificateDer::from(cert.cert);
         let mut server_config =
-            crate::ServerConfig::with_single_cert(vec![cert.clone()], key).unwrap();
+            crate::ServerConfig::with_single_cert(vec![cert.clone()], key.into()).unwrap();
 
         server_config.transport = transport_config.clone();
         let server_sock = UdpSocket::bind(args.server_addr).unwrap();
@@ -490,11 +511,14 @@ fn run_echo(args: EchoArgs) {
         };
 
         let mut roots = rustls::RootCertStore::empty();
-        roots.add(&cert).unwrap();
-        let mut client_crypto = rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
+        roots.add(cert).unwrap();
+        let mut client_crypto = rustls::ClientConfig::builder_with_provider(
+            rustls::crypto::ring::default_provider().into(),
+        )
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
         client_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
 
         let mut client = {
@@ -502,7 +526,8 @@ fn run_echo(args: EchoArgs) {
             let _guard = error_span!("client").entered();
             Endpoint::client(args.client_addr).unwrap()
         };
-        let mut client_config = ClientConfig::new(Arc::new(client_crypto));
+        let mut client_config =
+            ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto).unwrap()));
         client_config.transport_config(transport_config);
         client.set_default_client_config(client_config);
 
@@ -512,9 +537,11 @@ fn run_echo(args: EchoArgs) {
             // Note for anyone modifying the platform support in this test:
             // If `local_ip` gets available on additional platforms - which
             // requires modifying this test - please update the list of supported
-            // platforms in the doc comments of the various `local_ip` functions.
+            // platforms in the doc comment of `quinn_udp::RecvMeta::dst_ip`.
             if cfg!(target_os = "linux")
                 || cfg!(target_os = "freebsd")
+                || cfg!(target_os = "openbsd")
+                || cfg!(target_os = "netbsd")
                 || cfg!(target_os = "macos")
                 || cfg!(target_os = "windows")
             {
@@ -552,7 +579,7 @@ fn run_echo(args: EchoArgs) {
 
                     let send_task = async {
                         send.write_all(&msg).await.expect("write");
-                        send.finish().await.expect("finish");
+                        send.finish().unwrap();
                     };
                     let recv_task =
                         async { recv.read_to_end(usize::max_value()).await.expect("read") };
@@ -605,7 +632,7 @@ async fn echo((mut send, mut recv): (SendStream, RecvStream)) {
         }
     }
 
-    let _ = send.finish().await;
+    let _ = send.finish();
 }
 
 fn gen_data(size: usize, seed: u64) -> Vec<u8> {
@@ -651,19 +678,14 @@ async fn rebind_recv() {
     let _guard = subscribe();
 
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-    let key = rustls::PrivateKey(cert.serialize_private_key_der());
-    let cert = rustls::Certificate(cert.serialize_der().unwrap());
+    let key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+    let cert = CertificateDer::from(cert.cert);
 
     let mut roots = rustls::RootCertStore::empty();
-    roots.add(&cert).unwrap();
+    roots.add(cert.clone()).unwrap();
 
     let mut client = Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
-    let mut client_config = ClientConfig::new(Arc::new(
-        rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(roots)
-            .with_no_client_auth(),
-    ));
+    let mut client_config = ClientConfig::with_root_certificates(Arc::new(roots)).unwrap();
     client_config.transport_config(Arc::new({
         let mut cfg = TransportConfig::default();
         cfg.max_concurrent_uni_streams(1u32.into());
@@ -671,12 +693,16 @@ async fn rebind_recv() {
     }));
     client.set_default_client_config(client_config);
 
-    let server_config = crate::ServerConfig::with_single_cert(vec![cert.clone()], key).unwrap();
-    let server = Endpoint::server(
-        server_config,
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
-    )
-    .unwrap();
+    let server_config =
+        crate::ServerConfig::with_single_cert(vec![cert.clone()], key.into()).unwrap();
+    let server = {
+        let _guard = tracing::error_span!("server").entered();
+        Endpoint::server(
+            server_config,
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        )
+        .unwrap()
+    };
     let server_addr = server.local_addr().unwrap();
 
     const MSG: &[u8; 5] = b"hello";
@@ -692,14 +718,19 @@ async fn rebind_recv() {
         write_recv.notified().await;
         let mut stream = connection.open_uni().await.unwrap();
         stream.write_all(MSG).await.unwrap();
-        stream.finish().await.unwrap();
+        stream.finish().unwrap();
+        // Wait for the stream to be closed, one way or another.
+        _ = stream.stopped().await;
     });
 
-    let connection = client
-        .connect(server_addr, "localhost")
-        .unwrap()
-        .await
-        .unwrap();
+    let connection = {
+        let _guard = tracing::error_span!("client").entered();
+        client
+            .connect(server_addr, "localhost")
+            .unwrap()
+            .await
+            .unwrap()
+    };
     info!("connected");
     connected_recv.notified().await;
     client
@@ -780,4 +811,55 @@ async fn two_datagram_readers() {
     );
     assert!(*a == *b"one" || *b == *b"one");
     assert!(*a == *b"two" || *b == *b"two");
+}
+
+#[tokio::test]
+async fn multiple_conns_with_zero_length_cids() {
+    let _guard = subscribe();
+    let mut factory = EndpointFactory::new();
+    factory
+        .endpoint_config
+        .cid_generator(|| Box::new(RandomConnectionIdGenerator::new(0)));
+    let server = {
+        let _guard = error_span!("server").entered();
+        factory.endpoint()
+    };
+    let server_addr = server.local_addr().unwrap();
+
+    let client1 = {
+        let _guard = error_span!("client1").entered();
+        factory.endpoint()
+    };
+    let client2 = {
+        let _guard = error_span!("client2").entered();
+        factory.endpoint()
+    };
+
+    let client1 = async move {
+        let conn = client1
+            .connect(server_addr, "localhost")
+            .unwrap()
+            .await
+            .unwrap();
+        conn.closed().await;
+    }
+    .instrument(error_span!("client1"));
+    let client2 = async move {
+        let conn = client2
+            .connect(server_addr, "localhost")
+            .unwrap()
+            .await
+            .unwrap();
+        conn.closed().await;
+    }
+    .instrument(error_span!("client2"));
+    let server = async move {
+        let client1 = server.accept().await.unwrap().await.unwrap();
+        let client2 = server.accept().await.unwrap().await.unwrap();
+        // Both connections are now concurrently live.
+        client1.close(42u32.into(), &[]);
+        client2.close(42u32.into(), &[]);
+    }
+    .instrument(error_span!("server"));
+    tokio::join!(client1, client2, server);
 }

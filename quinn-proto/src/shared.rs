@@ -11,15 +11,19 @@ pub struct ConnectionEvent(pub(crate) ConnectionEventInner);
 #[derive(Debug)]
 pub(crate) enum ConnectionEventInner {
     /// A datagram has been received for the Connection
-    Datagram {
-        now: Instant,
-        remote: SocketAddr,
-        ecn: Option<EcnCodepoint>,
-        first_decode: PartialDecode,
-        remaining: Option<BytesMut>,
-    },
+    Datagram(DatagramConnectionEvent),
     /// New connection identifiers have been issued for the Connection
     NewIdentifiers(Vec<IssuedCid>, Instant),
+}
+
+/// Variant of [`ConnectionEventInner`].
+#[derive(Debug)]
+pub(crate) struct DatagramConnectionEvent {
+    pub(crate) now: Instant,
+    pub(crate) remote: SocketAddr,
+    pub(crate) ecn: Option<EcnCodepoint>,
+    pub(crate) first_decode: PartialDecode,
+    pub(crate) remaining: Option<BytesMut>,
 }
 
 /// Events sent from a Connection to an Endpoint
@@ -82,7 +86,7 @@ impl ConnectionId {
     /// Constructs cid by reading `len` bytes from a `Buf`
     ///
     /// Callers need to assure that `buf.remaining() >= len`
-    pub(crate) fn from_buf(buf: &mut impl Buf, len: usize) -> Self {
+    pub fn from_buf(buf: &mut (impl Buf + ?Sized), len: usize) -> Self {
         debug_assert!(len <= MAX_CID_SIZE);
         let mut res = Self {
             len: len as u8,

@@ -1,13 +1,12 @@
 use std::collections::VecDeque;
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use thiserror::Error;
 use tracing::{debug, trace};
 
 use super::Connection;
 use crate::{
     frame::{Datagram, FrameStruct},
-    packet::SpaceId,
     TransportError,
 };
 
@@ -68,11 +67,11 @@ impl<'a> Datagrams<'a> {
     ///
     /// Not necessarily the maximum size of received datagrams.
     pub fn max_size(&self) -> Option<usize> {
+        // We use the conservative overhead bound for any packet number, reducing the budget by at
+        // most 3 bytes, so that PN size fluctuations don't cause users sending maximum-size
+        // datagrams to suffer avoidable packet loss.
         let max_size = self.conn.path.current_mtu() as usize
-            - 1                 // flags byte
-            - self.conn.rem_cids.active().len()
-            - 4                 // worst-case packet number size
-            - self.conn.spaces[SpaceId::Data].crypto.as_ref().map_or_else(|| &self.conn.zero_rtt_crypto.as_ref().unwrap().packet, |x| &x.packet.local).tag_len()
+            - self.conn.predict_1rtt_overhead(None)
             - Datagram::SIZE_BOUND;
         let limit = self
             .conn
@@ -141,7 +140,29 @@ impl DatagramState {
         Ok(was_empty)
     }
 
-    pub(super) fn write(&mut self, buf: &mut BytesMut, max_size: usize) -> bool {
+    /// Discard outgoing datagrams with a payload larger than `max_payload` bytes
+    ///
+    /// Used to ensure that reductions in MTU don't get us stuck in a state where we have a datagram
+    /// queued but can't send it.
+    pub(super) fn drop_oversized(&mut self, max_payload: usize) {
+        self.outgoing.retain(|datagram| {
+            let result = datagram.data.len() < max_payload;
+            if !result {
+                trace!(
+                    "dropping {} byte datagram violating {} byte limit",
+                    datagram.data.len(),
+                    max_payload
+                );
+            }
+            result
+        });
+    }
+
+    /// Attempt to write a datagram frame into `buf`, consuming it from `self.outgoing`
+    ///
+    /// Returns whether a frame was written. At most `max_size` bytes will be written, including
+    /// framing.
+    pub(super) fn write(&mut self, buf: &mut Vec<u8>, max_size: usize) -> bool {
         let datagram = match self.outgoing.pop_front() {
             Some(x) => x,
             None => return false,
@@ -153,6 +174,8 @@ impl DatagramState {
             self.outgoing.push_front(datagram);
             return false;
         }
+
+        trace!(len = datagram.data.len(), "DATAGRAM");
 
         self.outgoing_total -= datagram.data.len();
         datagram.encode(true, buf);

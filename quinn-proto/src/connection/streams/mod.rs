@@ -1,4 +1,7 @@
-use std::collections::{hash_map, BinaryHeap};
+use std::{
+    collections::{hash_map, BinaryHeap},
+    io,
+};
 
 use bytes::Bytes;
 use thiserror::Error;
@@ -126,11 +129,11 @@ impl<'a> RecvStream<'a> {
     /// Stop accepting data on the given receive stream
     ///
     /// Discards unread data and notifies the peer to stop transmitting. Once stopped, further
-    /// attempts to operate on a stream will yield `UnknownStream` errors.
-    pub fn stop(&mut self, error_code: VarInt) -> Result<(), UnknownStream> {
+    /// attempts to operate on a stream will yield `ClosedStream` errors.
+    pub fn stop(&mut self, error_code: VarInt) -> Result<(), ClosedStream> {
         let mut entry = match self.state.recv.entry(self.id) {
             hash_map::Entry::Occupied(s) => s,
-            hash_map::Entry::Vacant(_) => return Err(UnknownStream { _private: () }),
+            hash_map::Entry::Vacant(_) => return Err(ClosedStream { _private: () }),
         };
         let stream = get_or_insert_recv(self.state.stream_receive_window)(entry.get_mut());
 
@@ -145,7 +148,7 @@ impl<'a> RecvStream<'a> {
         // We need to keep stopped streams around until they're finished or reset so we can update
         // connection-level flow control to account for discarded data. Otherwise, we can discard
         // state immediately.
-        if !stream.receiving_unknown_size() {
+        if !stream.final_offset_unknown() {
             entry.remove();
             self.state.stream_freed(self.id, StreamHalf::Recv);
         }
@@ -155,6 +158,33 @@ impl<'a> RecvStream<'a> {
         }
 
         Ok(())
+    }
+
+    /// Check whether this stream has been reset by the peer, returning the reset error code if so
+    ///
+    /// After returning `Ok(Some(_))` once, stream state will be discarded and all future calls will
+    /// return `Err(ClosedStream)`.
+    pub fn received_reset(&mut self) -> Result<Option<VarInt>, ClosedStream> {
+        let hash_map::Entry::Occupied(entry) = self.state.recv.entry(self.id) else {
+            return Err(ClosedStream { _private: () });
+        };
+        let Some(s) = entry.get().as_ref() else {
+            return Ok(None);
+        };
+        if s.stopped {
+            return Err(ClosedStream { _private: () });
+        }
+        let Some(code) = s.reset_code() else {
+            return Ok(None);
+        };
+
+        // Clean up state after application observes the reset, since there's no reason for the
+        // application to attempt to read or stop the stream once it knows it's reset
+        entry.remove_entry();
+        self.state.stream_freed(self.id, StreamHalf::Recv);
+        self.state.queue_max_stream_id(self.pending);
+
+        Ok(Some(code))
     }
 }
 
@@ -214,7 +244,7 @@ impl<'a> SendStream<'a> {
             .send
             .get_mut(&self.id)
             .map(get_or_insert_send(max_send_data))
-            .ok_or(WriteError::UnknownStream)?;
+            .ok_or(WriteError::ClosedStream)?;
 
         if limit == 0 {
             trace!(
@@ -240,11 +270,11 @@ impl<'a> SendStream<'a> {
     }
 
     /// Check if this stream was stopped, get the reason if it was
-    pub fn stopped(&mut self) -> Result<Option<VarInt>, UnknownStream> {
+    pub fn stopped(&self) -> Result<Option<VarInt>, ClosedStream> {
         match self.state.send.get(&self.id).as_ref() {
             Some(Some(s)) => Ok(s.stop_reason),
             Some(None) => Ok(None),
-            None => Err(UnknownStream { _private: () }),
+            None => Err(ClosedStream { _private: () }),
         }
     }
 
@@ -260,7 +290,7 @@ impl<'a> SendStream<'a> {
             .send
             .get_mut(&self.id)
             .map(get_or_insert_send(max_send_data))
-            .ok_or(FinishError::UnknownStream)?;
+            .ok_or(FinishError::ClosedStream)?;
 
         let was_pending = stream.is_pending();
         stream.finish()?;
@@ -275,18 +305,18 @@ impl<'a> SendStream<'a> {
     ///
     /// # Panics
     /// - when applied to a receive stream
-    pub fn reset(&mut self, error_code: VarInt) -> Result<(), UnknownStream> {
+    pub fn reset(&mut self, error_code: VarInt) -> Result<(), ClosedStream> {
         let max_send_data = self.state.max_send_data(self.id);
         let stream = self
             .state
             .send
             .get_mut(&self.id)
             .map(get_or_insert_send(max_send_data))
-            .ok_or(UnknownStream { _private: () })?;
+            .ok_or(ClosedStream { _private: () })?;
 
         if matches!(stream.state, SendState::ResetSent) {
             // Redundant reset call
-            return Err(UnknownStream { _private: () });
+            return Err(ClosedStream { _private: () });
         }
 
         // Restore the portion of the send window consumed by the data that we aren't about to
@@ -304,14 +334,14 @@ impl<'a> SendStream<'a> {
     ///
     /// # Panics
     /// - when applied to a receive stream
-    pub fn set_priority(&mut self, priority: i32) -> Result<(), UnknownStream> {
+    pub fn set_priority(&mut self, priority: i32) -> Result<(), ClosedStream> {
         let max_send_data = self.state.max_send_data(self.id);
         let stream = self
             .state
             .send
             .get_mut(&self.id)
             .map(get_or_insert_send(max_send_data))
-            .ok_or(UnknownStream { _private: () })?;
+            .ok_or(ClosedStream { _private: () })?;
 
         stream.priority = priority;
         Ok(())
@@ -321,12 +351,12 @@ impl<'a> SendStream<'a> {
     ///
     /// # Panics
     /// - when applied to a receive stream
-    pub fn priority(&self) -> Result<i32, UnknownStream> {
+    pub fn priority(&self) -> Result<i32, ClosedStream> {
         let stream = self
             .state
             .send
             .get(&self.id)
-            .ok_or(UnknownStream { _private: () })?;
+            .ok_or(ClosedStream { _private: () })?;
 
         Ok(stream.as_ref().map(|s| s.priority).unwrap_or_default())
     }
@@ -438,9 +468,22 @@ impl ShouldTransmit {
 
 /// Error indicating that a stream has not been opened or has already been finished or reset
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
-#[error("unknown stream")]
-pub struct UnknownStream {
+#[error("closed stream")]
+pub struct ClosedStream {
     _private: (),
+}
+
+impl ClosedStream {
+    #[doc(hidden)] // For use in quinn only
+    pub fn new() -> Self {
+        Self { _private: () }
+    }
+}
+
+impl From<ClosedStream> for io::Error {
+    fn from(x: ClosedStream) -> Self {
+        Self::new(io::ErrorKind::NotConnected, x)
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

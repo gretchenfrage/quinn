@@ -13,6 +13,8 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
+use proto::crypto::rustls::QuicClientConfig;
+use rustls::pki_types::CertificateDer;
 use tracing::{error, info};
 use url::Url;
 
@@ -75,12 +77,12 @@ async fn run(options: Opt) -> Result<()> {
 
     let mut roots = rustls::RootCertStore::empty();
     if let Some(ca_path) = options.ca {
-        roots.add(&rustls::Certificate(fs::read(ca_path)?))?;
+        roots.add(CertificateDer::from(fs::read(ca_path)?))?;
     } else {
         let dirs = directories_next::ProjectDirs::from("org", "quinn", "quinn-examples").unwrap();
         match fs::read(dirs.data_local_dir().join("cert.der")) {
             Ok(cert) => {
-                roots.add(&rustls::Certificate(cert))?;
+                roots.add(CertificateDer::from(cert))?;
             }
             Err(ref e) if e.kind() == io::ErrorKind::NotFound => {
                 info!("local server certificate not found");
@@ -91,7 +93,6 @@ async fn run(options: Opt) -> Result<()> {
         }
     }
     let mut client_crypto = rustls::ClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(roots)
         .with_no_client_auth();
 
@@ -100,7 +101,8 @@ async fn run(options: Opt) -> Result<()> {
         client_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
     }
 
-    let client_config = quinn::ClientConfig::new(Arc::new(client_crypto));
+    let client_config =
+        quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
     let mut endpoint = quinn::Endpoint::client(options.bind)?;
     endpoint.set_default_client_config(client_config);
 
@@ -129,9 +131,7 @@ async fn run(options: Opt) -> Result<()> {
     send.write_all(request.as_bytes())
         .await
         .map_err(|e| anyhow!("failed to send request: {}", e))?;
-    send.finish()
-        .await
-        .map_err(|e| anyhow!("failed to shutdown stream: {}", e))?;
+    send.finish().unwrap();
     let response_start = Instant::now();
     eprintln!("request sent at {:?}", response_start - start);
     let resp = recv

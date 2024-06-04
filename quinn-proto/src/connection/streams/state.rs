@@ -4,7 +4,7 @@ use std::{
     mem,
 };
 
-use bytes::{BufMut, BytesMut};
+use bytes::BufMut;
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace};
 
@@ -298,7 +298,7 @@ impl StreamsState {
         }
         self.on_stream_frame(!stopped, id);
 
-        // Update flow control
+        // Update connection-level flow control
         Ok(if bytes_read != final_offset.into_inner() {
             // bytes_read is always <= end, so this won't underflow.
             self.data_recvd = self
@@ -358,12 +358,12 @@ impl StreamsState {
         self.recv
             .get(&id)
             .and_then(|s| s.as_ref())
-            .map_or(false, |s| s.receiving_unknown_size())
+            .map_or(false, |s| s.can_send_flow_control())
     }
 
     pub(in crate::connection) fn write_control_frames(
         &mut self,
-        buf: &mut BytesMut,
+        buf: &mut Vec<u8>,
         pending: &mut Retransmits,
         retransmits: &mut ThinRetransmits,
         stats: &mut FrameStats,
@@ -446,7 +446,7 @@ impl StreamsState {
                 Some(x) => x,
                 None => continue,
             };
-            if !rs.receiving_unknown_size() {
+            if !rs.can_send_flow_control() {
                 continue;
             }
             retransmits.get_or_create().max_stream_data.insert(id);
@@ -489,7 +489,7 @@ impl StreamsState {
 
     pub(crate) fn write_stream_frames(
         &mut self,
-        buf: &mut BytesMut,
+        buf: &mut Vec<u8>,
         max_buf_size: usize,
     ) -> StreamMetaVec {
         let mut stream_frames = StreamMetaVec::new();
@@ -742,8 +742,17 @@ impl StreamsState {
         self.events.pop_front()
     }
 
-    pub(crate) fn take_max_streams_dirty(&mut self, dir: Dir) -> bool {
-        mem::replace(&mut self.max_streams_dirty[dir as usize], false)
+    /// Queues MAX_STREAM_ID frames in `pending` if needed
+    ///
+    /// Returns whether any frames were queued.
+    pub(crate) fn queue_max_stream_id(&mut self, pending: &mut Retransmits) -> bool {
+        let mut queued = false;
+        for dir in Dir::iter() {
+            let dirty = mem::replace(&mut self.max_streams_dirty[dir as usize], false);
+            pending.max_stream_id[dir as usize] |= dirty;
+            queued |= dirty;
+        }
+        queued
     }
 
     /// Check for errors entailed by the peer's use of `id` as a send stream
@@ -897,7 +906,7 @@ mod tests {
         connection::State as ConnState, connection::Streams, ReadableError, RecvStream, SendStream,
         TransportErrorCode, WriteError,
     };
-    use bytes::{Bytes, BytesMut};
+    use bytes::Bytes;
 
     fn make(side: Side) -> StreamsState {
         StreamsState::new(
@@ -1111,8 +1120,8 @@ mod tests {
         assert!(!recv.pending.max_data);
 
         assert!(recv.stop(0u32.into()).is_err());
-        assert_eq!(recv.read(true).err(), Some(ReadableError::UnknownStream));
-        assert_eq!(recv.read(false).err(), Some(ReadableError::UnknownStream));
+        assert_eq!(recv.read(true).err(), Some(ReadableError::ClosedStream));
+        assert_eq!(recv.read(false).err(), Some(ReadableError::ClosedStream));
 
         assert_eq!(client.local_max_data - initial_max, 32);
         assert_eq!(
@@ -1220,7 +1229,7 @@ mod tests {
         assert_eq!(stream.write(&[]), Err(WriteError::Stopped(error_code)));
 
         stream.reset(0u32.into()).unwrap();
-        assert_eq!(stream.write(&[]), Err(WriteError::UnknownStream));
+        assert_eq!(stream.write(&[]), Err(WriteError::ClosedStream));
 
         // A duplicate frame is a no-op
         stream.state.received_stop_sending(id, error_code);
@@ -1289,7 +1298,7 @@ mod tests {
         high.set_priority(1).unwrap();
         high.write(b"high").unwrap();
 
-        let mut buf = BytesMut::with_capacity(40);
+        let mut buf = Vec::with_capacity(40);
         let meta = server.write_stream_frames(&mut buf, 40);
         assert_eq!(meta[0].id, id_high);
         assert_eq!(meta[1].id, id_mid);
@@ -1348,7 +1357,7 @@ mod tests {
         };
         high.set_priority(-1).unwrap();
 
-        let mut buf = BytesMut::with_capacity(1000);
+        let mut buf = Vec::with_capacity(1000);
         let meta = server.write_stream_frames(&mut buf, 40);
         assert_eq!(meta.len(), 1);
         assert_eq!(meta[0].id, id_high);

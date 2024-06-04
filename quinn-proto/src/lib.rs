@@ -31,7 +31,6 @@ mod cid_queue;
 #[doc(hidden)]
 pub mod coding;
 mod constant_time;
-mod packet;
 mod range_set;
 #[cfg(all(test, feature = "rustls"))]
 mod tests;
@@ -42,9 +41,9 @@ pub use varint::{VarInt, VarIntBoundsExceeded};
 
 mod connection;
 pub use crate::connection::{
-    BytesSource, Chunk, Chunks, Connection, ConnectionError, ConnectionStats, Datagrams, Event,
-    FinishError, FrameStats, PathStats, ReadError, ReadableError, RecvStream, RttEstimator,
-    SendDatagramError, SendStream, StreamEvent, Streams, UdpStats, UnknownStream, WriteError,
+    BytesSource, Chunk, Chunks, ClosedStream, Connection, ConnectionError, ConnectionStats,
+    Datagrams, Event, FinishError, FrameStats, PathStats, ReadError, ReadableError, RecvStream,
+    RttEstimator, SendDatagramError, SendStream, StreamEvent, Streams, UdpStats, WriteError,
     Written,
 };
 
@@ -63,6 +62,12 @@ pub use crate::frame::{ApplicationClose, ConnectionClose, Datagram};
 mod endpoint;
 pub use crate::endpoint::{
     AcceptError, ConnectError, ConnectionHandle, DatagramEvent, Endpoint, Incoming, RetryError,
+};
+
+mod packet;
+pub use packet::{
+    ConnectionIdParser, FixedLengthConnectionIdParser, LongType, PacketDecodeError, PartialDecode,
+    ProtectedHeader, ProtectedInitialHeader,
 };
 
 mod shared;

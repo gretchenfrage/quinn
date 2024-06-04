@@ -8,36 +8,37 @@ use crate::{
     crypto, ConnectionId,
 };
 
-// Due to packet number encryption, it is impossible to fully decode a header
-// (which includes a variable-length packet number) without crypto context.
-// The crypto context (represented by the `Crypto` type in Quinn) is usually
-// part of the `Connection`, or can be derived from the destination CID for
-// Initial packets.
-//
-// To cope with this, we decode the invariant header (which should be stable
-// across QUIC versions), which gives us the destination CID and allows us
-// to inspect the version and packet type (which depends on the version).
-// This information allows us to fully decode and decrypt the packet.
-#[allow(unreachable_pub)] // fuzzing only
+/// Decodes a QUIC packet's invariant header
+///
+/// Due to packet number encryption, it is impossible to fully decode a header
+/// (which includes a variable-length packet number) without crypto context.
+/// The crypto context (represented by the `Crypto` type in Quinn) is usually
+/// part of the `Connection`, or can be derived from the destination CID for
+/// Initial packets.
+///
+/// To cope with this, we decode the invariant header (which should be stable
+/// across QUIC versions), which gives us the destination CID and allows us
+/// to inspect the version and packet type (which depends on the version).
+/// This information allows us to fully decode and decrypt the packet.
 #[cfg_attr(test, derive(Clone))]
 #[derive(Debug)]
 pub struct PartialDecode {
-    plain_header: PlainHeader,
+    plain_header: ProtectedHeader,
     buf: io::Cursor<BytesMut>,
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl PartialDecode {
-    #[allow(unreachable_pub)] // fuzzing only
+    /// Begin decoding a QUIC packet from `bytes`, returning any trailing data not part of that packet
     pub fn new(
         bytes: BytesMut,
-        local_cid_len: usize,
+        cid_parser: &(impl ConnectionIdParser + ?Sized),
         supported_versions: &[u32],
         grease_quic_bit: bool,
     ) -> Result<(Self, Option<BytesMut>), PacketDecodeError> {
         let mut buf = io::Cursor::new(bytes);
         let plain_header =
-            PlainHeader::decode(&mut buf, local_cid_len, supported_versions, grease_quic_bit)?;
+            ProtectedHeader::decode(&mut buf, cid_parser, supported_versions, grease_quic_bit)?;
         let dgram_len = buf.get_ref().len();
         let packet_len = plain_header
             .payload_len()
@@ -60,12 +61,12 @@ impl PartialDecode {
         self.buf.get_ref()
     }
 
-    pub(crate) fn initial_header(&self) -> Option<&PlainInitialHeader> {
+    pub(crate) fn initial_header(&self) -> Option<&ProtectedInitialHeader> {
         self.plain_header.as_initial()
     }
 
     pub(crate) fn has_long_header(&self) -> bool {
-        !matches!(self.plain_header, PlainHeader::Short { .. })
+        !matches!(self.plain_header, ProtectedHeader::Short { .. })
     }
 
     pub(crate) fn is_initial(&self) -> bool {
@@ -73,7 +74,7 @@ impl PartialDecode {
     }
 
     pub(crate) fn space(&self) -> Option<SpaceId> {
-        use self::PlainHeader::*;
+        use self::ProtectedHeader::*;
         match self.plain_header {
             Initial { .. } => Some(SpaceId::Initial),
             Long {
@@ -91,12 +92,13 @@ impl PartialDecode {
 
     pub(crate) fn is_0rtt(&self) -> bool {
         match self.plain_header {
-            PlainHeader::Long { ty, .. } => ty == LongType::ZeroRtt,
+            ProtectedHeader::Long { ty, .. } => ty == LongType::ZeroRtt,
             _ => false,
         }
     }
 
-    pub(crate) fn dst_cid(&self) -> &ConnectionId {
+    /// The destination connection ID of the packet
+    pub fn dst_cid(&self) -> &ConnectionId {
         self.plain_header.dst_cid()
     }
 
@@ -110,13 +112,13 @@ impl PartialDecode {
         self,
         header_crypto: Option<&dyn crypto::HeaderKey>,
     ) -> Result<Packet, PacketDecodeError> {
-        use self::PlainHeader::*;
+        use self::ProtectedHeader::*;
         let Self {
             plain_header,
             mut buf,
         } = self;
 
-        if let Initial(PlainInitialHeader {
+        if let Initial(ProtectedInitialHeader {
             dst_cid,
             src_cid,
             token_pos,
@@ -278,7 +280,7 @@ pub(crate) enum Header {
 }
 
 impl Header {
-    pub(crate) fn encode(&self, w: &mut BytesMut) -> PartialEncode {
+    pub(crate) fn encode(&self, w: &mut Vec<u8>) -> PartialEncode {
         use self::Header::*;
         let start = w.len();
         match *self {
@@ -486,42 +488,62 @@ impl PartialEncode {
     }
 }
 
+/// Plain packet header
 #[derive(Clone, Debug)]
-pub(crate) enum PlainHeader {
-    Initial(PlainInitialHeader),
+pub enum ProtectedHeader {
+    /// An Initial packet header
+    Initial(ProtectedInitialHeader),
+    /// A Long packet header, as used during the handshake
     Long {
+        /// Type of the Long header packet
         ty: LongType,
+        /// Destination Connection ID
         dst_cid: ConnectionId,
+        /// Source Connection ID
         src_cid: ConnectionId,
+        /// Length of the packet payload
         len: u64,
+        /// QUIC version
         version: u32,
     },
+    /// A Retry packet header
     Retry {
+        /// Destination Connection ID
         dst_cid: ConnectionId,
+        /// Source Connection ID
         src_cid: ConnectionId,
+        /// QUIC version
         version: u32,
     },
+    /// A short packet header, as used during the data phase
     Short {
+        /// Spin bit
         spin: bool,
+        /// Destination Connection ID
         dst_cid: ConnectionId,
     },
+    /// A Version Negotiation packet header
     VersionNegotiate {
+        /// Random value
         random: u8,
+        /// Destination Connection ID
         dst_cid: ConnectionId,
+        /// Source Connection ID
         src_cid: ConnectionId,
     },
 }
 
-impl PlainHeader {
-    pub(crate) fn as_initial(&self) -> Option<&PlainInitialHeader> {
+impl ProtectedHeader {
+    fn as_initial(&self) -> Option<&ProtectedInitialHeader> {
         match self {
             Self::Initial(x) => Some(x),
             _ => None,
         }
     }
 
-    fn dst_cid(&self) -> &ConnectionId {
-        use self::PlainHeader::*;
+    /// The destination Connection ID of the packet
+    pub fn dst_cid(&self) -> &ConnectionId {
+        use self::ProtectedHeader::*;
         match self {
             Initial(header) => &header.dst_cid,
             Long { dst_cid, .. } => dst_cid,
@@ -532,16 +554,17 @@ impl PlainHeader {
     }
 
     fn payload_len(&self) -> Option<u64> {
-        use self::PlainHeader::*;
+        use self::ProtectedHeader::*;
         match self {
-            Initial(PlainInitialHeader { len, .. }) | Long { len, .. } => Some(*len),
+            Initial(ProtectedInitialHeader { len, .. }) | Long { len, .. } => Some(*len),
             _ => None,
         }
     }
 
-    fn decode(
+    /// Decode a plain header from given buffer, with given [`ConnectionIdParser`].
+    pub fn decode(
         buf: &mut io::Cursor<BytesMut>,
-        local_cid_len: usize,
+        cid_parser: &(impl ConnectionIdParser + ?Sized),
         supported_versions: &[u32],
         grease_quic_bit: bool,
     ) -> Result<Self, PacketDecodeError> {
@@ -551,13 +574,10 @@ impl PlainHeader {
         }
         if first & LONG_HEADER_FORM == 0 {
             let spin = first & SPIN_BIT != 0;
-            if buf.remaining() < local_cid_len {
-                return Err(PacketDecodeError::InvalidHeader("cid out of bounds"));
-            }
 
             Ok(Self::Short {
                 spin,
-                dst_cid: ConnectionId::from_buf(buf, local_cid_len),
+                dst_cid: cid_parser.parse(buf)?,
             })
         } else {
             let version = buf.get::<u32>()?;
@@ -595,7 +615,7 @@ impl PlainHeader {
                     buf.advance(token_len);
 
                     let len = buf.get_var()?;
-                    Ok(Self::Initial(PlainInitialHeader {
+                    Ok(Self::Initial(ProtectedInitialHeader {
                         dst_cid,
                         src_cid,
                         token_pos: token_start..token_start + token_len,
@@ -620,13 +640,19 @@ impl PlainHeader {
     }
 }
 
+/// Header of an Initial packet, before decryption
 #[derive(Clone, Debug)]
-pub(crate) struct PlainInitialHeader {
-    pub(crate) dst_cid: ConnectionId,
-    pub(crate) src_cid: ConnectionId,
-    pub(crate) token_pos: Range<usize>,
-    pub(crate) len: u64,
-    pub(crate) version: u32,
+pub struct ProtectedInitialHeader {
+    /// Destination Connection ID
+    pub dst_cid: ConnectionId,
+    /// Source Connection ID
+    pub src_cid: ConnectionId,
+    /// The position of a token in the packet buffer
+    pub token_pos: Range<usize>,
+    /// Length of the packet payload
+    pub len: u64,
+    /// QUIC version
+    pub version: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -741,6 +767,32 @@ impl PacketNumber {
     }
 }
 
+/// A [`ConnectionIdParser`] implementation that assumes the connection ID is of fixed length
+pub struct FixedLengthConnectionIdParser {
+    expected_len: usize,
+}
+
+impl FixedLengthConnectionIdParser {
+    /// Create a new instance of `FixedLengthConnectionIdParser`
+    pub fn new(expected_len: usize) -> Self {
+        Self { expected_len }
+    }
+}
+
+impl ConnectionIdParser for FixedLengthConnectionIdParser {
+    fn parse(&self, buffer: &mut dyn Buf) -> Result<ConnectionId, PacketDecodeError> {
+        (buffer.remaining() >= self.expected_len)
+            .then(|| ConnectionId::from_buf(buffer, self.expected_len))
+            .ok_or(PacketDecodeError::InvalidHeader("packet too small"))
+    }
+}
+
+/// Parse connection id in short header packet
+pub trait ConnectionIdParser {
+    /// Parse a connection id from given buffer
+    fn parse(&self, buf: &mut dyn Buf) -> Result<ConnectionId, PacketDecodeError>;
+}
+
 /// Long packet type including non-uniform cases
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum LongHeaderType {
@@ -777,20 +829,27 @@ impl From<LongHeaderType> for u8 {
 
 /// Long packet types with uniform header structure
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum LongType {
+pub enum LongType {
+    /// Handshake packet
     Handshake,
+    /// 0-RTT packet
     ZeroRtt,
 }
 
-#[allow(unreachable_pub)] // fuzzing only
+/// Packet decode error
 #[derive(Debug, Error, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum PacketDecodeError {
+    /// Packet uses a QUIC version that is not supported
     #[error("unsupported version {version:x}")]
     UnsupportedVersion {
+        /// Source Connection ID
         src_cid: ConnectionId,
+        /// Destination Connection ID
         dst_cid: ConnectionId,
+        /// The version that was unsupported
         version: u32,
     },
+    /// The packet header is invalid
     #[error("invalid header: {0}")]
     InvalidHeader(&'static str),
 }
@@ -827,6 +886,7 @@ impl SpaceId {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "rustls")]
     use crate::DEFAULT_SUPPORTED_VERSIONS;
     use hex_literal::hex;
     use std::io;
@@ -867,12 +927,17 @@ mod tests {
     #[cfg(feature = "rustls")]
     #[test]
     fn header_encoding() {
-        use crate::{crypto::rustls::initial_keys, Side};
+        use crate::crypto::rustls::{initial_keys, initial_suite_from_provider};
+        use crate::Side;
+        use rustls::crypto::ring::default_provider;
         use rustls::quic::Version;
 
         let dcid = ConnectionId::new(&hex!("06b858ec6f80452b"));
-        let client = initial_keys(Version::V1, &dcid, Side::Client);
-        let mut buf = BytesMut::new();
+        let provider = default_provider();
+
+        let suite = initial_suite_from_provider(&std::sync::Arc::new(provider)).unwrap();
+        let client = initial_keys(Version::V1, &dcid, Side::Client, &suite);
+        let mut buf = Vec::new();
         let header = Header::Initial(InitialHeader {
             number: PacketNumber::U8(0),
             src_cid: ConnectionId::new(&[]),
@@ -901,11 +966,16 @@ mod tests {
             )[..]
         );
 
-        let server = initial_keys(Version::V1, &dcid, Side::Server);
+        let server = initial_keys(Version::V1, &dcid, Side::Server, &suite);
         let supported_versions = DEFAULT_SUPPORTED_VERSIONS.to_vec();
-        let decode = PartialDecode::new(buf, 0, &supported_versions, false)
-            .unwrap()
-            .0;
+        let decode = PartialDecode::new(
+            buf.as_slice().into(),
+            &FixedLengthConnectionIdParser::new(0),
+            &supported_versions,
+            false,
+        )
+        .unwrap()
+        .0;
         let mut packet = decode.finish(Some(&*server.header.remote)).unwrap();
         assert_eq!(
             packet.header_data[..],

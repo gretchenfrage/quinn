@@ -2,6 +2,7 @@ use std::{
     any::Any,
     fmt,
     future::Future,
+    io,
     net::{IpAddr, SocketAddr},
     pin::Pin,
     sync::Arc,
@@ -9,10 +10,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::runtime::{AsyncTimer, AsyncUdpSocket, Runtime};
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use pin_project_lite::pin_project;
-use proto::{ConnectionError, ConnectionHandle, ConnectionStats, Dir, StreamEvent, StreamId};
 use rustc_hash::FxHashMap;
 use thiserror::Error;
 use tokio::sync::{futures::Notified, mpsc, oneshot, Notify};
@@ -21,10 +20,14 @@ use tracing::{debug_span, Instrument, Span};
 use crate::{
     mutex::Mutex,
     recv_stream::RecvStream,
-    send_stream::{SendStream, WriteError},
-    ConnectionEvent, EndpointEvent, VarInt,
+    runtime::{AsyncTimer, AsyncUdpSocket, Runtime, UdpPoller},
+    send_stream::SendStream,
+    udp_transmit, ConnectionEvent, VarInt,
 };
-use proto::congestion::Controller;
+use proto::{
+    congestion::Controller, ConnectionError, ConnectionHandle, ConnectionStats, Dir, EndpointEvent,
+    StreamEvent, StreamId,
+};
 
 /// In-progress connection attempt future
 #[derive(Debug)]
@@ -57,8 +60,14 @@ impl Connecting {
             runtime.clone(),
         );
 
+        let driver = ConnectionDriver(conn.clone());
         runtime.spawn(Box::pin(
-            ConnectionDriver(conn.clone()).instrument(Span::current()),
+            async {
+                if let Err(e) = driver.await {
+                    tracing::error!("I/O error: {e}");
+                }
+            }
+            .instrument(Span::current()),
         ));
 
         Self {
@@ -142,16 +151,9 @@ impl Connecting {
     /// This can be different from the address the endpoint is bound to, in case
     /// the endpoint is bound to a wildcard address like `0.0.0.0` or `::`.
     ///
-    /// This will return `None` for clients.
-    ///
-    /// Retrieving the local IP address is currently supported on the following
-    /// platforms:
-    /// - Linux
-    /// - FreeBSD
-    /// - macOS
-    ///
-    /// On all non-supported platforms the local IP address will not be available,
-    /// and the method will return `None`.
+    /// This will return `None` for clients, or when the platform does not expose this
+    /// information. See [`quinn_udp::RecvMeta::dst_ip`](udp::RecvMeta::dst_ip) for a list of
+    /// supported platforms when using [`quinn_udp`](udp) for I/O, which is the default.
     pub fn local_ip(&self) -> Option<IpAddr> {
         let conn = self.conn.as_ref().unwrap();
         let inner = conn.state.lock("local_ip");
@@ -216,7 +218,7 @@ impl Future for ZeroRttAccepted {
 struct ConnectionDriver(ConnectionRef);
 
 impl Future for ConnectionDriver {
-    type Output = ();
+    type Output = Result<(), io::Error>;
 
     #[allow(unused_mut)] // MSRV
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
@@ -227,9 +229,9 @@ impl Future for ConnectionDriver {
 
         if let Err(e) = conn.process_conn_events(&self.0.shared, cx) {
             conn.terminate(e, &self.0.shared);
-            return Poll::Ready(());
+            return Poll::Ready(Ok(()));
         }
-        let mut keep_going = conn.drive_transmit();
+        let mut keep_going = conn.drive_transmit(cx)?;
         // If a timer expires, there might be more to transmit. When we transmit something, we
         // might need to reset a timer. Hence, we must loop until neither happens.
         keep_going |= conn.drive_timer(cx);
@@ -248,7 +250,7 @@ impl Future for ConnectionDriver {
         if conn.error.is_none() {
             unreachable!("drained connections always have an error");
         }
-        Poll::Ready(())
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -469,14 +471,9 @@ impl Connection {
     /// This can be different from the address the endpoint is bound to, in case
     /// the endpoint is bound to a wildcard address like `0.0.0.0` or `::`.
     ///
-    /// This will return `None` for clients.
-    ///
-    /// Retrieving the local IP address is currently supported on the following
-    /// platforms:
-    /// - Linux
-    ///
-    /// On all non-supported platforms the local IP address will not be available,
-    /// and the method will return `None`.
+    /// This will return `None` for clients, or when the platform does not expose this
+    /// information. See [`quinn_udp::RecvMeta::dst_ip`](udp::RecvMeta::dst_ip) for a list of
+    /// supported platforms when using [`quinn_udp`](udp) for I/O, which is the default.
     pub fn local_ip(&self) -> Option<IpAddr> {
         self.0.state.lock("local_ip").inner.local_ip()
     }
@@ -521,7 +518,7 @@ impl Connection {
     ///
     /// The dynamic type returned is determined by the configured
     /// [`Session`](proto::crypto::Session). For the default `rustls` session, the return value can
-    /// be [`downcast`](Box::downcast) to a <code>Vec<[rustls::Certificate]></code>
+    /// be [`downcast`](Box::downcast) to a <code>Vec<[rustls::pki_types::CertificateDer]></code>
     pub fn peer_identity(&self) -> Option<Box<dyn Any>> {
         self.0
             .state
@@ -847,12 +844,14 @@ impl ConnectionRef {
                 endpoint_events,
                 blocked_writers: FxHashMap::default(),
                 blocked_readers: FxHashMap::default(),
-                finishing: FxHashMap::default(),
                 stopped: FxHashMap::default(),
                 error: None,
                 ref_count: 0,
+                io_poller: socket.clone().create_io_poller(),
                 socket,
                 runtime,
+                send_buffer: Vec::new(),
+                buffered_transmit: None,
             }),
             shared: Shared::default(),
         }))
@@ -924,55 +923,89 @@ pub(crate) struct State {
     endpoint_events: mpsc::UnboundedSender<(ConnectionHandle, EndpointEvent)>,
     pub(crate) blocked_writers: FxHashMap<StreamId, Waker>,
     pub(crate) blocked_readers: FxHashMap<StreamId, Waker>,
-    pub(crate) finishing: FxHashMap<StreamId, oneshot::Sender<Option<WriteError>>>,
     pub(crate) stopped: FxHashMap<StreamId, Waker>,
     /// Always set to Some before the connection becomes drained
     pub(crate) error: Option<ConnectionError>,
     /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
     ref_count: usize,
     socket: Arc<dyn AsyncUdpSocket>,
+    io_poller: Pin<Box<dyn UdpPoller>>,
     runtime: Arc<dyn Runtime>,
+    send_buffer: Vec<u8>,
+    /// We buffer a transmit when the underlying I/O would block
+    buffered_transmit: Option<proto::Transmit>,
 }
 
 impl State {
-    fn drive_transmit(&mut self) -> bool {
-        let now = Instant::now();
+    fn drive_transmit(&mut self, cx: &mut Context) -> io::Result<bool> {
+        let now = self.runtime.now();
         let mut transmits = 0;
 
         let max_datagrams = self.socket.max_transmit_segments();
-        let capacity = self.inner.current_mtu();
-        let mut buffer = BytesMut::with_capacity(capacity as usize);
 
-        while let Some(t) = self.inner.poll_transmit(now, max_datagrams, &mut buffer) {
-            transmits += match t.segment_size {
-                None => 1,
-                Some(s) => (t.size + s - 1) / s, // round up
+        loop {
+            // Retry the last transmit, or get a new one.
+            let t = match self.buffered_transmit.take() {
+                Some(t) => t,
+                None => {
+                    self.send_buffer.clear();
+                    self.send_buffer.reserve(self.inner.current_mtu() as usize);
+                    match self
+                        .inner
+                        .poll_transmit(now, max_datagrams, &mut self.send_buffer)
+                    {
+                        Some(t) => {
+                            transmits += match t.segment_size {
+                                None => 1,
+                                Some(s) => (t.size + s - 1) / s, // round up
+                            };
+                            t
+                        }
+                        None => break,
+                    }
+                }
             };
-            // If the endpoint driver is gone, noop.
-            let size = t.size;
-            let _ = self.endpoint_events.send((
-                self.handle,
-                EndpointEvent::Transmit(t, buffer.split_to(size).freeze()),
-            ));
+
+            if self.io_poller.as_mut().poll_writable(cx)?.is_pending() {
+                // Retry after a future wakeup
+                self.buffered_transmit = Some(t);
+                return Ok(false);
+            }
+
+            let len = t.size;
+            let retry = match self
+                .socket
+                .try_send(&udp_transmit(&t, &self.send_buffer[..len]))
+            {
+                Ok(()) => false,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => true,
+                Err(e) => return Err(e),
+            };
+            if retry {
+                // We thought the socket was writable, but it wasn't. Retry so that either another
+                // `poll_writable` call determines that the socket is indeed not writable and
+                // registers us for a wakeup, or the send succeeds if this really was just a
+                // transient failure.
+                self.buffered_transmit = Some(t);
+                continue;
+            }
 
             if transmits >= MAX_TRANSMIT_DATAGRAMS {
                 // TODO: What isn't ideal here yet is that if we don't poll all
                 // datagrams that could be sent we don't go into the `app_limited`
                 // state and CWND continues to grow until we get here the next time.
                 // See https://github.com/quinn-rs/quinn/issues/1126
-                return true;
+                return Ok(true);
             }
         }
 
-        false
+        Ok(false)
     }
 
     fn forward_endpoint_events(&mut self) {
         while let Some(event) = self.inner.poll_endpoint_events() {
             // If the endpoint driver is gone, noop.
-            let _ = self
-                .endpoint_events
-                .send((self.handle, EndpointEvent::Proto(event)));
+            let _ = self.endpoint_events.send((self.handle, event));
         }
     }
 
@@ -984,7 +1017,9 @@ impl State {
     ) -> Result<(), ConnectionError> {
         loop {
             match self.conn_events.poll_recv(cx) {
-                Poll::Ready(Some(ConnectionEvent::LocalAddressChanged)) => {
+                Poll::Ready(Some(ConnectionEvent::Rebind(socket))) => {
+                    self.socket = socket;
+                    self.io_poller = self.socket.clone().create_io_poller();
                     self.inner.local_address_changed();
                 }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
@@ -1053,20 +1088,13 @@ impl State {
                     shared.stream_budget_available[dir as usize].notify_waiters();
                 }
                 Stream(StreamEvent::Finished { id }) => {
-                    if let Some(finishing) = self.finishing.remove(&id) {
-                        // If the finishing stream was already dropped, there's nothing more to do.
-                        let _ = finishing.send(None);
-                    }
                     if let Some(stopped) = self.stopped.remove(&id) {
                         stopped.wake();
                     }
                 }
-                Stream(StreamEvent::Stopped { id, error_code }) => {
+                Stream(StreamEvent::Stopped { id, .. }) => {
                     if let Some(stopped) = self.stopped.remove(&id) {
                         stopped.wake();
-                    }
-                    if let Some(finishing) = self.finishing.remove(&id) {
-                        let _ = finishing.send(Some(WriteError::Stopped(error_code)));
                     }
                     if let Some(writer) = self.blocked_writers.remove(&id) {
                         writer.wake();
@@ -1121,7 +1149,7 @@ impl State {
 
         // A timer expired, so the caller needs to check for
         // new transmits, which might cause new timers to be set.
-        self.inner.handle_timeout(Instant::now());
+        self.inner.handle_timeout(self.runtime.now());
         self.timer_deadline = None;
         true
     }
@@ -1151,9 +1179,6 @@ impl State {
         shared.stream_incoming[Dir::Bi as usize].notify_waiters();
         shared.datagram_received.notify_waiters();
         shared.datagrams_unblocked.notify_waiters();
-        for (_, x) in self.finishing.drain() {
-            let _ = x.send(Some(WriteError::ConnectionLost(reason.clone())));
-        }
         if let Some(x) = self.on_connected.take() {
             let _ = x.send(false);
         }
@@ -1164,7 +1189,7 @@ impl State {
     }
 
     fn close(&mut self, error_code: VarInt, reason: Bytes, shared: &Shared) {
-        self.inner.close(Instant::now(), error_code, reason);
+        self.inner.close(self.runtime.now(), error_code, reason);
         self.terminate(ConnectionError::LocallyClosed, shared);
         self.wake();
     }
@@ -1190,10 +1215,9 @@ impl Drop for State {
     fn drop(&mut self) {
         if !self.inner.is_drained() {
             // Ensure the endpoint can tidy up
-            let _ = self.endpoint_events.send((
-                self.handle,
-                EndpointEvent::Proto(proto::EndpointEvent::drained()),
-            ));
+            let _ = self
+                .endpoint_events
+                .send((self.handle, proto::EndpointEvent::drained()));
         }
     }
 }
@@ -1229,16 +1253,3 @@ pub enum SendDatagramError {
 /// This limits the amount of CPU resources consumed by datagram generation,
 /// and allows other tasks (like receiving ACKs) to run in between.
 const MAX_TRANSMIT_DATAGRAMS: usize = 20;
-
-/// Error indicating that a stream has already been finished or reset
-#[derive(Debug, Error, Clone, PartialEq, Eq)]
-#[error("unknown stream")]
-pub struct UnknownStream {
-    _private: (),
-}
-
-impl From<proto::UnknownStream> for UnknownStream {
-    fn from(_: proto::UnknownStream) -> Self {
-        Self { _private: () }
-    }
-}

@@ -1,10 +1,11 @@
+#[cfg(not(any(target_os = "openbsd", target_os = "netbsd")))]
+use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::{
     io::IoSliceMut,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, UdpSocket},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, UdpSocket},
     slice,
 };
 
-use bytes::Bytes;
 use quinn_udp::{EcnCodepoint, RecvMeta, Transmit, UdpSocketState};
 use socket2::Socket;
 
@@ -23,7 +24,7 @@ fn basic() {
         Transmit {
             destination: dst_addr,
             ecn: None,
-            contents: Bytes::from_static(b"hello"),
+            contents: b"hello",
             segment_size: None,
             src_ip: None,
         },
@@ -32,6 +33,46 @@ fn basic() {
 
 #[test]
 fn ecn_v6() {
+    let send = Socket::from(UdpSocket::bind("[::1]:0").unwrap());
+    let recv = Socket::from(UdpSocket::bind("[::1]:0").unwrap());
+    for codepoint in [EcnCodepoint::Ect0, EcnCodepoint::Ect1] {
+        test_send_recv(
+            &send,
+            &recv,
+            Transmit {
+                destination: recv.local_addr().unwrap().as_socket().unwrap(),
+                ecn: Some(codepoint),
+                contents: b"hello",
+                segment_size: None,
+                src_ip: None,
+            },
+        );
+    }
+}
+
+#[test]
+#[cfg(not(any(target_os = "openbsd", target_os = "netbsd")))]
+fn ecn_v4() {
+    let send = Socket::from(UdpSocket::bind("127.0.0.1:0").unwrap());
+    let recv = Socket::from(UdpSocket::bind("127.0.0.1:0").unwrap());
+    for codepoint in [EcnCodepoint::Ect0, EcnCodepoint::Ect1] {
+        test_send_recv(
+            &send,
+            &recv,
+            Transmit {
+                destination: recv.local_addr().unwrap().as_socket().unwrap(),
+                ecn: Some(codepoint),
+                contents: b"hello",
+                segment_size: None,
+                src_ip: None,
+            },
+        );
+    }
+}
+
+#[test]
+#[cfg(not(any(target_os = "openbsd", target_os = "netbsd")))]
+fn ecn_v6_dualstack() {
     let recv = socket2::Socket::new(
         socket2::Domain::IPV6,
         socket2::Type::DGRAM,
@@ -63,7 +104,7 @@ fn ecn_v6() {
                 Transmit {
                     destination: dst,
                     ecn: Some(codepoint),
-                    contents: Bytes::from_static(b"hello"),
+                    contents: b"hello",
                     segment_size: None,
                     src_ip: None,
                 },
@@ -73,25 +114,7 @@ fn ecn_v6() {
 }
 
 #[test]
-fn ecn_v4() {
-    let send = Socket::from(UdpSocket::bind("127.0.0.1:0").unwrap());
-    let recv = Socket::from(UdpSocket::bind("127.0.0.1:0").unwrap());
-    for codepoint in [EcnCodepoint::Ect0, EcnCodepoint::Ect1] {
-        test_send_recv(
-            &send,
-            &recv,
-            Transmit {
-                destination: recv.local_addr().unwrap().as_socket().unwrap(),
-                ecn: Some(codepoint),
-                contents: Bytes::from_static(b"hello"),
-                segment_size: None,
-                src_ip: None,
-            },
-        );
-    }
-}
-
-#[test]
+#[cfg(not(any(target_os = "openbsd", target_os = "netbsd")))]
 fn ecn_v4_mapped_v6() {
     let send = socket2::Socket::new(
         socket2::Domain::IPV6,
@@ -121,7 +144,7 @@ fn ecn_v4_mapped_v6() {
             Transmit {
                 destination: recv_v4_mapped_v6,
                 ecn: Some(codepoint),
-                contents: Bytes::from_static(b"hello"),
+                contents: b"hello",
                 segment_size: None,
                 src_ip: None,
             },
@@ -150,7 +173,7 @@ fn gso() {
         Transmit {
             destination: dst_addr,
             ecn: None,
-            contents: Bytes::copy_from_slice(&msg),
+            contents: &msg,
             segment_size: Some(SEGMENT_SIZE),
             src_ip: None,
         },
@@ -164,9 +187,7 @@ fn test_send_recv(send: &Socket, recv: &Socket, transmit: Transmit) {
     // Reverse non-blocking flag set by `UdpSocketState` to make the test non-racy
     recv.set_nonblocking(false).unwrap();
 
-    send_state
-        .send((&send).into(), slice::from_ref(&transmit))
-        .unwrap();
+    send_state.send(send.into(), &transmit).unwrap();
 
     let mut buf = [0; u16::MAX as usize];
     let mut meta = RecvMeta::default();

@@ -6,11 +6,16 @@ use std::{
     time::Duration,
 };
 
-use thiserror::Error;
-
 #[cfg(feature = "ring")]
 use rand::RngCore;
+#[cfg(feature = "rustls")]
+use rustls::client::WebPkiServerVerifier;
+#[cfg(feature = "rustls")]
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use thiserror::Error;
 
+#[cfg(feature = "rustls")]
+use crate::crypto::rustls::QuicServerConfig;
 use crate::{
     cid_generator::{ConnectionIdGenerator, HashedConnectionIdGenerator},
     congestion,
@@ -625,8 +630,8 @@ pub struct EndpointConfig {
 impl EndpointConfig {
     /// Create a default config with a particular `reset_key`
     pub fn new(reset_key: Arc<dyn HmacKey>) -> Self {
-        let cid_factory: fn() -> Box<dyn ConnectionIdGenerator> =
-            || Box::<HashedConnectionIdGenerator>::default();
+        let cid_factory =
+            || -> Box<dyn ConnectionIdGenerator> { Box::<HashedConnectionIdGenerator>::default() };
         Self {
             reset_key,
             max_udp_payload_size: (1500u32 - 28).into(), // Ethernet MTU minus IP + UDP headers
@@ -774,6 +779,10 @@ pub struct ServerConfig {
 
     pub(crate) preferred_address_v4: Option<SocketAddrV4>,
     pub(crate) preferred_address_v6: Option<SocketAddrV6>,
+
+    pub(crate) max_incoming: usize,
+    pub(crate) incoming_buffer_size: u64,
+    pub(crate) incoming_buffer_size_total: u64,
 }
 
 impl ServerConfig {
@@ -793,6 +802,10 @@ impl ServerConfig {
 
             preferred_address_v4: None,
             preferred_address_v6: None,
+
+            max_incoming: 1 << 16,
+            incoming_buffer_size: 10 << 20,
+            incoming_buffer_size_total: 100 << 20,
         }
     }
 
@@ -836,6 +849,54 @@ impl ServerConfig {
         self.preferred_address_v6 = address;
         self
     }
+
+    /// Maximum number of [`Incoming`][crate::Incoming] to allow to exist at a time
+    ///
+    /// An [`Incoming`][crate::Incoming] comes into existence when an incoming connection attempt
+    /// is received and stops existing when the application either accepts it or otherwise disposes
+    /// of it. While this limit is reached, new incoming connection attempts are immediately
+    /// refused. Larger values have greater worst-case memory consumption, but accommodate greater
+    /// application latency in handling incoming connection attempts.
+    ///
+    /// The default value is set to 65536. With a typical Ethernet MTU of 1500 bytes, this limits
+    /// memory consumption from this to under 100 MiB--a generous amount that still prevents memory
+    /// exhaustion in most contexts.
+    pub fn max_incoming(&mut self, max_incoming: usize) -> &mut Self {
+        self.max_incoming = max_incoming;
+        self
+    }
+
+    /// Maximum number of received bytes to buffer for each [`Incoming`][crate::Incoming]
+    ///
+    /// An [`Incoming`][crate::Incoming] comes into existence when an incoming connection attempt
+    /// is received and stops existing when the application either accepts it or otherwise disposes
+    /// of it. This limit governs only packets received within that period, and does not include
+    /// the first packet. Packets received in excess of this limit are dropped, which may cause
+    /// 0-RTT or handshake data to have to be retransmitted.
+    ///
+    /// The default value is set to 10 MiB--an amount such that in most situations a client would
+    /// not transmit that much 0-RTT data faster than the server handles the corresponding
+    /// [`Incoming`][crate::Incoming].
+    pub fn incoming_buffer_size(&mut self, incoming_buffer_size: u64) -> &mut Self {
+        self.incoming_buffer_size = incoming_buffer_size;
+        self
+    }
+
+    /// Maximum number of received bytes to buffer for all [`Incoming`][crate::Incoming]
+    /// collectively
+    ///
+    /// An [`Incoming`][crate::Incoming] comes into existence when an incoming connection attempt
+    /// is received and stops existing when the application either accepts it or otherwise disposes
+    /// of it. This limit governs only packets received within that period, and does not include
+    /// the first packet. Packets received in excess of this limit are dropped, which may cause
+    /// 0-RTT or handshake data to have to be retransmitted.
+    ///
+    /// The default value is set to 100 MiB--a generous amount that still prevents memory
+    /// exhaustion in most contexts.
+    pub fn incoming_buffer_size_total(&mut self, incoming_buffer_size_total: u64) -> &mut Self {
+        self.incoming_buffer_size_total = incoming_buffer_size_total;
+        self
+    }
 }
 
 #[cfg(feature = "rustls")]
@@ -844,11 +905,12 @@ impl ServerConfig {
     ///
     /// Uses a randomized handshake token key.
     pub fn with_single_cert(
-        cert_chain: Vec<rustls::Certificate>,
-        key: rustls::PrivateKey,
+        cert_chain: Vec<CertificateDer<'static>>,
+        key: PrivateKeyDer<'static>,
     ) -> Result<Self, rustls::Error> {
-        let crypto = crypto::rustls::server_config(cert_chain, key)?;
-        Ok(Self::with_crypto(Arc::new(crypto)))
+        Ok(Self::with_crypto(Arc::new(QuicServerConfig::new(
+            cert_chain, key,
+        ))))
     }
 }
 
@@ -877,6 +939,12 @@ impl fmt::Debug for ServerConfig {
             .field("migration", &self.migration)
             .field("preferred_address_v4", &self.preferred_address_v4)
             .field("preferred_address_v6", &self.preferred_address_v6)
+            .field("max_incoming", &self.max_incoming)
+            .field("incoming_buffer_size", &self.incoming_buffer_size)
+            .field(
+                "incoming_buffer_size_total",
+                &self.incoming_buffer_size_total,
+            )
             .finish()
     }
 }
@@ -925,20 +993,18 @@ impl ClientConfig {
     /// Create a client configuration that trusts the platform's native roots
     #[cfg(feature = "platform-verifier")]
     pub fn with_platform_verifier() -> Self {
-        let mut cfg = rustls::ClientConfig::builder()
-            .with_safe_default_cipher_suites()
-            .with_safe_default_kx_groups()
-            .with_protocol_versions(&[&rustls::version::TLS13])
-            .unwrap()
-            .with_custom_certificate_verifier(Arc::new(rustls_platform_verifier::Verifier::new()))
-            .with_no_client_auth();
-        cfg.enable_early_data = true;
-        Self::new(Arc::new(cfg))
+        Self::new(Arc::new(crypto::rustls::QuicClientConfig::new(Arc::new(
+            rustls_platform_verifier::Verifier::new(),
+        ))))
     }
 
     /// Create a client configuration that trusts specified trust anchors
-    pub fn with_root_certificates(roots: rustls::RootCertStore) -> Self {
-        Self::new(Arc::new(crypto::rustls::client_config(roots)))
+    pub fn with_root_certificates(
+        roots: Arc<rustls::RootCertStore>,
+    ) -> Result<Self, rustls::client::VerifierBuilderError> {
+        Ok(Self::new(Arc::new(crypto::rustls::QuicClientConfig::new(
+            WebPkiServerVerifier::builder(roots).build()?,
+        ))))
     }
 }
 

@@ -7,16 +7,21 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use hex_literal::hex;
 use rand::RngCore;
 use ring::hmac;
-use rustls::AlertDescription;
+use rustls::{
+    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
+    server::WebPkiClientVerifier,
+    AlertDescription, RootCertStore,
+};
 use tracing::info;
 
 use super::*;
 use crate::{
     cid_generator::{ConnectionIdGenerator, RandomConnectionIdGenerator},
+    crypto::rustls::QuicServerConfig,
     frame::FrameStruct,
     transport_parameters::TransportParameters,
 };
@@ -34,7 +39,7 @@ fn version_negotiate_server() {
         None,
     );
     let now = Instant::now();
-    let mut buf = BytesMut::with_capacity(server.config().get_max_udp_payload_size() as usize);
+    let mut buf = Vec::with_capacity(server.config().get_max_udp_payload_size() as usize);
     let event = server.handle(
         now,
         client_addr,
@@ -76,7 +81,7 @@ fn version_negotiate_client() {
         .connect(Instant::now(), client_config(), server_addr, "localhost")
         .unwrap();
     let now = Instant::now();
-    let mut buf = BytesMut::with_capacity(client.config().get_max_udp_payload_size() as usize);
+    let mut buf = Vec::with_capacity(client.config().get_max_udp_payload_size() as usize);
     let opt_event = client.handle(
         now,
         server_addr,
@@ -248,7 +253,7 @@ fn stateless_reset_limit() {
         None,
     );
     let time = Instant::now();
-    let mut buf = BytesMut::new();
+    let mut buf = Vec::new();
     let event = endpoint.handle(time, remote, None, None, [0u8; 1024][..].into(), &mut buf);
     assert!(matches!(event, Some(DatagramEvent::Response(_))));
     let event = endpoint.handle(time, remote, None, None, [0u8; 1024][..].into(), &mut buf);
@@ -405,30 +410,53 @@ fn reject_self_signed_server_cert() {
     let _guard = subscribe();
     let mut pair = Pair::default();
     info!("connecting");
-    let client_ch = pair.begin_connect(client_config_with_certs(vec![]));
+
+    // Create a self-signed certificate with a different distinguished name than the default one,
+    // such that path building cannot confuse the default root the server is using and the one
+    // the client is trusting (in which case we'd get a different error).
+    let mut cert = rcgen::CertificateParams::new(["localhost".into()]).unwrap();
+    let mut issuer = rcgen::DistinguishedName::new();
+    issuer.push(
+        rcgen::DnType::OrganizationName,
+        "Crazy Quinn's House of Certificates",
+    );
+    cert.distinguished_name = issuer;
+    let cert = cert
+        .self_signed(&rcgen::KeyPair::generate().unwrap())
+        .unwrap();
+    let client_ch = pair.begin_connect(client_config_with_certs(vec![cert.into()]));
+
     pair.drive();
+
     assert_matches!(pair.client_conn_mut(client_ch).poll(),
                     Some(Event::ConnectionLost { reason: ConnectionError::TransportError(ref error)})
-                    if error.code == TransportErrorCode::crypto(AlertDescription::UnknownCA.get_u8()));
+                    if error.code == TransportErrorCode::crypto(AlertDescription::UnknownCA.into()));
 }
 
 #[test]
 fn reject_missing_client_cert() {
     let _guard = subscribe();
 
-    let key = rustls::PrivateKey(CERTIFICATE.serialize_private_key_der());
-    let cert = util::CERTIFICATE.serialize_der().unwrap();
+    let mut store = RootCertStore::empty();
+    // `WebPkiClientVerifier` requires a non-empty store, so we stick our own certificate into it
+    // because it's convenient.
+    store.add(CERTIFIED_KEY.cert.der().clone()).unwrap();
 
-    let config = rustls::ServerConfig::builder()
-        .with_safe_default_cipher_suites()
-        .with_safe_default_kx_groups()
+    let key = PrivatePkcs8KeyDer::from(CERTIFIED_KEY.key_pair.serialize_der());
+    let cert = CERTIFIED_KEY.cert.der().clone();
+
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ServerConfig::builder_with_provider(provider.clone())
         .with_protocol_versions(&[&rustls::version::TLS13])
         .unwrap()
-        .with_client_cert_verifier(Arc::new(rustls::server::AllowAnyAuthenticatedClient::new(
-            rustls::RootCertStore::empty(),
-        )))
-        .with_single_cert(vec![rustls::Certificate(cert)], key)
+        .with_client_cert_verifier(
+            WebPkiClientVerifier::builder_with_provider(Arc::new(store), provider)
+                .build()
+                .unwrap(),
+        )
+        .with_single_cert(vec![cert], PrivateKeyDer::from(key))
         .unwrap();
+    let config = QuicServerConfig::try_from(config).unwrap();
 
     let mut pair = Pair::new(
         Default::default(),
@@ -450,7 +478,7 @@ fn reject_missing_client_cert() {
     );
     assert_matches!(pair.client_conn_mut(client_ch).poll(),
                     Some(Event::ConnectionLost { reason: ConnectionError::ConnectionClosed(ref close)})
-                    if close.error_code == TransportErrorCode::crypto(AlertDescription::CertificateRequired.get_u8()));
+                    if close.error_code == TransportErrorCode::crypto(AlertDescription::CertificateRequired.into()));
 
     // The server never completes the connection
     let server_ch = pair.server.assert_accept();
@@ -460,7 +488,7 @@ fn reject_missing_client_cert() {
     );
     assert_matches!(pair.server_conn_mut(server_ch).poll(),
                     Some(Event::ConnectionLost { reason: ConnectionError::TransportError(ref error)})
-                    if error.code == TransportErrorCode::crypto(AlertDescription::CertificateRequired.get_u8()));
+                    if error.code == TransportErrorCode::crypto(AlertDescription::CertificateRequired.into()));
 }
 
 #[test]
@@ -566,13 +594,13 @@ fn zero_rtt_happypath() {
 #[test]
 fn zero_rtt_rejection() {
     let _guard = subscribe();
-    let mut server_crypto = server_crypto();
-    server_crypto.alpn_protocols = vec!["foo".into(), "bar".into()];
-    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
+    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto_with_alpn(vec![
+        "foo".into(),
+        "bar".into(),
+    ])));
     let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config);
-    let mut client_crypto = client_crypto();
-    client_crypto.alpn_protocols = vec!["foo".into()];
-    let client_config = ClientConfig::new(Arc::new(client_crypto.clone()));
+    let mut client_crypto = Arc::new(client_crypto_with_alpn(vec!["foo".into()]));
+    let client_config = ClientConfig::new(client_crypto.clone());
 
     // Establish normal connection
     let client_ch = pair.begin_connect(client_config);
@@ -601,9 +629,15 @@ fn zero_rtt_rejection() {
     pair.client.connections.clear();
     pair.server.connections.clear();
 
+    // We want to have a TLS client config with the existing session cache (so resumption could
+    // happen), but with different ALPN protocols (so that the server must reject it). Reuse
+    // the existing `ClientConfig` and change the ALPN protocols to make that happen.
+    let this = Arc::get_mut(&mut client_crypto).expect("QuicClientConfig is shared");
+    let inner = Arc::get_mut(&mut this.inner).expect("QuicClientConfig.inner is shared");
+    inner.alpn_protocols = vec!["bar".into()];
+
     // Changing protocols invalidates 0-RTT
-    client_crypto.alpn_protocols = vec!["bar".into()];
-    let client_config = ClientConfig::new(Arc::new(client_crypto));
+    let client_config = ClientConfig::new(client_crypto);
     info!("resuming session");
     let client_ch = pair.begin_connect(client_config);
     assert!(pair.client_conn_mut(client_ch).has_0rtt());
@@ -632,16 +666,128 @@ fn zero_rtt_rejection() {
     assert_eq!(pair.client_conn_mut(client_ch).lost_packets(), 0);
 }
 
+fn test_zero_rtt_incoming_limit<F: FnOnce(&mut ServerConfig)>(configure_server: F) {
+    // caller sets the server limit to 4000 bytes
+    // the client writes 8000 bytes
+    const CLIENT_WRITES: usize = 8000;
+    // this gets split across 8 packets
+    // the first packet is stored in the Incoming
+    // the next three are incoming-buffered, bringing the incoming buffer size to 3600 bytes
+    // the last four are dropped due to the buffering limit and must be retransmitted
+    const EXPECTED_DROPPED: u64 = 4;
+
+    let _guard = subscribe();
+    let mut server_config = server_config();
+    configure_server(&mut server_config);
+    let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config);
+    let config = client_config();
+
+    // Establish normal connection
+    let client_ch = pair.begin_connect(config.clone());
+    pair.drive();
+    pair.server.assert_accept();
+    pair.client
+        .connections
+        .get_mut(&client_ch)
+        .unwrap()
+        .close(pair.time, VarInt(0), [][..].into());
+    pair.drive();
+
+    pair.client.addr = SocketAddr::new(
+        Ipv6Addr::LOCALHOST.into(),
+        CLIENT_PORTS.lock().unwrap().next().unwrap(),
+    );
+    info!("resuming session");
+    pair.server.incoming_connection_behavior = IncomingConnectionBehavior::Wait;
+    let client_ch = pair.begin_connect(config);
+    assert!(pair.client_conn_mut(client_ch).has_0rtt());
+    let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
+    pair.client_send(client_ch, s)
+        .write(&vec![0; CLIENT_WRITES])
+        .unwrap();
+    pair.drive();
+    let incoming = pair.server.waiting_incoming.pop().unwrap();
+    assert!(pair.server.waiting_incoming.is_empty());
+    let _ = pair.server.try_accept(incoming, pair.time);
+    pair.drive();
+
+    assert_matches!(
+        pair.client_conn_mut(client_ch).poll(),
+        Some(Event::HandshakeDataReady)
+    );
+    assert_matches!(
+        pair.client_conn_mut(client_ch).poll(),
+        Some(Event::Connected)
+    );
+
+    assert!(pair.client_conn_mut(client_ch).accepted_0rtt());
+    let server_ch = pair.server.assert_accept();
+
+    assert_matches!(
+        pair.server_conn_mut(server_ch).poll(),
+        Some(Event::HandshakeDataReady)
+    );
+    // We don't currently preserve stream event order wrt. connection events
+    assert_matches!(
+        pair.server_conn_mut(server_ch).poll(),
+        Some(Event::Connected)
+    );
+    assert_matches!(
+        pair.server_conn_mut(server_ch).poll(),
+        Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
+    );
+
+    let mut recv = pair.server_recv(server_ch, s);
+    let mut chunks = recv.read(false).unwrap();
+    let mut offset = 0;
+    loop {
+        match chunks.next(usize::MAX) {
+            Ok(Some(chunk)) => {
+                assert_eq!(chunk.offset as usize, offset);
+                offset += chunk.bytes.len();
+            }
+            Err(ReadError::Blocked) => break,
+            Ok(None) => panic!("unexpected stream end"),
+            Err(e) => panic!("{}", e),
+        }
+    }
+    assert_eq!(offset, CLIENT_WRITES);
+    let _ = chunks.finalize();
+    assert_eq!(
+        pair.client_conn_mut(client_ch).lost_packets(),
+        EXPECTED_DROPPED
+    );
+}
+
+#[test]
+fn zero_rtt_incoming_buffer_size() {
+    test_zero_rtt_incoming_limit(|config| {
+        config.incoming_buffer_size(4000);
+    });
+}
+
+#[test]
+fn zero_rtt_incoming_buffer_size_total() {
+    test_zero_rtt_incoming_limit(|config| {
+        config.incoming_buffer_size_total(4000);
+    });
+}
+
 #[test]
 fn alpn_success() {
     let _guard = subscribe();
-    let mut server_crypto = server_crypto();
-    server_crypto.alpn_protocols = vec!["foo".into(), "bar".into(), "baz".into()];
-    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
+    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto_with_alpn(vec![
+        "foo".into(),
+        "bar".into(),
+        "baz".into(),
+    ])));
+
     let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config);
-    let mut client_crypto = client_crypto();
-    client_crypto.alpn_protocols = vec!["bar".into(), "quux".into(), "corge".into()];
-    let client_config = ClientConfig::new(Arc::new(client_crypto));
+    let client_config = ClientConfig::new(Arc::new(client_crypto_with_alpn(vec![
+        "bar".into(),
+        "quux".into(),
+        "corge".into(),
+    ])));
 
     // Establish normal connection
     let client_ch = pair.begin_connect(client_config);
@@ -670,10 +816,7 @@ fn alpn_success() {
 fn server_alpn_unset() {
     let _guard = subscribe();
     let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config());
-
-    let mut client_crypto = client_crypto();
-    client_crypto.alpn_protocols = vec!["foo".into()];
-    let client_config = ClientConfig::new(Arc::new(client_crypto));
+    let client_config = ClientConfig::new(Arc::new(client_crypto_with_alpn(vec!["foo".into()])));
 
     let client_ch = pair.begin_connect(client_config);
     pair.drive();
@@ -686,11 +829,13 @@ fn server_alpn_unset() {
 #[test]
 fn client_alpn_unset() {
     let _guard = subscribe();
-    let mut server_crypto = server_crypto();
-    server_crypto.alpn_protocols = vec!["foo".into(), "bar".into(), "baz".into()];
-    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
-    let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config);
+    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto_with_alpn(vec![
+        "foo".into(),
+        "bar".into(),
+        "baz".into(),
+    ])));
 
+    let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config);
     let client_ch = pair.begin_connect(client_config());
     pair.drive();
     assert_matches!(
@@ -702,16 +847,18 @@ fn client_alpn_unset() {
 #[test]
 fn alpn_mismatch() {
     let _guard = subscribe();
-    let mut server_crypto = server_crypto();
-    server_crypto.alpn_protocols = vec!["foo".into(), "bar".into(), "baz".into()];
-    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
+    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto_with_alpn(vec![
+        "foo".into(),
+        "bar".into(),
+        "baz".into(),
+    ])));
+
     let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config);
+    let client_ch = pair.begin_connect(ClientConfig::new(Arc::new(client_crypto_with_alpn(vec![
+        "quux".into(),
+        "corge".into(),
+    ]))));
 
-    let mut client_crypto = client_crypto();
-    client_crypto.alpn_protocols = vec!["quux".into(), "corge".into()];
-    let client_config = ClientConfig::new(Arc::new(client_crypto));
-
-    let client_ch = pair.begin_connect(client_config);
     pair.drive();
     assert_matches!(
         pair.client_conn_mut(client_ch).poll(),
@@ -1718,16 +1865,12 @@ fn datagram_unsupported() {
 #[test]
 fn large_initial() {
     let _guard = subscribe();
-    let mut server_crypto = server_crypto();
-    server_crypto.alpn_protocols = vec![vec![0, 0, 0, 42]];
-    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
+    let server_config =
+        ServerConfig::with_crypto(Arc::new(server_crypto_with_alpn(vec![vec![0, 0, 0, 42]])));
 
     let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config);
-    let mut client_crypto = client_crypto();
-    let protocols = (0..1000u32)
-        .map(|x| x.to_be_bytes().to_vec())
-        .collect::<Vec<_>>();
-    client_crypto.alpn_protocols = protocols;
+    let client_crypto =
+        client_crypto_with_alpn((0..1000u32).map(|x| x.to_be_bytes().to_vec()).collect());
     let cfg = ClientConfig::new(Arc::new(client_crypto));
     let client_ch = pair.begin_connect(cfg);
     pair.drive();
@@ -1965,7 +2108,7 @@ fn server_can_send_3_inital_packets() {
 }
 
 /// Generate a big fat certificate that can't fit inside the initial anti-amplification limit
-fn big_cert_and_key() -> (rustls::Certificate, rustls::PrivateKey) {
+fn big_cert_and_key() -> (CertificateDer<'static>, PrivateKeyDer<'static>) {
     let cert = rcgen::generate_simple_self_signed(
         Some("localhost".into())
             .into_iter()
@@ -1973,9 +2116,11 @@ fn big_cert_and_key() -> (rustls::Certificate, rustls::PrivateKey) {
             .collect::<Vec<_>>(),
     )
     .unwrap();
-    let key = rustls::PrivateKey(cert.serialize_private_key_der());
-    let cert = rustls::Certificate(cert.serialize_der().unwrap());
-    (cert, key)
+
+    (
+        cert.cert.into(),
+        PrivateKeyDer::Pkcs8(cert.key_pair.serialize_der().into()),
+    )
 }
 
 #[test]
@@ -1988,7 +2133,7 @@ fn malformed_token_len() {
         true,
         None,
     );
-    let mut buf = BytesMut::with_capacity(server.config().get_max_udp_payload_size() as usize);
+    let mut buf = Vec::with_capacity(server.config().get_max_udp_payload_size() as usize);
     server.handle(
         Instant::now(),
         client_addr,
@@ -2844,4 +2989,147 @@ fn endpoint_and_connection_impl_send_sync() {
     const fn is_send_sync<T: Send + Sync>() {}
     is_send_sync::<Endpoint>();
     is_send_sync::<Connection>();
+}
+
+#[test]
+fn stream_gso() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    let (client_ch, _) = pair.connect();
+
+    let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
+
+    let initial_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+
+    // Send 20KiB of stream data, which comfortably fits inside two `tests::util::MAX_DATAGRAMS`
+    // datagram batches
+    info!("sending");
+    for _ in 0..20 {
+        pair.client_send(client_ch, s).write(&[0; 1024]).unwrap();
+    }
+    pair.client_send(client_ch, s).finish().unwrap();
+    pair.drive();
+    let final_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+    assert_eq!(final_ios - initial_ios, 2);
+}
+
+#[test]
+fn datagram_gso() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    let (client_ch, _) = pair.connect();
+
+    let initial_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+    let initial_bytes = pair.client_conn_mut(client_ch).stats().udp_tx.bytes;
+
+    // Send 10 datagrams above half the MTU, which fits inside a `tests::util::MAX_DATAGRAMS`
+    // datagram batch
+    info!("sending");
+    const DATAGRAM_LEN: usize = 1024;
+    const DATAGRAMS: usize = 10;
+    for _ in 0..DATAGRAMS {
+        pair.client_datagrams(client_ch)
+            .send(Bytes::from_static(&[0; DATAGRAM_LEN]), false)
+            .unwrap();
+    }
+    pair.drive();
+    let final_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+    let final_bytes = pair.client_conn_mut(client_ch).stats().udp_tx.bytes;
+    assert_eq!(final_ios - initial_ios, 1);
+    // Expected overhead: flags + CID + PN + tag + frame type + frame length = 1 + 8 + 1 + 16 + 1 + 2 = 29
+    assert_eq!(
+        final_bytes - initial_bytes,
+        ((29 + DATAGRAM_LEN) * DATAGRAMS) as u64
+    );
+}
+
+#[test]
+fn gso_truncation() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    let (client_ch, server_ch) = pair.connect();
+
+    let initial_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+
+    // Send three application datagrams such that each is large to be combined with another in a
+    // single MTU, and the second datagram would require an unreasonably large amount of padding to
+    // produce a QUIC packet of the same length as the first.
+    info!("sending");
+    const SIZES: [usize; 3] = [1024, 768, 768];
+    for len in SIZES {
+        pair.client_datagrams(client_ch)
+            .send(vec![0; len].into(), false)
+            .unwrap();
+    }
+    pair.drive();
+    let final_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+    assert_eq!(final_ios - initial_ios, 2);
+    for len in SIZES {
+        assert_eq!(
+            pair.server_datagrams(server_ch)
+                .recv()
+                .expect("datagram lost")
+                .len(),
+            len
+        );
+    }
+}
+
+/// Verify that a large application datagram is sent successfully when an ACK frame too large to fit
+/// alongside it is also queued, in exactly 2 UDP datagrams.
+#[test]
+fn large_datagram_with_acks() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    let (client_ch, server_ch) = pair.connect();
+
+    // Force the client to generate a large ACK frame by dropping several packets
+    for _ in 0..10 {
+        pair.server_conn_mut(server_ch).ping();
+        pair.drive_server();
+        pair.client.inbound.pop_back();
+        pair.server_conn_mut(server_ch).ping();
+        pair.drive_server();
+    }
+
+    let max_size = pair.client_datagrams(client_ch).max_size().unwrap();
+    let msg = Bytes::from(vec![0; max_size]);
+    pair.client_datagrams(client_ch)
+        .send(msg.clone(), true)
+        .unwrap();
+    let initial_datagrams = pair.client_conn_mut(client_ch).stats().udp_tx.datagrams;
+    pair.drive();
+    let final_datagrams = pair.client_conn_mut(client_ch).stats().udp_tx.datagrams;
+    assert_eq!(pair.server_datagrams(server_ch).recv().unwrap(), msg);
+    assert_eq!(final_datagrams - initial_datagrams, 2);
+}
+
+/// Verify that an ACK prompted by receipt of many non-ACK-eliciting packets is sent alongside
+/// outgoing application datagrams too large to coexist in the same packet with it.
+#[test]
+fn voluntary_ack_with_large_datagrams() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    let (client_ch, _) = pair.connect();
+
+    // Prompt many large ACKs from the server
+    let initial_datagrams = pair.client_conn_mut(client_ch).stats().udp_tx.datagrams;
+    // Send enough packets that we're confident some packet numbers will be skipped, ensuring that
+    // larger ACKs occur
+    const COUNT: usize = 256;
+    for _ in 0..COUNT {
+        let max_size = pair.client_datagrams(client_ch).max_size().unwrap();
+        pair.client_datagrams(client_ch)
+            .send(vec![0; max_size].into(), true)
+            .unwrap();
+        pair.drive();
+    }
+    let final_datagrams = pair.client_conn_mut(client_ch).stats().udp_tx.datagrams;
+    // Failure may indicate `max_size` is too small and ACKs are reliably being packed into the same
+    // datagram, which is reasonable behavior but makes this test ineffective.
+    assert_ne!(
+        final_datagrams - initial_datagrams,
+        COUNT as u64,
+        "client should have sent some ACK-only packets"
+    );
 }
