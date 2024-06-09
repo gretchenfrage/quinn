@@ -157,9 +157,11 @@ impl TransportParameters {
                 .datagram_receive_buffer_size
                 .map(|x| (x.min(u16::max_value().into()) as u16).into()),
             grease_quic_bit: endpoint_config.grease_quic_bit,
-            min_ack_delay: Some(
-                VarInt::from_u64(u64::try_from(TIMER_GRANULARITY.as_micros()).unwrap()).unwrap(),
-            ),
+            min_ack_delay: config.ack_frequency_config.as_ref()
+                .map(|_| VarInt::from_u64(u64::try_from(TIMER_GRANULARITY.as_micros()).unwrap()).unwrap()),
+            //min_ack_delay: Some(
+            //    VarInt::from_u64(u64::try_from(TIMER_GRANULARITY.as_micros()).unwrap()).unwrap(),
+            //),
             ..Self::default()
         }
     }

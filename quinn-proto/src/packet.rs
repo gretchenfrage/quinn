@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, io, ops::Range, str};
+use std::{cmp::Ordering, io, ops::Range, str, fmt};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use thiserror::Error;
@@ -21,10 +21,17 @@ use crate::{
 /// to inspect the version and packet type (which depends on the version).
 /// This information allows us to fully decode and decrypt the packet.
 #[cfg_attr(test, derive(Clone))]
-#[derive(Debug)]
 pub struct PartialDecode {
     plain_header: ProtectedHeader,
     buf: io::Cursor<BytesMut>,
+}
+
+impl fmt::Debug for PartialDecode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("PartialDecode")
+            .field("plain_header", &self.plain_header)
+            .finish_non_exhaustive()
+    }
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -222,6 +229,14 @@ pub(crate) struct Packet {
     pub(crate) header: Header,
     pub(crate) header_data: Bytes,
     pub(crate) payload: BytesMut,
+}
+
+impl fmt::Debug for Packet {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Packet")
+            .field("header", &self.header)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Packet {

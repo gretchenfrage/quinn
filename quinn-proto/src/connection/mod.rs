@@ -448,6 +448,7 @@ impl Connection {
     /// `max_datagrams` specifies how many datagrams can be returned inside a
     /// single Transmit using GSO. This must be at least 1.
     #[must_use]
+    #[tracing::instrument(skip_all)]
     pub fn poll_transmit(
         &mut self,
         now: Instant,
@@ -469,6 +470,8 @@ impl Connection {
         // Send PATH_CHALLENGE for a previous path if necessary
         if let Some((prev_cid, ref mut prev_path)) = self.prev_path {
             if prev_path.challenge_pending {
+                debug!("determined that will send PATH_CHALLENGE packet");
+
                 prev_path.challenge_pending = false;
                 let token = prev_path
                     .challenge
@@ -531,6 +534,7 @@ impl Connection {
         // Check whether we need to send a close message
         let close = match self.state {
             State::Drained => {
+                debug!("determined that will send nothing because drained");
                 self.app_limited = true;
                 return None;
             }
@@ -538,6 +542,7 @@ impl Connection {
                 // self.close is only reset once the associated packet had been
                 // encoded successfully
                 if !self.close {
+                    debug!("determined that will send nothing because draining and closed and !self.close");
                     self.app_limited = true;
                     return None;
                 }
@@ -573,6 +578,10 @@ impl Connection {
         // so we cannot trivially rewrite it to take advantage of `SpaceId::iter()`.
         while space_idx < spaces.len() {
             let space_id = spaces[space_idx];
+
+            let span = tracing::info_span!("space_loop", ?space_id);
+            let _enter = span.enter();
+
             // Number of bytes available for frames if this is a 1-RTT packet. We're guaranteed to
             // be able to send an individual frame at least this large in the next 1-RTT
             // packet. This could be generalized to support every space, but it's only needed to
@@ -871,6 +880,7 @@ impl Connection {
             // validation can occur while the link is saturated.
             if space_id == SpaceId::Data && num_datagrams == 1 {
                 if let Some((token, remote)) = self.path_responses.pop_off_path(&self.path.remote) {
+                    debug!("determined that will send off-path PATH_RESPONSE");
                     // `unwrap` guaranteed to succeed because `builder_storage` was populated just
                     // above.
                     let mut builder = builder_storage.take().unwrap();
@@ -953,7 +963,10 @@ impl Connection {
                 .poll_transmit(now, self.packet_number_filter.peek(&self.spaces[space_id]))
             {
                 Some(next_probe_size) => next_probe_size,
-                None => return None,
+                None => {
+                    debug!("determined that will send nothing because ??? something about MTU probe size");
+                    return None;
+                }
             };
 
             let buf_capacity = probe_size as usize;
@@ -994,10 +1007,12 @@ impl Connection {
         }
 
         if buf.is_empty() {
+            trace!("determined that will send nothing because buf.is_empty()");
             return None;
         }
 
-        trace!("sending {} bytes in {} datagrams", buf.len(), num_datagrams);
+        //trace!("sending {} bytes in {} datagrams", buf.len(), num_datagrams);
+        debug!("sending {} bytes in {} datagrams", buf.len(), num_datagrams);
         self.path.total_sent = self.path.total_sent.saturating_add(buf.len() as u64);
 
         self.stats.udp_tx.on_sent(num_datagrams, buf.len());
@@ -1868,6 +1883,7 @@ impl Connection {
     ///
     /// Decrypting the first packet in the `Endpoint` allows stateless packet handling to be more
     /// efficient.
+    #[tracing::instrument(skip_all)]
     pub(crate) fn handle_first_packet(
         &mut self,
         now: Instant,
@@ -2037,7 +2053,7 @@ impl Connection {
                 }
             }
             self.spaces[space].crypto_offset += outgoing.len() as u64;
-            trace!("wrote {} {:?} CRYPTO bytes", outgoing.len(), space);
+            debug!("wrote {} {:?} CRYPTO bytes", outgoing.len(), space);
             self.spaces[space].pending.crypto.push_back(frame::Crypto {
                 offset,
                 data: outgoing,
@@ -2134,6 +2150,7 @@ impl Connection {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     fn handle_packet(
         &mut self,
         now: Instant,
@@ -2142,9 +2159,10 @@ impl Connection {
         packet: Option<Packet>,
         stateless_reset: bool,
     ) {
+        //debug!("handle_packet");
         self.stats.udp_rx.ios += 1;
         if let Some(ref packet) = packet {
-            trace!(
+            debug!(
                 "got {:?} packet ({} bytes) from {} using id {}",
                 packet.header.space(),
                 packet.payload.len() + packet.header_data.len(),
@@ -2333,6 +2351,7 @@ impl Connection {
             Header::Retry {
                 src_cid: rem_cid, ..
             } => {
+                debug!("processing Retry header while in Handshake state");
                 if self.side.is_server() {
                     return Err(TransportError::PROTOCOL_VIOLATION("client sent Retry").into());
                 }
@@ -2374,6 +2393,7 @@ impl Connection {
                     crypto_offset: client_hello.len() as u64,
                     ..PacketSpace::new(now)
                 };
+                debug!("writing crypto client_hello retry");
                 self.spaces[SpaceId::Initial]
                     .pending
                     .crypto
@@ -2404,6 +2424,7 @@ impl Connection {
                 src_cid: rem_cid,
                 ..
             } => {
+                debug!("processing Long (Handshake) header while in Handshake state");
                 if rem_cid != self.rem_handshake_cid {
                     debug!(
                         "discarding packet with mismatched remote CID: {} != {}",
@@ -2475,6 +2496,7 @@ impl Connection {
             Header::Initial(InitialHeader {
                 src_cid: rem_cid, ..
             }) => {
+                debug!("processing Initial header while in Handshake state");
                 if !state.rem_cid_set {
                     trace!("switching remote CID to {}", rem_cid);
                     let mut state = state.clone();
@@ -2516,10 +2538,12 @@ impl Connection {
                 ty: LongType::ZeroRtt,
                 ..
             } => {
+                debug!("processing Long (ZeroRtt) header while in Handshake state");
                 self.process_payload(now, remote, number.unwrap(), packet)?;
                 Ok(())
             }
             Header::VersionNegotiate { .. } => {
+                debug!("processing VersionNegotiate header while in Handshake state");
                 if self.total_authed_packets > 1 {
                     return Ok(());
                 }
@@ -2548,6 +2572,7 @@ impl Connection {
         now: Instant,
         packet: Packet,
     ) -> Result<(), TransportError> {
+        //debug!("process_early_payload");
         debug_assert_ne!(packet.header.space(), SpaceId::Data);
         let payload_len = packet.payload.len();
         let mut ack_eliciting = false;
@@ -2604,6 +2629,7 @@ impl Connection {
         number: u64,
         packet: Packet,
     ) -> Result<(), TransportError> {
+        //debug!("process_payload");
         let payload = packet.payload.freeze();
         let mut is_probing_packet = true;
         let mut close = None;
@@ -2615,6 +2641,7 @@ impl Connection {
                 Frame::Padding => continue,
                 _ => Some(trace_span!("frame", ty = %frame.ty())),
             };
+            debug!("processing {} frame", frame.ty());
 
             self.stats.frame_rx.record(&frame);
             // Crypto, Stream and Datagram frames are special cased in order no pollute
@@ -3142,7 +3169,7 @@ impl Connection {
                 offset: frame.offset,
                 data,
             };
-            trace!(
+            debug!(
                 "CRYPTO: off {} len {}",
                 truncated.offset,
                 truncated.data.len()
@@ -3280,6 +3307,7 @@ impl Connection {
 
     /// Handle transport parameters received from the peer
     fn handle_peer_params(&mut self, params: TransportParameters) -> Result<(), TransportError> {
+        //debug!("handle_peer_params {:?}", params);
         if Some(self.orig_rem_cid) != params.initial_src_cid
             || (self.side.is_client()
                 && (Some(self.initial_dst_cid) != params.original_dst_cid
@@ -3659,6 +3687,18 @@ pub enum State {
     Draining,
     /// Waiting for application to call close so we can dispose of the resources
     Drained,
+}
+
+impl fmt::Debug for State {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &State::Handshake(_) => f.write_str("Handshake(..)"),
+            &State::Established => f.write_str("Established"),
+            &State::Closed(_) => f.write_str("Closed(..)"),
+            &State::Draining => f.write_str("Draining"),
+            &State::Drained => f.write_str("Drained"),
+        }
+    }
 }
 
 impl State {

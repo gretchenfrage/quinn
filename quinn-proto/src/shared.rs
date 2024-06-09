@@ -17,7 +17,6 @@ pub(crate) enum ConnectionEventInner {
 }
 
 /// Variant of [`ConnectionEventInner`].
-#[derive(Debug)]
 pub(crate) struct DatagramConnectionEvent {
     pub(crate) now: Instant,
     pub(crate) remote: SocketAddr,
@@ -26,8 +25,18 @@ pub(crate) struct DatagramConnectionEvent {
     pub(crate) remaining: Option<BytesMut>,
 }
 
+impl fmt::Debug for DatagramConnectionEvent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Datagram")
+            .field("now", &self.now)
+            .field("remote", &self.remote)
+            .field("ecn", &self.ecn)
+            .field("first_decode", &self.first_decode)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Events sent from a Connection to an Endpoint
-#[derive(Debug)]
 pub struct EndpointEvent(pub(crate) EndpointEventInner);
 
 impl EndpointEvent {
@@ -127,7 +136,10 @@ impl ::std::ops::DerefMut for ConnectionId {
 
 impl fmt::Debug for ConnectionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.bytes[0..self.len as usize].fmt(f)
+        for byte in self.iter() {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
     }
 }
 

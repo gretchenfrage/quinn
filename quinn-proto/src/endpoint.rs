@@ -378,6 +378,7 @@ impl Endpoint {
     }
 
     /// Initiate a connection
+    #[tracing::instrument(skip_all)]
     pub fn connect(
         &mut self,
         now: Instant,
@@ -469,6 +470,7 @@ impl Endpoint {
         }
     }
 
+    #[tracing::instrument(name = "endpoint_handle_first_packet", skip_all)]
     fn handle_first_packet(
         &mut self,
         addresses: FourTuple,
@@ -478,6 +480,14 @@ impl Endpoint {
         crypto: Keys,
         buf: &mut Vec<u8>,
     ) -> Option<DatagramEvent> {
+        debug!(
+                "got {:?} packet ({} bytes) from {} using id {}",
+                packet.header.space(),
+                packet.payload.len() + packet.header_data.len(),
+                addresses.remote,
+                packet.header.dst_cid(),
+            );
+
         if !packet.reserved_bits_valid() {
             debug!("dropping connection attempt with invalid reserved bits");
             return None;
@@ -660,9 +670,11 @@ impl Endpoint {
             Ok(()) => {
                 trace!(id = ch.0, icid = %dst_cid, "new connection");
 
-                for event in incoming_buffer.datagrams {
-                    conn.handle_event(ConnectionEvent(ConnectionEventInner::Datagram(event)))
-                }
+                tracing::info_span!("handle_buffered_incoming").in_scope(|| {
+                    for event in incoming_buffer.datagrams {
+                        conn.handle_event(ConnectionEvent(ConnectionEventInner::Datagram(event)))
+                    }
+                });
 
                 Ok((ch, conn))
             }

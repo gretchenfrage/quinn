@@ -9,8 +9,12 @@ use tracing::*;
 use tracing_subscriber::prelude::*;
 
 
+const ACK_FREQUENCY_EXT: bool = false;
+
 #[tokio::main]
 async fn main() {
+    let t0 = std::time::Instant::now();
+
     // init logging
     
     let log_fmt = tracing_subscriber::fmt::format()
@@ -43,10 +47,10 @@ async fn main() {
 
     // generate keys
     let rcgen_cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-    let key = rustls::PrivateKey(rcgen_cert.serialize_private_key_der());
-    let cert = rustls::Certificate(rcgen_cert.serialize_der().unwrap());
+    let key = rustls::pki_types::PrivatePkcs8KeyDer::from(rcgen_cert.key_pair.serialize_der());
+    let cert = rustls::pki_types::CertificateDer::from(rcgen_cert.cert);
     let mut roots = rustls::RootCertStore::empty();
-    roots.add(&cert).unwrap();
+    roots.add(cert.clone()).unwrap();
     let certs = vec![cert];
 
     let mut tasks = tokio::task::JoinSet::new();
@@ -55,24 +59,31 @@ async fn main() {
     let (send_stop_server, mut recv_stop_server) = tokio::sync::oneshot::channel();
     tasks.spawn(log_err(async move {
         let mut server_crypto = rustls::ServerConfig::builder()
-            .with_safe_defaults()
             .with_no_client_auth()
-            .with_single_cert(certs, key)?;
+            .with_single_cert(certs, key.into())?;
         // make sure to configure this:
         server_crypto.max_early_data_size = u32::MAX;
-        let server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
+        let server_crypto = quinn::crypto::rustls::QuicServerConfig::try_from(Arc::new(server_crypto))?;
+        let mut transport_config = TransportConfig::default();
+        if ACK_FREQUENCY_EXT {
+            transport_config.ack_frequency_config(Some(Default::default()));
+        } else {
+            transport_config.ack_frequency_config(None);
+        }
+        let mut server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
+        server_config.transport_config(Arc::new(transport_config));
         let endpoint = Endpoint::server(
             server_config,
             "127.0.0.1:4433".to_socket_addrs().unwrap().next().unwrap(),
         )?;
-        for i in 0.. {
+        for _i in 0.. {
             let incoming = tokio::select! {
                 option = endpoint.accept() => match option { Some(incoming) => incoming, None => break },
                 result = &mut recv_stop_server => if result.is_ok() { break } else { continue },
             };
             // spawn subtask for connection
             tokio::spawn(log_err(async move {
-                info!("received incoming connection attempt");
+                info!("received incoming connection attempt, accepting");
                 // attempt to accept 0-RTT data
                 let conn = match incoming.accept()?.into_0rtt() {
                     Ok((conn, _)) => conn,
@@ -106,12 +117,12 @@ async fn main() {
                     tokio::spawn(log_err(async move {
                         info!("received stream open");
                         let msg = stream.read_to_end(1 << 30).await?;
-                        info!(msg=%String::from_utf8_lossy(&msg), "received message (stream closed)");
+                        info!("received message (stream closed) {:?}", String::from_utf8_lossy(&msg));
                         Ok(())
                     }).instrument(info_span!("server_stream")));
                 }
                 Ok(())
-            }).instrument(info_span!("server_conn", server_conn=%i)));
+            }).instrument(info_span!("server_conn"/*, server_conn=%i*/)));
         }
         // shut down server endpoint cleanly
         endpoint.wait_idle().await;
@@ -121,28 +132,37 @@ async fn main() {
     // start client
     async fn send_request(conn: &Connection, msg: &str) -> Result<(), Error> {
         let mut stream = conn.open_uni().await?;
-        info!(%msg, "beginning write_all call");
+        info!(%msg, "beginning write_all and finish calls");
         stream.write_all(msg.as_bytes()).await?;
-        info!(%msg, "returned write_all call, beginning finish call");
-        stream.finish().await?;
-        info!(%msg, "returned finish call");
+        stream.finish()?;
+        info!(%msg, "returned write_all and finish calls, beginning stopped call");
+        stream.stopped().await?;
+        info!(%msg, "returned stopped call");
         Ok(())
     }
     tasks.spawn(log_err(async move {
         let mut client_crypto = rustls::ClientConfig::builder()
-            .with_safe_defaults()
             .with_root_certificates(roots)
             .with_no_client_auth();
         // make sure to configure this:
         client_crypto.enable_early_data = true;
+        let client_crypto = quinn::crypto::rustls::QuicClientConfig::try_from(Arc::new(client_crypto))?;
+        let mut transport_config = TransportConfig::default();
+        if ACK_FREQUENCY_EXT {
+            transport_config.ack_frequency_config(Some(Default::default()));
+        } else {
+            transport_config.ack_frequency_config(None);
+        }
+        let mut client_config = ClientConfig::new(Arc::new(client_crypto));
+        client_config.transport_config(Arc::new(transport_config));
         let mut endpoint = Endpoint::client(
             "0.0.0.0:0".to_socket_addrs().unwrap().next().unwrap()
         )?;
-        endpoint.set_default_client_config(ClientConfig::new(Arc::new(client_crypto)));
+        endpoint.set_default_client_config(client_config);
         // twice, so as to allow 0-rtt to work on the second time
         for i in 0..2 {
             async {
-                info!(%i, "client iteration");
+                info!(%i, "client connecting");
                 let connecting = endpoint.connect(
                     "127.0.0.1:4433".to_socket_addrs().unwrap().next().unwrap(),
                     "localhost",
@@ -172,9 +192,13 @@ async fn main() {
                         send_request(&conn, "1-rtt hello world (0-rtt not attempted)").await?;
                     }
                 }
-                println!();
                 Ok::<(), Error>(())
-            }.instrument(info_span!("client_conn", client_conn=%i)).await?;
+            }.instrument(info_span!("client_conn"/*, client_conn=%i*/)).await?;
+
+            if i == 0 {
+                tokio::time::sleep_until(tokio::time::Instant::from(t0) + std::time::Duration::from_secs(1)).await;
+            }
+            println!();
         }
         // tell the server to shut down so this process doesn't idle forever
         let _ = send_stop_server.send(());

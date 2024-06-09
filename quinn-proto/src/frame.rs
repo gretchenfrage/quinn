@@ -8,7 +8,7 @@ use bytes::{Buf, BufMut, Bytes};
 use tinyvec::TinyVec;
 
 use crate::{
-    coding::{self, BufExt, BufMutExt, UnexpectedEnd},
+    coding::{self, BufExt, BufMutExt, UnexpectedEnd, Codec as _},
     range_set::ArrayRangeSet,
     shared::{ConnectionId, EcnCodepoint},
     Dir, ResetToken, StreamId, TransportError, TransportErrorCode, VarInt, MAX_CID_SIZE,
@@ -43,6 +43,8 @@ impl coding::Codec for Type {
         Ok(Self(buf.get_var()?))
     }
     fn encode<B: BufMut>(&self, buf: &mut B) {
+        tracing::debug!("writing {} frame", *self);
+        //assert!(*self != Type::IMMEDIATE_ACK);
         buf.write_var(self.0);
     }
 }
@@ -71,8 +73,26 @@ macro_rules! frame_types {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 match self.0 {
                     $($val => f.write_str(stringify!($name)),)*
-                    x if STREAM_TYS.contains(&x) => f.write_str("STREAM"),
-                    x if DATAGRAM_TYS.contains(&x) => f.write_str("DATAGRAM"),
+                    x if STREAM_TYS.contains(&x) => {
+                        let stream = StreamInfo(x as u8);
+                        f.write_str("STREAM { fin: ")?;
+                        fmt::Display::fmt(&stream.fin(), f)?;
+                        f.write_str(", len: ")?;
+                        fmt::Display::fmt(&stream.len(), f)?;
+                        f.write_str(", off: ")?;
+                        fmt::Display::fmt(&stream.off(), f)?;
+                        f.write_str(" }")
+                    }
+                    x if DATAGRAM_TYS.contains(&x) => {
+                        let stream = DatagramInfo(x as u8);
+                        f.write_str("DATAGRAM { len: ")?;
+                        fmt::Display::fmt(&stream.len(), f)?;
+                        f.write_str(" }")
+                    }
+                    //x if STREAM_TYS.contains(&x) => fmt::Debug::fmt(&StreamInfo(x as u8), f),
+                    //x if DATAGRAM_TYS.contains(&x) => fmt::Debug::fmt(&DatagramInfo(x as u8), f),
+                    //x if STREAM_TYS.contains(&x) => f.write_str("STREAM"),
+                    //x if DATAGRAM_TYS.contains(&x) => f.write_str("DATAGRAM"),
                     _ => write!(f, "<unknown {:02x}>", self.0),
                 }
             }
@@ -285,7 +305,7 @@ impl FrameStruct for ConnectionClose {
 
 impl ConnectionClose {
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W, max_len: usize) {
-        out.write(Type::CONNECTION_CLOSE); // 1 byte
+        Type::CONNECTION_CLOSE.encode(out); // 1 byte
         out.write(self.error_code); // <= 8 bytes
         let ty = self.frame_type.map_or(0, |x| x.0);
         out.write_var(ty); // <= 8 bytes
@@ -328,7 +348,7 @@ impl FrameStruct for ApplicationClose {
 
 impl ApplicationClose {
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W, max_len: usize) {
-        out.write(Type::APPLICATION_CLOSE); // 1 byte
+        Type::APPLICATION_CLOSE.encode(out); // 1 byte
         out.write(self.error_code); // <= 8 bytes
         let max_len = max_len - 3 - VarInt::from_u64(self.reason.len() as u64).unwrap().size();
         let actual_len = self.reason.len().min(max_len);
@@ -493,7 +513,8 @@ impl StreamMeta {
         if self.fin {
             ty |= 0x01;
         }
-        out.write_var(ty); // 1 byte
+        Type(ty).encode(out);
+        //out.write_var(ty); // 1 byte
         out.write(self.id); // <=8 bytes
         if self.offsets.start != 0 {
             out.write_var(self.offsets.start); // <=8 bytes
@@ -517,7 +538,7 @@ impl Crypto {
     pub(crate) const SIZE_BOUND: usize = 17;
 
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
-        out.write(Type::CRYPTO);
+        Type::CRYPTO.encode(out);
         out.write_var(self.offset);
         out.write_var(self.data.len() as u64);
         out.put_slice(&self.data);
@@ -833,7 +854,7 @@ impl FrameStruct for ResetStream {
 
 impl ResetStream {
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
-        out.write(Type::RESET_STREAM); // 1 byte
+        Type::RESET_STREAM.encode(out); // 1 byte
         out.write(self.id); // <= 8 bytes
         out.write(self.error_code); // <= 8 bytes
         out.write(self.final_offset); // <= 8 bytes
@@ -852,7 +873,7 @@ impl FrameStruct for StopSending {
 
 impl StopSending {
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
-        out.write(Type::STOP_SENDING); // 1 byte
+        Type::STOP_SENDING.encode(out); // 1 byte
         out.write(self.id); // <= 8 bytes
         out.write(self.error_code) // <= 8 bytes
     }
@@ -868,7 +889,7 @@ pub(crate) struct NewConnectionId {
 
 impl NewConnectionId {
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
-        out.write(Type::NEW_CONNECTION_ID);
+        Type::NEW_CONNECTION_ID.encode(out);
         out.write_var(self.sequence);
         out.write_var(self.retire_prior_to);
         out.write(self.id.len() as u8);
@@ -893,7 +914,7 @@ impl FrameStruct for Datagram {
 
 impl Datagram {
     pub(crate) fn encode(&self, length: bool, out: &mut Vec<u8>) {
-        out.write(Type(*DATAGRAM_TYS.start() | u64::from(length))); // 1 byte
+        Type(*DATAGRAM_TYS.start() | u64::from(length)).encode(out); // 1 byte
         if length {
             // Safe to unwrap because we check length sanity before queueing datagrams
             out.write(VarInt::from_u64(self.data.len() as u64).unwrap()); // <= 8 bytes
