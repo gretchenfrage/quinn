@@ -72,14 +72,14 @@ pub(super) struct PacketSpace {
 }
 
 impl PacketSpace {
-    pub(super) fn new(now: Instant) -> Self {
+    pub(super) fn new(now: Instant, _dbg: String) -> Self {
         Self {
             crypto: None,
             dedup: Dedup::new(),
             rx_packet: 0,
 
             pending: Retransmits::default(),
-            pending_acks: PendingAcks::new(),
+            pending_acks: PendingAcks::new(_dbg),
 
             next_packet_number: 0,
             largest_acked_packet: None,
@@ -587,21 +587,27 @@ pub(super) struct PendingAcks {
     largest_ack_eliciting_packet: Option<u64>,
     /// The largest acknowledged packet number sent in an ACK frame
     largest_acked: Option<u64>,
+
+    _dbg: String,
 }
 
 impl PendingAcks {
-    fn new() -> Self {
+    fn new(_dbg: String) -> Self {
         Self {
             immediate_ack_required: false,
             ack_eliciting_since_last_ack_sent: 0,
             non_ack_eliciting_since_last_ack_sent: 0,
+            // TODO unchange, this affects the behavior a lot
             ack_eliciting_threshold: 1,
+            //ack_eliciting_threshold: 0,
             reordering_threshold: 1,
             earliest_ack_eliciting_since_last_ack_sent: None,
             ranges: ArrayRangeSet::default(),
             largest_packet: None,
             largest_ack_eliciting_packet: None,
             largest_acked: None,
+
+            _dbg,
         }
     }
 
@@ -611,11 +617,15 @@ impl PendingAcks {
     }
 
     pub(super) fn set_immediate_ack_required(&mut self) {
+        let prev_immediate_ack_required = self.immediate_ack_required;
         self.immediate_ack_required = true;
+        tracing::debug!(%prev_immediate_ack_required, immediate_ack_required=%self.immediate_ack_required, dbg=%self._dbg, "pending_acks_set_immediate_ack_required");
     }
 
     pub(super) fn on_max_ack_delay_timeout(&mut self) {
+        let prev_immediate_ack_required = self.immediate_ack_required;
         self.immediate_ack_required = self.ack_eliciting_since_last_ack_sent > 0;
+        tracing::debug!(%prev_immediate_ack_required, immediate_ack_required=%self.immediate_ack_required, dbg=%self._dbg, "pending_acks_on_max_ack_delay_timeout");
     }
 
     pub(super) fn max_ack_delay_timeout(&self, max_ack_delay: Duration) -> Option<Instant> {
@@ -624,8 +634,11 @@ impl PendingAcks {
     }
 
     /// Whether any ACK frames can be sent
+    #[tracing::instrument(name = "pending_acks_can_send", skip_all)]
     pub(super) fn can_send(&self) -> bool {
-        self.immediate_ack_required && !self.ranges.is_empty()
+        let can_send = self.immediate_ack_required && !self.ranges.is_empty();
+        tracing::debug!(immediate_ack_required=%self.immediate_ack_required, dbg=%self._dbg, "ACK can_send = {}", can_send);
+        can_send
     }
 
     /// Returns the delay since the packet with the largest packet number was received
@@ -644,6 +657,7 @@ impl PendingAcks {
         ack_eliciting: bool,
         dedup: &Dedup,
     ) -> bool {
+        let prev_immediate_ack_required = self.immediate_ack_required;
         if !ack_eliciting {
             self.non_ack_eliciting_since_last_ack_sent += 1;
             return false;
@@ -659,12 +673,20 @@ impl PendingAcks {
 
         // Handle ack_eliciting_threshold
         self.ack_eliciting_since_last_ack_sent += 1;
-        self.immediate_ack_required |=
-            self.ack_eliciting_since_last_ack_sent > self.ack_eliciting_threshold;
+        //self.immediate_ack_required |=
+        //    self.ack_eliciting_since_last_ack_sent > self.ack_eliciting_threshold;
+        let iar_because_aet = self.ack_eliciting_since_last_ack_sent > self.ack_eliciting_threshold;
+        self.immediate_ack_required |= iar_because_aet;
 
         // Handle out-of-order packets
-        self.immediate_ack_required |=
-            self.is_out_of_order(packet_number, prev_largest_ack_eliciting, dedup);
+        let iar_because_ooo = self.is_out_of_order(packet_number, prev_largest_ack_eliciting, dedup);
+        self.immediate_ack_required |= iar_because_ooo;
+        //self.immediate_ack_required |=
+        //    self.is_out_of_order(packet_number, prev_largest_ack_eliciting, dedup);
+
+        tracing::debug!(%prev_immediate_ack_required, immediate_ack_required=%self.immediate_ack_required, dbg=%self._dbg, %iar_because_aet,
+            %iar_because_ooo, ack_eliciting_since_last_ack_sent=%self.ack_eliciting_since_last_ack_sent, ack_eliciting_threshold=%self.ack_eliciting_threshold,
+            "pending_acks_packet_received");
 
         // Arm max_ack_delay timer if necessary
         if self.earliest_ack_eliciting_since_last_ack_sent.is_none() && !self.can_send() {
@@ -725,7 +747,9 @@ impl PendingAcks {
         // new packet, which is suboptimal, because we already received them. Our assumption here is
         // that simplicity results in code that is more performant, even in the presence of
         // occasional redundant retransmits.
+        let prev_immediate_ack_required = self.immediate_ack_required;
         self.immediate_ack_required = false;
+        tracing::debug!(%prev_immediate_ack_required, immediate_ack_required=%self.immediate_ack_required, dbg=%self._dbg, "pending_acks_acks_sent");
         self.ack_eliciting_since_last_ack_sent = 0;
         self.non_ack_eliciting_since_last_ack_sent = 0;
         self.earliest_ack_eliciting_since_last_ack_sent = None;
@@ -761,6 +785,7 @@ impl PendingAcks {
     /// Should be called immediately before a non-probing packet is composed, when we've already
     /// committed to sending a packet regardless.
     pub(super) fn maybe_ack_non_eliciting(&mut self) {
+        let prev_immediate_ack_required = self.immediate_ack_required;
         // If we're going to send a packet anyway, and we've received a significant number of
         // non-ACK-eliciting packets, then include an ACK to help the peer perform timely loss
         // detection even if they're not sending any ACK-eliciting packets themselves. Exact
@@ -769,6 +794,7 @@ impl PendingAcks {
         if self.non_ack_eliciting_since_last_ack_sent > LAZY_ACK_THRESHOLD {
             self.immediate_ack_required = true;
         }
+        tracing::debug!(%prev_immediate_ack_required, immediate_ack_required=%self.immediate_ack_required, dbg=%self._dbg, "pending_acks_maybe_ack_non_eliciting");
     }
 }
 

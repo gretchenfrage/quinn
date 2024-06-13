@@ -266,7 +266,7 @@ impl Connection {
         };
         let initial_space = PacketSpace {
             crypto: Some(crypto.initial_keys(&init_cid, side)),
-            ..PacketSpace::new(now)
+            ..PacketSpace::new(now, "initial".to_string())
         };
         let state = State::Handshake(state::Handshake {
             rem_cid_set: side.is_server(),
@@ -311,7 +311,7 @@ impl Connection {
             endpoint_events: VecDeque::new(),
             spin_enabled: config.allow_spin && rng.gen_ratio(7, 8),
             spin: false,
-            spaces: [initial_space, PacketSpace::new(now), PacketSpace::new(now)],
+            spaces: [initial_space, PacketSpace::new(now, "handshake".to_string()), PacketSpace::new(now, "data".to_string())],
             highest_space: SpaceId::Initial,
             prev_crypto: None,
             next_crypto: None,
@@ -1825,6 +1825,7 @@ impl Connection {
             space.ecn_counters += x;
 
             if x.is_ce() {
+                debug!("calling set_immediate_ack_required because ecn indicates congestion");
                 space.pending_acks.set_immediate_ack_required();
             }
         }
@@ -2391,7 +2392,7 @@ impl Connection {
                     crypto: Some(self.crypto.initial_keys(&rem_cid, self.side)),
                     next_packet_number: self.spaces[SpaceId::Initial].next_packet_number,
                     crypto_offset: client_hello.len() as u64,
-                    ..PacketSpace::new(now)
+                    ..PacketSpace::new(now, "initial_retried".to_string())
                 };
                 debug!("writing crypto client_hello retry");
                 self.spaces[SpaceId::Initial]
@@ -2613,6 +2614,7 @@ impl Connection {
 
         if ack_eliciting {
             // In the initial and handshake spaces, ACKs must be sent immediately
+            debug!("calling set_immediate_ack_required because early payload ack eliciting");
             self.spaces[packet.header.space()]
                 .pending_acks
                 .set_immediate_ack_required();
@@ -2893,6 +2895,7 @@ impl Connection {
                 }
                 Frame::ImmediateAck => {
                     // This frame can only be sent in the Data space
+                    debug!("calling set_immediate_ack_required because received ImmediateAck");
                     self.spaces[SpaceId::Data]
                         .pending_acks
                         .set_immediate_ack_required();
@@ -3073,7 +3076,12 @@ impl Connection {
         }
 
         // ACK
-        if space.pending_acks.can_send() {
+        //if space.pending_acks.can_send() {
+        if {
+            let can_send = space.pending_acks.can_send();
+            //debug!("ACK can_send = {}", can_send);
+            can_send
+        } {
             Self::populate_acks(
                 now,
                 self.receiving_ecn,
@@ -3258,6 +3266,7 @@ impl Connection {
     ///
     /// This method assumes ACKs are pending, and should only be called if
     /// `!PendingAcks::ranges().is_empty()` returns `true`.
+    #[tracing::instrument(skip_all)]
     fn populate_acks(
         now: Instant,
         receiving_ecn: bool,

@@ -44,7 +44,7 @@ impl coding::Codec for Type {
     }
     fn encode<B: BufMut>(&self, buf: &mut B) {
         tracing::debug!("writing {} frame", *self);
-        //assert!(*self != Type::IMMEDIATE_ACK);
+        //assert!(*self != Type::ACK_ECN && *self != Type::ACK);
         buf.write_var(self.0);
     }
 }

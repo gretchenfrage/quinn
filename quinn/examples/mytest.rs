@@ -9,7 +9,8 @@ use tracing::*;
 use tracing_subscriber::prelude::*;
 
 
-const ACK_FREQUENCY_EXT: bool = false;
+const ACK_FREQUENCY_EXT: bool = true;
+const ACK_ELICITING_THRESHOLD: u32 = 0;
 
 #[tokio::main]
 async fn main() {
@@ -31,6 +32,23 @@ async fn main() {
         std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV).unwrap_or("info".into())
     );
     let log_subscriber = tracing_subscriber::Registry::default()
+        /*.with({
+            struct Foo;
+            impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Foo {
+                fn on_event(&self, e: &tracing::Event, ctx: tracing_subscriber::layer::Context<S>) {
+                    struct V;
+                    impl tracing::field::Visit for V {
+                        fn record_debug(&mut self, f: &tracing::field::Field, d: &dyn std::fmt::Debug) {
+                            if f.as_ref() == "message" && format!("{:?}", d) == "writing ACK_ECN frame" {
+                                println!("{}", std::backtrace::Backtrace::capture());
+                            }
+                        }
+                    }
+                    e.record(&mut V);
+                }
+            }
+            Foo
+        })*/
         .with(log_filter)
         .with(stdout_log);
     tracing::subscriber::set_global_default(log_subscriber).expect("unable to install logger");
@@ -66,7 +84,9 @@ async fn main() {
         let server_crypto = quinn::crypto::rustls::QuicServerConfig::try_from(Arc::new(server_crypto))?;
         let mut transport_config = TransportConfig::default();
         if ACK_FREQUENCY_EXT {
-            transport_config.ack_frequency_config(Some(Default::default()));
+            let mut ack_frequency_config = AckFrequencyConfig::default();
+            ack_frequency_config.ack_eliciting_threshold(ACK_ELICITING_THRESHOLD.into());
+            transport_config.ack_frequency_config(Some(ack_frequency_config));
         } else {
             transport_config.ack_frequency_config(None);
         }
@@ -133,7 +153,9 @@ async fn main() {
     async fn send_request(conn: &Connection, msg: &str) -> Result<(), Error> {
         let mut stream = conn.open_uni().await?;
         info!(%msg, "beginning write_all and finish calls");
-        stream.write_all(msg.as_bytes()).await?;
+        for _ in 0..1 {
+            stream.write_all(msg.as_bytes()).await?;
+        }
         stream.finish()?;
         info!(%msg, "returned write_all and finish calls, beginning stopped call");
         stream.stopped().await?;
@@ -149,7 +171,9 @@ async fn main() {
         let client_crypto = quinn::crypto::rustls::QuicClientConfig::try_from(Arc::new(client_crypto))?;
         let mut transport_config = TransportConfig::default();
         if ACK_FREQUENCY_EXT {
-            transport_config.ack_frequency_config(Some(Default::default()));
+            let mut ack_frequency_config = AckFrequencyConfig::default();
+            ack_frequency_config.ack_eliciting_threshold(ACK_ELICITING_THRESHOLD.into());
+            transport_config.ack_frequency_config(Some(ack_frequency_config));
         } else {
             transport_config.ack_frequency_config(None);
         }
@@ -172,6 +196,20 @@ async fn main() {
                     Ok((conn, zero_rtt_accepted)) => {
                         info!("attempting 0-rtt request");
                         let send_request_0rtt = send_request(&conn, "0-rtt hello world");
+                        if true {
+                            tokio::spawn({
+                                let conn = conn.clone();
+                                async move {
+                                    loop {
+                                        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                                        let conn = conn.clone();
+                                        tokio::spawn(async move {
+                                            let _ = send_request(&conn, "ping").await;
+                                        });
+                                    }
+                                }
+                            });
+                        }
                         tokio::pin!(send_request_0rtt);
                         tokio::select! {
                             result = &mut send_request_0rtt => result?,
