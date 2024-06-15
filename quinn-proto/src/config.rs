@@ -770,8 +770,11 @@ pub struct ServerConfig {
     /// Used to generate one-time AEAD keys to protect handshake tokens
     pub(crate) token_key: Arc<dyn HandshakeTokenKey>,
 
-    /// Microseconds after a stateless retry token was issued for which it's considered valid.
+    /// Duration after a stateless retry token was issued for which it's considered valid.
     pub(crate) retry_token_lifetime: Duration,
+
+    /// Duration after a NEW_TOKEN frame token was issued for which it's considered valid.
+    pub(crate) new_token_lifetime: Duration,
 
     /// Whether to allow clients to migrate to new addresses
     ///
@@ -799,6 +802,7 @@ impl ServerConfig {
 
             token_key,
             retry_token_lifetime: Duration::from_secs(15),
+            new_token_lifetime: Duration::from_secs(2 * 7 * 24 * 60 * 60),
 
             migration: true,
 
@@ -826,6 +830,12 @@ impl ServerConfig {
     /// Duration after a stateless retry token was issued for which it's considered valid.
     pub fn retry_token_lifetime(&mut self, value: Duration) -> &mut Self {
         self.retry_token_lifetime = value;
+        self
+    }
+
+    /// Duration after a NEW_TOKEN frame token was issued for which it's considered valid.
+    pub fn new_token_lifetime(&mut self, value: Duration) -> &mut Self {
+        self.new_token_lifetime = value;
         self
     }
 
@@ -938,6 +948,7 @@ impl fmt::Debug for ServerConfig {
             .field("crypto", &"ServerConfig { elided }")
             .field("token_key", &"[ elided ]")
             .field("retry_token_lifetime", &self.retry_token_lifetime)
+            .field("new_token_lifetime", &self.new_token_lifetime)
             .field("migration", &self.migration)
             .field("preferred_address_v4", &self.preferred_address_v4)
             .field("preferred_address_v6", &self.preferred_address_v6)
