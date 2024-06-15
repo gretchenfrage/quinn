@@ -13,33 +13,54 @@ use crate::{
     RESET_TOKEN_SIZE,
 };
 
-pub(crate) struct RetryToken {
-    /// The destination connection ID set in the very first packet from the client
-    pub(crate) orig_dst_cid: ConnectionId,
-    /// The time at which this token was issued
-    pub(crate) issued: SystemTime,
+/// Address validation token
+pub(crate) enum ValidationToken {
+    /// From a retry packet
+    Retry {
+        /// The destination connection ID set in the very first packet from the client
+        orig_dst_cid: ConnectionId,
+        /// The time at which this token was issued
+        issued: SystemTime,
+    },
+    /// From a NEW_TOKEN frame
+    NewToken {
+        /// Randomly generated unique value
+        rand: u128,
+        /// The time at which this token was issued
+        issued: SystemTime,
+    },
 }
 
-impl RetryToken {
+impl ValidationToken {
     pub(crate) fn encode(
         &self,
         key: &dyn HandshakeTokenKey,
         address: &SocketAddr,
         retry_src_cid: &ConnectionId,
     ) -> Vec<u8> {
-        let aead_key = key.aead_from_hkdf(retry_src_cid);
-
         let mut buf = Vec::new();
-        encode_addr(&mut buf, address);
-        self.orig_dst_cid.encode_long(&mut buf);
-        buf.write::<u64>(
-            self.issued
-                .duration_since(UNIX_EPOCH)
-                .map(|x| x.as_secs())
-                .unwrap_or(0),
-        );
+        let (discriminant, aead_key) = match self {
+            &ValidationToken::Retry {
+                orig_dst_cid,
+                issued,
+            } => {
+                encode_addr(&mut buf, address);
+                orig_dst_cid.encode_long(&mut buf);
+                encode_time(&mut buf, issued);
 
-        aead_key.seal(&mut buf, &[]).unwrap();
+                (0, key.aead_from_hkdf(retry_src_cid))
+            }
+            &ValidationToken::NewToken { rand, issued } => {
+                buf.put_u128(rand);
+                encode_addr(&mut buf, address);
+                encode_time(&mut buf, issued);
+
+                (1, key.aead_from_hkdf(&[]))
+            }
+        };
+
+        aead_key.seal(&mut buf, &[discriminant]).unwrap();
+        buf.push(discriminant);
 
         buf
     }
@@ -50,28 +71,50 @@ impl RetryToken {
         retry_src_cid: &ConnectionId,
         raw_token_bytes: &[u8],
     ) -> Result<Self, TokenDecodeError> {
-        let aead_key = key.aead_from_hkdf(retry_src_cid);
-        let mut sealed_token = raw_token_bytes.to_vec();
+        let last_idx = raw_token_bytes
+            .len()
+            .checked_sub(1)
+            .ok_or(TokenDecodeError::InvalidMaybeNewToken)?;
+        Ok(match raw_token_bytes[last_idx] {
+            0 => {
+                let aead_key = key.aead_from_hkdf(retry_src_cid);
+                let mut sealed_token = raw_token_bytes[..last_idx].to_vec();
 
-        let data = aead_key.open(&mut sealed_token, &[])?;
-        let mut reader = io::Cursor::new(data);
-        let token_addr = decode_addr(&mut reader).ok_or(TokenDecodeError::UnknownToken)?;
-        if token_addr != *address {
-            return Err(TokenDecodeError::WrongAddress);
-        }
-        let orig_dst_cid =
-            ConnectionId::decode_long(&mut reader).ok_or(TokenDecodeError::UnknownToken)?;
-        let issued = UNIX_EPOCH
-            + Duration::new(
-                reader
-                    .get::<u64>()
-                    .map_err(|_| TokenDecodeError::UnknownToken)?,
-                0,
-            );
+                let data = aead_key.open(&mut sealed_token, &[0])?;
+                let mut reader = io::Cursor::new(data);
+                let token_addr =
+                    decode_addr(&mut reader).ok_or(TokenDecodeError::InvalidMaybeNewToken)?;
+                if token_addr != *address {
+                    return Err(TokenDecodeError::InvalidRetry);
+                }
+                let orig_dst_cid = ConnectionId::decode_long(&mut reader)
+                    .ok_or(TokenDecodeError::InvalidMaybeNewToken)?;
+                let issued =
+                    decode_time(&mut reader).ok_or(TokenDecodeError::InvalidMaybeNewToken)?;
 
-        Ok(Self {
-            orig_dst_cid,
-            issued,
+                Self::Retry {
+                    orig_dst_cid,
+                    issued,
+                }
+            }
+            1 => {
+                let aead_key = key.aead_from_hkdf(&[]);
+                let mut sealed_token = raw_token_bytes[..last_idx].to_vec();
+
+                let data = aead_key.open(&mut sealed_token, &[1])?;
+                let mut reader = io::Cursor::new(data);
+                let rand = reader.get_u128();
+                let token_addr =
+                    decode_addr(&mut reader).ok_or(TokenDecodeError::InvalidMaybeNewToken)?;
+                if token_addr != *address {
+                    return Err(TokenDecodeError::InvalidMaybeNewToken);
+                }
+                let issued =
+                    decode_time(&mut reader).ok_or(TokenDecodeError::InvalidMaybeNewToken)?;
+
+                Self::NewToken { rand, issued }
+            }
+            _ => return Err(TokenDecodeError::InvalidMaybeNewToken),
         })
     }
 }
@@ -100,19 +143,35 @@ fn decode_addr<B: Buf>(buf: &mut B) -> Option<SocketAddr> {
     Some(SocketAddr::new(ip, port))
 }
 
-/// Reasons why a retry token might fail to validate a client's address
+fn encode_time(buf: &mut Vec<u8>, time: SystemTime) {
+    buf.write::<u64>(
+        time.duration_since(UNIX_EPOCH)
+            .map(|x| x.as_secs())
+            .unwrap_or(0),
+    );
+}
+
+fn decode_time<B: Buf>(buf: &mut B) -> Option<SystemTime> {
+    Some(UNIX_EPOCH + Duration::new(buf.get::<u64>().ok()?, 0))
+}
+
+/// Error for an address validation token failing to validate a client's address
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum TokenDecodeError {
-    /// Token was not recognized. It should be silently ignored.
-    UnknownToken,
-    /// Token was well-formed but associated with an incorrect address. The connection cannot be
-    /// established.
-    WrongAddress,
+    /// Token may have come from a NEW_TOKEN frame (including from a different server or a previous
+    /// run of this server with different keys), and was not valid
+    ///
+    /// It should be silently ignored.
+    InvalidMaybeNewToken,
+    /// Token was unambiguously from a retry packet, and was not valid.
+    ///
+    /// The connection cannot be established.
+    InvalidRetry,
 }
 
 impl From<CryptoError> for TokenDecodeError {
     fn from(CryptoError: CryptoError) -> Self {
-        Self::UnknownToken
+        Self::InvalidMaybeNewToken
     }
 }
 
