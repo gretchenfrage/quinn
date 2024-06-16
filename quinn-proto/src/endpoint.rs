@@ -32,8 +32,8 @@ use crate::{
     },
     token::TokenDecodeError,
     transport_parameters::{PreferredAddress, TransportParameters},
-    ResetToken, Side, Transmit, TransportConfig, TransportError, ValidationToken, INITIAL_MTU,
-    MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
+    ResetToken, Side, Token, Transmit, TransportConfig, TransportError, INITIAL_MTU, MAX_CID_SIZE,
+    MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
 };
 
 /// The main entry point to the library
@@ -492,14 +492,14 @@ impl Endpoint {
         let (retry_src_cid, orig_dst_cid, validated) = if header.token.is_empty() {
             (None, header.dst_cid, false)
         } else {
-            let valid_token = ValidationToken::from_bytes(
+            let valid_token = Token::from_bytes(
                 &*server_config.token_key,
                 &addresses.remote,
                 &header.dst_cid,
                 &header.token,
             )
             .and_then(|token| match token {
-                ValidationToken::Retry {
+                Token::Retry {
                     orig_dst_cid,
                     issued,
                 } => {
@@ -509,7 +509,7 @@ impl Endpoint {
                         Err(TokenDecodeError::InvalidRetry)
                     }
                 }
-                ValidationToken::NewToken { rand: _, issued } => {
+                Token::NewToken { rand: _, issued } => {
                     if issued + server_config.new_token_lifetime > SystemTime::now() {
                         Ok((None, header.dst_cid))
                     } else {
@@ -763,7 +763,7 @@ impl Endpoint {
         // retried by the application layer.
         let loc_cid = self.local_cid_generator.generate_cid();
 
-        let token = ValidationToken::Retry {
+        let token = Token::Retry {
             orig_dst_cid: incoming.packet.header.dst_cid,
             issued: SystemTime::now(),
         }

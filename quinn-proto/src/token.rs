@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Address validation token
-pub(crate) enum ValidationToken {
+pub(crate) enum Token {
     /// From a retry packet
     Retry {
         /// The destination connection ID set in the very first packet from the client
@@ -31,7 +31,7 @@ pub(crate) enum ValidationToken {
     },
 }
 
-impl ValidationToken {
+impl Token {
     pub(crate) fn encode(
         &self,
         key: &dyn HandshakeTokenKey,
@@ -40,7 +40,7 @@ impl ValidationToken {
     ) -> Vec<u8> {
         let mut buf = Vec::new();
         let (discriminant, aead_key) = match self {
-            &ValidationToken::Retry {
+            &Token::Retry {
                 orig_dst_cid,
                 issued,
             } => {
@@ -50,7 +50,7 @@ impl ValidationToken {
 
                 (0, key.aead_from_hkdf(retry_src_cid))
             }
-            &ValidationToken::NewToken { rand, issued } => {
+            &Token::NewToken { rand, issued } => {
                 buf.put_u128(rand);
                 encode_addr(&mut buf, address);
                 encode_time(&mut buf, issued);
@@ -249,16 +249,16 @@ mod test {
         let retry_src_cid = RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid();
         let orig_dst_cid_1 = RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid();
         let issued_1 = UNIX_EPOCH + Duration::new(42, 0); // Fractional seconds would be lost
-        let token = ValidationToken::Retry {
+        let token = Token::Retry {
             orig_dst_cid: orig_dst_cid_1,
             issued: issued_1,
         };
         let encoded = token.encode(&prk, &addr, &retry_src_cid);
 
-        match ValidationToken::from_bytes(&prk, &addr, &retry_src_cid, &encoded)
+        match Token::from_bytes(&prk, &addr, &retry_src_cid, &encoded)
             .expect("token didn't validate")
         {
-            ValidationToken::Retry {
+            Token::Retry {
                 orig_dst_cid: orig_dst_cid_2,
                 issued: issued_2,
             } => {
@@ -295,6 +295,6 @@ mod test {
         invalid_token.put_slice(&random_data);
 
         // Assert: garbage sealed data returns err
-        assert!(ValidationToken::from_bytes(&prk, &addr, &retry_src_cid, &invalid_token).is_err());
+        assert!(Token::from_bytes(&prk, &addr, &retry_src_cid, &invalid_token).is_err());
     }
 }
