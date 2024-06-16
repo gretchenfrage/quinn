@@ -23,12 +23,15 @@ pub(crate) enum Token {
         issued: SystemTime,
     },
     /// From a NEW_TOKEN frame
-    NewToken {
-        /// Randomly generated unique value
-        rand: u128,
-        /// The time at which this token was issued
-        issued: SystemTime,
-    },
+    NewToken(NewTokenToken),
+}
+
+/// Address validation token from a NEW_TOKEN frame
+pub(crate) struct NewTokenToken {
+    /// Randomly generated unique value
+    pub(crate) rand: u128,
+    /// The time at which this token was issued
+    pub(crate) issued: SystemTime,
 }
 
 impl Token {
@@ -38,31 +41,24 @@ impl Token {
         address: &SocketAddr,
         retry_src_cid: &ConnectionId,
     ) -> Vec<u8> {
-        let mut buf = Vec::new();
-        let (discriminant, aead_key) = match self {
+        match self {
             &Token::Retry {
                 orig_dst_cid,
                 issued,
             } => {
+                let aead_key = key.aead_from_hkdf(retry_src_cid);
+
+                let mut buf = Vec::new();
                 encode_addr(&mut buf, address);
                 orig_dst_cid.encode_long(&mut buf);
                 encode_time(&mut buf, issued);
 
-                (0, key.aead_from_hkdf(retry_src_cid))
+                aead_key.seal(&mut buf, &[0]).unwrap();
+                buf.push(0);
+                buf
             }
-            &Token::NewToken { rand, issued } => {
-                buf.put_u128(rand);
-                encode_addr(&mut buf, address);
-                encode_time(&mut buf, issued);
-
-                (1, key.aead_from_hkdf(&[]))
-            }
-        };
-
-        aead_key.seal(&mut buf, &[discriminant]).unwrap();
-        buf.push(discriminant);
-
-        buf
+            &Token::NewToken(ref token) => token.encode(key, address),
+        }
     }
 
     pub(crate) fn from_bytes(
@@ -112,10 +108,26 @@ impl Token {
                 let issued =
                     decode_time(&mut reader).ok_or(TokenDecodeError::InvalidMaybeNewToken)?;
 
-                Self::NewToken { rand, issued }
+                Self::NewToken(NewTokenToken { rand, issued })
             }
             _ => return Err(TokenDecodeError::InvalidMaybeNewToken),
         })
+    }
+}
+
+impl NewTokenToken {
+    pub(crate) fn encode(&self, key: &dyn HandshakeTokenKey, address: &SocketAddr) -> Vec<u8> {
+        let aead_key = key.aead_from_hkdf(&[]);
+
+        let mut buf = Vec::new();
+        buf.put_u128(self.rand);
+        encode_addr(&mut buf, address);
+        encode_time(&mut buf, self.issued);
+
+        aead_key.seal(&mut buf, &[1]).unwrap();
+        buf.push(1);
+
+        buf
     }
 }
 

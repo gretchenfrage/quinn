@@ -5,7 +5,7 @@ use std::{
     fmt, io, mem,
     net::{IpAddr, SocketAddr},
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use bytes::{Bytes, BytesMut};
@@ -21,7 +21,7 @@ use crate::{
     config::{ServerConfig, TransportConfig},
     crypto::{self, KeyPair, Keys, PacketKey},
     frame,
-    frame::{Close, Datagram, FrameStruct},
+    frame::{Close, Datagram, FrameStruct, NewToken},
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
         PacketNumber, PartialDecode, SpaceId,
@@ -31,7 +31,7 @@ use crate::{
         ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
         EndpointEvent, EndpointEventInner,
     },
-    token::ResetToken,
+    token::{NewTokenToken, ResetToken},
     transport_parameters::TransportParameters,
     Dir, EndpointConfig, Frame, Side, StreamId, Transmit, TransportError, TransportErrorCode,
     VarInt, MAX_STREAM_COUNT, MIN_INITIAL_SIZE, TIMER_GRANULARITY,
@@ -238,6 +238,7 @@ pub struct Connection {
     stats: ConnectionStats,
     /// QUIC version used for the connection.
     version: u32,
+    new_tokens_to_send: u32,
 }
 
 impl Connection {
@@ -357,6 +358,7 @@ impl Connection {
             rng,
             stats: ConnectionStats::default(),
             version,
+            new_tokens_to_send: if side == Side::Server { 2 } else { 0 },
         };
         if side.is_client() {
             // Kick off the connection
@@ -2825,14 +2827,14 @@ impl Connection {
                         self.update_rem_cid();
                     }
                 }
-                Frame::NewToken { token } => {
+                Frame::NewToken(new_token) => {
                     if self.side.is_server() {
                         return Err(TransportError::PROTOCOL_VIOLATION("client sent NEW_TOKEN"));
                     }
-                    if token.is_empty() {
+                    if new_token.token.is_empty() {
                         return Err(TransportError::FRAME_ENCODING_ERROR("empty token"));
                     }
-                    trace!("got new token");
+                    debug!("got new token");
                     // TODO: Cache, or perhaps forward to user?
                 }
                 Frame::Datagram(datagram) => {
@@ -3218,8 +3220,30 @@ impl Connection {
             self.datagrams.send_blocked = false;
         }
 
-        // STREAM
         if space_id == SpaceId::Data {
+            // NEW_TOKEN
+            while self.new_tokens_to_send > 0 {
+                let token = NewTokenToken {
+                    rand: self.rng.gen(),
+                    issued: SystemTime::now(),
+                }
+                .encode(
+                    &*self.server_config.as_ref().unwrap().token_key,
+                    &self.path.remote,
+                );
+                let new_token = NewToken {
+                    token: token.into(),
+                };
+
+                if buf.len() + new_token.size() >= max_size {
+                    break;
+                }
+
+                new_token.encode(buf);
+                self.new_tokens_to_send -= 1;
+            }
+
+            // STREAM
             sent.stream_frames = self.streams.write_stream_frames(buf, max_size);
             self.stats.frame_tx.stream += sent.stream_frames.len() as u64;
         }

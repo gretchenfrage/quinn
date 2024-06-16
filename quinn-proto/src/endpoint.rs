@@ -509,8 +509,8 @@ impl Endpoint {
                         Err(TokenDecodeError::InvalidRetry)
                     }
                 }
-                Token::NewToken { rand: _, issued } => {
-                    if issued + server_config.new_token_lifetime > SystemTime::now() {
+                Token::NewToken(token) => {
+                    if token.issued + server_config.new_token_lifetime > SystemTime::now() {
                         Ok((None, header.dst_cid))
                     } else {
                         Err(TokenDecodeError::InvalidMaybeNewToken)
