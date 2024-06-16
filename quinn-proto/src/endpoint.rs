@@ -32,7 +32,7 @@ use crate::{
     },
     token::TokenDecodeError,
     transport_parameters::{PreferredAddress, TransportParameters},
-    ResetToken, ValidationToken, Side, Transmit, TransportConfig, TransportError, INITIAL_MTU,
+    ResetToken, Side, Transmit, TransportConfig, TransportError, ValidationToken, INITIAL_MTU,
     MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
 };
 
@@ -498,22 +498,25 @@ impl Endpoint {
                 &header.dst_cid,
                 &header.token,
             )
-                .and_then(|token| match token {
-                    ValidationToken::Retry { orig_dst_cid, issued } => {
-                        if issued + server_config.retry_token_lifetime > SystemTime::now() {
-                            Ok((Some(header.dst_cid), orig_dst_cid))
-                        } else {
-                            Err(TokenDecodeError::InvalidRetry)
-                        }
+            .and_then(|token| match token {
+                ValidationToken::Retry {
+                    orig_dst_cid,
+                    issued,
+                } => {
+                    if issued + server_config.retry_token_lifetime > SystemTime::now() {
+                        Ok((Some(header.dst_cid), orig_dst_cid))
+                    } else {
+                        Err(TokenDecodeError::InvalidRetry)
                     }
-                    ValidationToken::NewToken { rand: _, issued } => {
-                        if issued + server_config.new_token_lifetime > SystemTime::now() {
-                            Ok((None, header.dst_cid))
-                        } else {
-                            Err(TokenDecodeError::InvalidMaybeNewToken)
-                        }
+                }
+                ValidationToken::NewToken { rand: _, issued } => {
+                    if issued + server_config.new_token_lifetime > SystemTime::now() {
+                        Ok((None, header.dst_cid))
+                    } else {
+                        Err(TokenDecodeError::InvalidMaybeNewToken)
                     }
-                });
+                }
+            });
             match valid_token {
                 Ok((retry_src_cid, orig_dst_cid)) => (retry_src_cid, orig_dst_cid, true),
                 Err(TokenDecodeError::InvalidMaybeNewToken) => (None, header.dst_cid, false),
