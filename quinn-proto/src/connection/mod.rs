@@ -22,6 +22,7 @@ use crate::{
     crypto::{self, KeyPair, Keys, PacketKey},
     frame,
     frame::{Close, Datagram, FrameStruct, NewToken},
+    new_token_store::NewTokenStore,
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
         PacketNumber, PartialDecode, SpaceId,
@@ -227,6 +228,10 @@ pub struct Connection {
     /// no outgoing application data.
     app_limited: bool,
 
+    new_tokens_to_send: u32,
+    new_token_store: Option<Arc<dyn NewTokenStore>>,
+    server_name: Option<String>,
+
     streams: StreamsState,
     /// Surplus remote CIDs for future use on new paths
     rem_cids: CidQueue,
@@ -238,7 +243,6 @@ pub struct Connection {
     stats: ConnectionStats,
     /// QUIC version used for the connection.
     version: u32,
-    new_tokens_to_send: u32,
 }
 
 impl Connection {
@@ -259,6 +263,8 @@ impl Connection {
         allow_mtud: bool,
         rng_seed: [u8; 32],
         path_validated: bool,
+        new_token_store: Option<Arc<dyn NewTokenStore>>,
+        server_name: Option<String>,
     ) -> Self {
         let side = if server_config.is_some() {
             Side::Server
@@ -344,6 +350,10 @@ impl Connection {
             receiving_ecn: false,
             total_authed_packets: 0,
 
+            new_tokens_to_send: if side == Side::Server { 2 } else { 0 },
+            new_token_store,
+            server_name,
+
             streams: StreamsState::new(
                 side,
                 config.max_concurrent_uni_streams,
@@ -358,7 +368,6 @@ impl Connection {
             rng,
             stats: ConnectionStats::default(),
             version,
-            new_tokens_to_send: if side == Side::Server { 2 } else { 0 },
         };
         if side.is_client() {
             // Kick off the connection
@@ -2834,8 +2843,9 @@ impl Connection {
                     if new_token.token.is_empty() {
                         return Err(TransportError::FRAME_ENCODING_ERROR("empty token"));
                     }
-                    debug!("got new token");
-                    // TODO: Cache, or perhaps forward to user?
+                    if let Some(new_token_store) = self.new_token_store.as_ref() {
+                        new_token_store.store(self.server_name.as_ref().unwrap(), new_token.token);
+                    }
                 }
                 Frame::Datagram(datagram) => {
                     if self

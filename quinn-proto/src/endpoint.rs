@@ -22,6 +22,7 @@ use crate::{
     connection::{Connection, ConnectionError},
     crypto::{self, Keys, UnsupportedVersion},
     frame,
+    new_token_store::NewTokenStore,
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, Packet,
         PacketDecodeError, PacketNumber, PartialDecode, ProtectedInitialHeader,
@@ -427,6 +428,8 @@ impl Endpoint {
             None,
             config.transport,
             true,
+            config.new_token_store,
+            Some(server_name.into()),
         );
         Ok((ch, conn))
     }
@@ -656,6 +659,8 @@ impl Endpoint {
             Some(server_config),
             transport_config,
             remote_address_validated,
+            None,
+            None,
         );
         if dst_cid.len() != 0 {
             self.index.insert_initial(dst_cid, ch);
@@ -827,6 +832,8 @@ impl Endpoint {
         server_config: Option<Arc<ServerConfig>>,
         transport_config: Arc<TransportConfig>,
         path_validated: bool,
+        new_token_store: Option<Arc<dyn NewTokenStore>>,
+        server_name: Option<String>,
     ) -> Connection {
         let mut rng_seed = [0; 32];
         self.rng.fill_bytes(&mut rng_seed);
@@ -851,6 +858,8 @@ impl Endpoint {
             self.allow_mtud,
             rng_seed,
             path_validated,
+            new_token_store,
+            server_name,
         );
 
         let mut cids_issued = 0;

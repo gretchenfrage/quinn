@@ -20,6 +20,7 @@ use crate::{
     cid_generator::{ConnectionIdGenerator, HashedConnectionIdGenerator},
     congestion,
     crypto::{self, HandshakeTokenKey, HmacKey},
+    new_token_store::{InMemNewTokenStore, NewTokenStore},
     VarInt, VarIntBoundsExceeded, DEFAULT_SUPPORTED_VERSIONS, INITIAL_MTU, MAX_UDP_PAYLOAD,
 };
 
@@ -974,6 +975,9 @@ pub struct ClientConfig {
     /// Cryptographic configuration to use
     pub(crate) crypto: Arc<dyn crypto::ClientConfig>,
 
+    /// New token store to use
+    pub(crate) new_token_store: Option<Arc<dyn NewTokenStore>>,
+
     /// QUIC protocol version to use
     pub(crate) version: u32,
 }
@@ -984,6 +988,7 @@ impl ClientConfig {
         Self {
             transport: Default::default(),
             crypto,
+            new_token_store: Some(Arc::new(InMemNewTokenStore::<2>::default())),
             version: 1,
         }
     }
@@ -991,6 +996,18 @@ impl ClientConfig {
     /// Set a custom [`TransportConfig`]
     pub fn transport_config(&mut self, transport: Arc<TransportConfig>) -> &mut Self {
         self.transport = transport;
+        self
+    }
+
+    /// Set a custom [`NewTokenStore`]
+    ///
+    /// Defaults to an in-memory store limited to 256 servers and 2 tokens per server. Setting to
+    /// `None` disables the use of tokens from NEW_TOKEN frames as a client.
+    pub fn new_token_store(
+        &mut self,
+        new_token_store: Option<Arc<dyn NewTokenStore>>,
+    ) -> &mut Self {
+        self.new_token_store = new_token_store;
         self
     }
 
@@ -1025,9 +1042,10 @@ impl fmt::Debug for ClientConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("ClientConfig<T>")
             .field("transport", &self.transport)
-            .field("crypto", &"ClientConfig { elided }")
+            // crypto isn't debug
+            // new token store isn't debug
             .field("version", &self.version)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

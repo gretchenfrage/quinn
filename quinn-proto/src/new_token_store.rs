@@ -11,7 +11,7 @@ use std::{
 
 /// Responsible for storing tokens sent from servers in NEW_TOKEN frames and retreiving them for
 /// use in subsequent connections
-pub trait NewTokenStore {
+pub trait NewTokenStore: Send + Sync {
     /// Called when a NEW_TOKEN frame is received from the server
     fn store(&self, server_name: &str, token: Bytes);
 
@@ -21,7 +21,7 @@ pub trait NewTokenStore {
     fn take(&self, server_name: &str) -> Option<Bytes>;
 }
 
-/// `NewTokenStore` implementation that does not store tokens.
+/*/// `NewTokenStore` implementation that does not store tokens.
 #[derive(Debug, Copy, Clone)]
 pub struct NoNewTokenStorage;
 
@@ -31,7 +31,7 @@ impl NewTokenStore for NoNewTokenStorage {
     fn take(&self, _: &str) -> Option<Bytes> {
         None
     }
-}
+}*/
 
 /// `NewTokenStore` implementation that stores up to `N` tokens per server name for up to a limited
 /// number of server names, in-memory
@@ -66,6 +66,7 @@ impl<const N: usize> Default for InMemNewTokenStore<N> {
 unsafe impl<const N: usize> Send for InMemNewTokenStore<N> {}
 unsafe impl<const N: usize> Sync for InMemNewTokenStore<N> {}
 
+#[derive(Debug)]
 struct InMemNewTokenStoreState<const N: usize> {
     size_limit: usize,
     // linked hash table structure
@@ -74,6 +75,7 @@ struct InMemNewTokenStoreState<const N: usize> {
     oldest_newest: Option<(usize, usize)>,
 }
 
+#[derive(Debug)]
 struct InMemNewTokenStoreEntry<const N: usize> {
     server_name: Rc<str>,
     older: Option<usize>,
@@ -146,7 +148,9 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
                 // key already exists, add the new token to its token stack
                 let entry = &mut self.entries[*hmap_entry.get()];
                 entry.token_stack[(entry.token_stack_start + entry.token_stack_len) % N] = token;
-                if entry.token_stack_len == N {
+                if entry.token_stack_len < N {
+                    entry.token_stack_len += 1;
+                } else {
                     entry.token_stack_start += 1;
                 }
 
@@ -180,7 +184,7 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
                     newer: None,
                     token_stack,
                     token_stack_start: 0,
-                    token_stack_len: 0,
+                    token_stack_len: 1,
                 });
                 hmap_entry.insert(idx);
 
@@ -196,6 +200,8 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
 
         // link it as the newest entry
         Self::link(idx, &mut self.entries, &mut self.oldest_newest);
+
+        tracing::debug!("InMemNewTokenStore.store {:#?}", self);
     }
 
     fn take(&mut self, server_name: &str) -> Option<Bytes> {
@@ -228,7 +234,7 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
                 self.entries.remove(*hmap_entry.get());
                 hmap_entry.remove();
             }
-
+            tracing::debug!("InMemNewTokenStore.take {:#?} removed {:?}", self, token);
             Some(token)
         } else {
             None
