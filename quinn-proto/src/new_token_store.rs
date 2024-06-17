@@ -1,14 +1,13 @@
 //! Storing tokens sent from servers in NEW_TOKEN frames and using them in subsequent connections
 
-use std::{
-    collections::{HashMap, hash_map},
-    sync::Mutex,
-    rc::Rc,
-    mem::take,
-};
 use bytes::Bytes;
 use slab::Slab;
-
+use std::{
+    collections::{hash_map, HashMap},
+    mem::take,
+    rc::Rc,
+    sync::Mutex,
+};
 
 /// Responsible for storing tokens sent from servers in NEW_TOKEN frames and retreiving them for
 /// use in subsequent connections
@@ -18,10 +17,9 @@ pub trait NewTokenStore {
 
     /// Called when trying to connect to a server
     ///
-    /// The same token should never be returned from `take` twice. 
+    /// The same token should never be returned from `take` twice.
     fn take(&self, server_name: &str) -> Option<Bytes>;
 }
-
 
 /// `NewTokenStore` implementation that does not store tokens.
 #[derive(Debug, Copy, Clone)]
@@ -34,7 +32,6 @@ impl NewTokenStore for NoNewTokenStorage {
         None
     }
 }
-
 
 /// `NewTokenStore` implementation that stores up to `N` tokens per server name for up to a limited
 /// number of server names, in-memory
@@ -69,7 +66,6 @@ impl<const N: usize> Default for InMemNewTokenStore<N> {
 unsafe impl<const N: usize> Send for InMemNewTokenStore<N> {}
 unsafe impl<const N: usize> Sync for InMemNewTokenStore<N> {}
 
-
 struct InMemNewTokenStoreState<const N: usize> {
     size_limit: usize,
     // linked hash table structure
@@ -101,12 +97,18 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
     }
 
     /// Unlink an entry's neighbors from it
-    fn unlink(idx: usize, entries: &mut Slab<InMemNewTokenStoreEntry<N>>, oldest_newest: &mut Option<(usize, usize)>) {
+    fn unlink(
+        idx: usize,
+        entries: &mut Slab<InMemNewTokenStoreEntry<N>>,
+        oldest_newest: &mut Option<(usize, usize)>,
+    ) {
         if let Some(older) = entries[idx].older {
             entries[older].newer = entries[idx].newer;
         } else {
             // unwrap safety: entries[idx] exists, therefore oldest_newest is some
-            *oldest_newest = entries[idx].newer.map(|newer| (oldest_newest.unwrap().0, newer));
+            *oldest_newest = entries[idx]
+                .newer
+                .map(|newer| (oldest_newest.unwrap().0, newer));
         }
         if let Some(newer) = entries[idx].newer {
             entries[newer].older = entries[idx].older;
@@ -114,14 +116,20 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
             // unwrap safety: oldest_newest is none iff entries[idx] was the only entry.
             //                if entries[idx].older is some, entries[idx] was not the only entry
             //                therefore oldest_newest is some.
-            *oldest_newest = entries[idx].older.map(|older| (older, oldest_newest.unwrap().1));
+            *oldest_newest = entries[idx]
+                .older
+                .map(|older| (older, oldest_newest.unwrap().1));
         }
     }
 
     /// Link an entry as the most recently used entry
     ///
     /// Assumes any pre-existing neighbors are already unlinked.
-    fn link(idx: usize, entries: &mut Slab<InMemNewTokenStoreEntry<N>>, oldest_newest: &mut Option<(usize, usize)>) {
+    fn link(
+        idx: usize,
+        entries: &mut Slab<InMemNewTokenStoreEntry<N>>,
+        oldest_newest: &mut Option<(usize, usize)>,
+    ) {
         entries[idx].newer = None;
         entries[idx].older = oldest_newest.map(|(_, newest)| newest);
         if let &mut Some((_, ref mut newest)) = oldest_newest {
@@ -143,7 +151,11 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
                 }
 
                 // unlink the entry and set it up to be linked as the most recently used
-                Self::unlink(*hmap_entry.get(), &mut self.entries, &mut self.oldest_newest);
+                Self::unlink(
+                    *hmap_entry.get(),
+                    &mut self.entries,
+                    &mut self.oldest_newest,
+                );
                 *hmap_entry.get()
             }
             hash_map::Entry::Vacant(hmap_entry) => {
@@ -154,7 +166,9 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
                     let oldest = self.oldest_newest.unwrap().0;
                     Self::unlink(oldest, &mut self.entries, &mut self.oldest_newest);
                     Some(self.entries.remove(oldest).server_name)
-                } else { None };
+                } else {
+                    None
+                };
 
                 const EMPTY_BYTES: Bytes = Bytes::new();
                 let mut token_stack = [EMPTY_BYTES; N];
@@ -188,15 +202,29 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
         if let hash_map::Entry::Occupied(hmap_entry) = self.lookup.entry(server_name.into()) {
             let entry = &mut self.entries[*hmap_entry.get()];
             debug_assert_ne!(entry.token_stack_len, 0);
-            let token = take(&mut entry.token_stack[(entry.token_stack_start + entry.token_stack_len - 1) % N]);
+            let token = take(
+                &mut entry.token_stack[(entry.token_stack_start + entry.token_stack_len - 1) % N],
+            );
             if entry.token_stack_len == 1 {
                 // pop from entry's token stack, re-link entry as most recently used
                 entry.token_stack_len -= 1;
-                Self::unlink(*hmap_entry.get(), &mut self.entries, &mut self.oldest_newest);
-                Self::link(*hmap_entry.get(), &mut self.entries, &mut self.oldest_newest);
+                Self::unlink(
+                    *hmap_entry.get(),
+                    &mut self.entries,
+                    &mut self.oldest_newest,
+                );
+                Self::link(
+                    *hmap_entry.get(),
+                    &mut self.entries,
+                    &mut self.oldest_newest,
+                );
             } else {
                 // token stack emptied, remove entry
-                Self::unlink(*hmap_entry.get(), &mut self.entries, &mut self.oldest_newest);
+                Self::unlink(
+                    *hmap_entry.get(),
+                    &mut self.entries,
+                    &mut self.oldest_newest,
+                );
                 self.entries.remove(*hmap_entry.get());
                 hmap_entry.remove();
             }

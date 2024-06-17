@@ -1,13 +1,8 @@
-
-use std::{
-    sync::Arc,
-    net::ToSocketAddrs as _,
-};
 use anyhow::Error;
 use quinn::*;
+use std::{net::ToSocketAddrs as _, sync::Arc};
 use tracing::*;
 use tracing_subscriber::prelude::*;
-
 
 #[tokio::main]
 async fn main() {
@@ -23,7 +18,7 @@ async fn main() {
         //.fmt_fields(tracing_subscriber::fmt::format::JsonFields::new())
         .event_format(log_fmt);
     let log_filter = tracing_subscriber::EnvFilter::new(
-        std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV).unwrap_or("info".into())
+        std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV).unwrap_or("info".into()),
     );
     let log_subscriber = tracing_subscriber::Registry::default()
         .with(log_filter)
@@ -150,7 +145,7 @@ async fn main() {
     while tasks.join_next().await.is_some() {}
 }
 
-async fn log_err<F: std::future::IntoFuture<Output=Result<(), Error>>>(task: F) {
+async fn log_err<F: std::future::IntoFuture<Output = Result<(), Error>>>(task: F) {
     if let Err(e) = task.await {
         error!("{}", e);
     }
