@@ -86,6 +86,8 @@ pub use crate::cid_generator::{
 mod token;
 use token::{ResetToken, Token};
 
+pub mod new_token_store;
+
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 
