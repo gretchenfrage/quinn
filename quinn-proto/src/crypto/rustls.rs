@@ -160,6 +160,7 @@ impl crypto::Session for TlsSession {
     }
 
     fn is_valid_retry(&self, orig_dst_cid: &ConnectionId, header: &[u8], payload: &[u8]) -> bool {
+        tracing::debug!("entering is_valid_retry");
         let tag_start = match payload.len().checked_sub(16) {
             Some(x) => x,
             None => return false,
@@ -183,7 +184,9 @@ impl crypto::Session for TlsSession {
         let key = aead::LessSafeKey::new(aead::UnboundKey::new(&aead::AES_128_GCM, &key).unwrap());
 
         let (aad, tag) = pseudo_packet.split_at_mut(tag_start);
-        key.open_in_place(nonce, aead::Aad::from(aad), tag).is_ok()
+        let retval = key.open_in_place(nonce, aead::Aad::from(aad), tag).is_ok();
+        tracing::debug!(?retval, "is_valid_retry is now at the end");
+        retval
     }
 
     fn export_keying_material(

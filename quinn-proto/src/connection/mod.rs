@@ -2360,6 +2360,7 @@ impl Connection {
             Header::Retry {
                 src_cid: rem_cid, ..
             } => {
+                warn!("receiving Retry");
                 if self.side.is_server() {
                     return Err(TransportError::PROTOCOL_VIOLATION("client sent Retry").into());
                 }
@@ -2372,7 +2373,12 @@ impl Connection {
                                 &packet.payload,
                             )
                 {
-                    trace!("discarding invalid Retry");
+                    warn!("discarding invalid Retry");
+                    debug!("self.total_authed_packets={:?}, packet.payload.len()={:?}, !self.crypto.is_valid_retry(..) = {:?}", self.total_authed_packets, packet.payload.len(), !self.crypto.is_valid_retry(
+                                &self.rem_cids.active(),
+                                &packet.header_data,
+                                &packet.payload,
+                            ));
                     // - After the client has received and processed an Initial or Retry
                     //   packet from the server, it MUST discard any subsequent Retry
                     //   packets that it receives.
@@ -2382,6 +2388,7 @@ impl Connection {
                     //   that cannot be validated
                     return Ok(());
                 }
+                warn!("accepting Retry");
 
                 trace!("retrying with CID {}", rem_cid);
                 let client_hello = state.client_hello.take().unwrap();
@@ -2424,6 +2431,7 @@ impl Connection {
                     rem_cid_set: false,
                     client_hello: None,
                 });
+                warn!("made it to the end of the whole accepting retry thing");
                 Ok(())
             }
             Header::Long {
@@ -3253,19 +3261,22 @@ impl Connection {
         if space_id == SpaceId::Data {
             // NEW_TOKEN
             while self.path.new_tokens_to_send > 0 {
-                let token = NewTokenToken {
-                    rand: self.rng.gen(),
-                    issued: SystemTime::now(),
-                }
-                .encode(
-                    &*self.server_config.as_ref().unwrap().token_key,
-                    &self.path.remote,
-                );
-                let new_token = NewToken {
-                    token: token.into(),
-                };
+                let new_token = self.path.pending_new_token.take().unwrap_or_else(|| {
+                    let token = NewTokenToken {
+                        rand: self.rng.gen(),
+                        issued: SystemTime::now(),
+                    }
+                    .encode(
+                        &*self.server_config.as_ref().unwrap().token_key,
+                        &self.path.remote,
+                    );
+                    NewToken {
+                        token: token.into(),
+                    }
+                });
 
                 if buf.len() + new_token.size() >= max_size {
+                    self.path.pending_new_token = Some(new_token);
                     break;
                 }
 

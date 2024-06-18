@@ -7,7 +7,7 @@ use super::{
     pacing::Pacer,
     spaces::{PacketSpace, SentPacket},
 };
-use crate::{congestion, packet::SpaceId, TransportConfig, TIMER_GRANULARITY};
+use crate::{congestion, frame::NewToken, packet::SpaceId, TransportConfig, TIMER_GRANULARITY};
 
 /// Description of a particular network path
 pub(super) struct PathData {
@@ -39,6 +39,8 @@ pub(super) struct PathData {
     pub(super) in_flight: InFlight,
     /// Number of NEW_TOKEN frame tokens to send.
     pub(super) new_tokens_to_send: u32,
+    /// NewToken stashed here if it cannot be immediately sent due to packet maximum size
+    pub(super) pending_new_token: Option<NewToken>,
     /// Number of the first packet sent on this path
     ///
     /// Used to determine whether a packet was sent on an earlier path. Insufficient to determine if
@@ -95,6 +97,7 @@ impl PathData {
             in_flight: InFlight::new(),
             first_packet: None,
             new_tokens_to_send,
+            pending_new_token: None,
         }
     }
 
@@ -117,6 +120,7 @@ impl PathData {
             in_flight: InFlight::new(),
             first_packet: None,
             new_tokens_to_send: prev.new_tokens_to_send,
+            pending_new_token: None,
         }
     }
 
