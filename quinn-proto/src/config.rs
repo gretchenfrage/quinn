@@ -781,6 +781,9 @@ pub struct ServerConfig {
     /// Responsible for limiting clients' ability to reuse tokens from NEW_TOKEN frames
     pub(crate) token_reuse_preventer: Option<Arc<dyn TokenReusePreventer>>,
 
+    /// Number of NEW_TOKEN frames sent to a client when its path is validated.
+    pub(crate) new_tokens_sent_upon_validation: u32,
+
     /// Whether to allow clients to migrate to new addresses
     ///
     /// Improves behavior for clients that move between different internet connections or suffer NAT
@@ -812,6 +815,7 @@ impl ServerConfig {
             retry_token_lifetime: Duration::from_secs(15),
             new_token_lifetime: Duration::from_secs(2 * 7 * 24 * 60 * 60),
             token_reuse_preventer,
+            new_tokens_sent_upon_validation: 2,
 
             migration: true,
 
@@ -830,21 +834,29 @@ impl ServerConfig {
         self
     }
 
-    /// Private key used to authenticate data included in handshake tokens.
+    /// Private key used to authenticate data included in handshake tokens
     pub fn token_key(&mut self, value: Arc<dyn HandshakeTokenKey>) -> &mut Self {
         self.token_key = value;
         self
     }
 
-    /// Duration after a stateless retry token was issued for which it's considered valid.
+    /// Duration after a stateless retry token was issued for which it's considered valid
     pub fn retry_token_lifetime(&mut self, value: Duration) -> &mut Self {
         self.retry_token_lifetime = value;
         self
     }
 
-    /// Duration after a NEW_TOKEN frame token was issued for which it's considered valid.
+    /// Duration after a NEW_TOKEN frame token was issued for which it's considered valid
     pub fn new_token_lifetime(&mut self, value: Duration) -> &mut Self {
         self.new_token_lifetime = value;
+        self
+    }
+
+    /// Number of tokens issue to clients in NEW_TOKEN frames when their path is validated
+    ///
+    /// Defaults to 2.
+    pub fn new_tokens_sent_upon_validation(&mut self, value: u32) -> &mut Self {
+        self.new_tokens_sent_upon_validation = value;
         self
     }
 
@@ -958,10 +970,12 @@ impl fmt::Debug for ServerConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("ServerConfig<T>")
             .field("transport", &self.transport)
-            .field("crypto", &"ServerConfig { elided }")
-            .field("token_key", &"[ elided ]")
             .field("retry_token_lifetime", &self.retry_token_lifetime)
             .field("new_token_lifetime", &self.new_token_lifetime)
+            .field(
+                "new_tokens_sent_upon_validation",
+                &self.new_tokens_sent_upon_validation,
+            )
             .field("migration", &self.migration)
             .field("preferred_address_v4", &self.preferred_address_v4)
             .field("preferred_address_v6", &self.preferred_address_v6)
@@ -971,7 +985,7 @@ impl fmt::Debug for ServerConfig {
                 "incoming_buffer_size_total",
                 &self.incoming_buffer_size_total,
             )
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

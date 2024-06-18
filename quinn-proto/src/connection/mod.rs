@@ -228,7 +228,6 @@ pub struct Connection {
     /// no outgoing application data.
     app_limited: bool,
 
-    new_tokens_to_send: u32,
     new_token_store: Option<Arc<dyn NewTokenStore>>,
     server_name: Option<String>,
 
@@ -287,6 +286,10 @@ impl Connection {
                 token = new_token;
             }
         }
+        let new_tokens_to_send = server_config
+            .as_ref()
+            .map(|sc| sc.new_tokens_sent_upon_validation)
+            .unwrap_or(0);
         let mut this = Self {
             endpoint_config,
             server_config,
@@ -299,7 +302,15 @@ impl Connection {
                 now,
                 if pref_addr_cid.is_some() { 2 } else { 1 },
             ),
-            path: PathData::new(remote, allow_mtud, None, now, path_validated, &config),
+            path: PathData::new(
+                remote,
+                allow_mtud,
+                None,
+                now,
+                path_validated,
+                &config,
+                new_tokens_to_send,
+            ),
             allow_mtud,
             local_ip,
             prev_path: None,
@@ -356,7 +367,6 @@ impl Connection {
             receiving_ecn: false,
             total_authed_packets: 0,
 
-            new_tokens_to_send: if side == Side::Server { 2 } else { 0 },
             new_token_store,
             server_name,
 
@@ -2961,6 +2971,10 @@ impl Connection {
                 now,
                 false,
                 &self.config,
+                self.server_config
+                    .as_ref()
+                    .map(|sc| sc.new_tokens_sent_upon_validation)
+                    .unwrap_or(0),
             )
         };
         new_path.challenge = Some(self.rng.gen());
@@ -3238,7 +3252,7 @@ impl Connection {
 
         if space_id == SpaceId::Data {
             // NEW_TOKEN
-            while self.new_tokens_to_send > 0 {
+            while self.path.new_tokens_to_send > 0 {
                 let token = NewTokenToken {
                     rand: self.rng.gen(),
                     issued: SystemTime::now(),
@@ -3256,7 +3270,7 @@ impl Connection {
                 }
 
                 new_token.encode(buf);
-                self.new_tokens_to_send -= 1;
+                self.path.new_tokens_to_send -= 1;
             }
 
             // STREAM
