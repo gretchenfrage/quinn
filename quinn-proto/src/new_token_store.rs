@@ -201,7 +201,7 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
         // link it as the newest entry
         Self::link(idx, &mut self.entries, &mut self.oldest_newest);
 
-        tracing::debug!("InMemNewTokenStore.store {:#?}", self);
+        //tracing::debug!("InMemNewTokenStore.store {:#?}", self);
     }
 
     fn take(&mut self, server_name: &str) -> Option<Bytes> {
@@ -211,7 +211,7 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
             let token = take(
                 &mut entry.token_stack[(entry.token_stack_start + entry.token_stack_len - 1) % N],
             );
-            if entry.token_stack_len == 1 {
+            if entry.token_stack_len > 1 {
                 // pop from entry's token stack, re-link entry as most recently used
                 entry.token_stack_len -= 1;
                 Self::unlink(
@@ -234,9 +234,10 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
                 self.entries.remove(*hmap_entry.get());
                 hmap_entry.remove();
             }
-            tracing::debug!("InMemNewTokenStore.take {:#?} removed {:?}", self, token);
+            //tracing::debug!("InMemNewTokenStore.take {:#?} removed {:?}", self, token);
             Some(token)
         } else {
+            //tracing::debug!("InMemNewTokenStore.take {:#?} removed nothing", self);
             None
         }
     }

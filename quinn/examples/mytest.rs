@@ -6,6 +6,8 @@ use tracing_subscriber::prelude::*;
 
 #[tokio::main]
 async fn main() {
+    let t0 = std::time::Instant::now();
+
     // init logging
     let log_fmt = tracing_subscriber::fmt::format()
         .compact()
@@ -54,6 +56,12 @@ async fn main() {
                 option = endpoint.accept() => match option { Some(incoming) => incoming, None => break },
                 result = &mut recv_stop_server => if result.is_ok() { break } else { continue },
             };
+            debug!("incoming.remote_address_validated = {}, incoming.may_retry = {}", incoming.remote_address_validated(), incoming.may_retry());
+            if !incoming.remote_address_validated() {
+                info!("not validated, responding with retry");
+                incoming.retry().unwrap();
+                continue;
+            }
             // spawn subtask for connection
             tokio::spawn(log_err(async move {
                 // attempt to accept 0-RTT data
@@ -134,6 +142,10 @@ async fn main() {
                     let conn = connecting.await?;
                     send_request(&conn, "1-rtt hello world (0-rtt not attempted)").await?;
                 }
+            }
+
+            if i == 0 {
+                tokio::time::sleep_until(tokio::time::Instant::from(t0) + std::time::Duration::from_secs(1)).await;
             }
             println!();
         }

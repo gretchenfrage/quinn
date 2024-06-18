@@ -21,6 +21,7 @@ use crate::{
     congestion,
     crypto::{self, HandshakeTokenKey, HmacKey},
     new_token_store::{InMemNewTokenStore, NewTokenStore},
+    token_reuse_preventer::{BloomTokenReusePreventer, TokenReusePreventer},
     VarInt, VarIntBoundsExceeded, DEFAULT_SUPPORTED_VERSIONS, INITIAL_MTU, MAX_UDP_PAYLOAD,
 };
 
@@ -763,7 +764,7 @@ pub struct ServerConfig {
     /// Transport configuration to use for incoming connections
     pub transport: Arc<TransportConfig>,
 
-    /// TLS configuration used for incoming connections.
+    /// TLS configuration used for incoming connections
     ///
     /// Must be set to use TLS 1.3 only.
     pub crypto: Arc<dyn crypto::ServerConfig>,
@@ -771,11 +772,14 @@ pub struct ServerConfig {
     /// Used to generate one-time AEAD keys to protect handshake tokens
     pub(crate) token_key: Arc<dyn HandshakeTokenKey>,
 
-    /// Duration after a stateless retry token was issued for which it's considered valid.
+    /// Duration after a stateless retry token was issued for which it's considered valid
     pub(crate) retry_token_lifetime: Duration,
 
-    /// Duration after a NEW_TOKEN frame token was issued for which it's considered valid.
+    /// Duration after a NEW_TOKEN frame token was issued for which it's considered valid
     pub(crate) new_token_lifetime: Duration,
+
+    /// Responsible for limiting clients' ability to reuse tokens from NEW_TOKEN frames
+    pub(crate) token_reuse_preventer: Option<Arc<dyn TokenReusePreventer>>,
 
     /// Whether to allow clients to migrate to new addresses
     ///
@@ -793,9 +797,12 @@ pub struct ServerConfig {
 
 impl ServerConfig {
     /// Create a default config with a particular handshake token key
+    ///
+    /// Setting `token_reuse_preventer` to `None` makes the server ignore all NEW_HANDSHAKE tokens.
     pub fn new(
         crypto: Arc<dyn crypto::ServerConfig>,
         token_key: Arc<dyn HandshakeTokenKey>,
+        token_reuse_preventer: Option<Arc<dyn TokenReusePreventer>>,
     ) -> Self {
         Self {
             transport: Arc::new(TransportConfig::default()),
@@ -804,6 +811,7 @@ impl ServerConfig {
             token_key,
             retry_token_lifetime: Duration::from_secs(15),
             new_token_lifetime: Duration::from_secs(2 * 7 * 24 * 60 * 60),
+            token_reuse_preventer,
 
             migration: true,
 
@@ -931,14 +939,18 @@ impl ServerConfig {
 impl ServerConfig {
     /// Create a server config with the given [`crypto::ServerConfig`]
     ///
-    /// Uses a randomized handshake token key.
+    /// Uses a randomized handshake token key and a default `BloomTokenReusePreventer`.
     pub fn with_crypto(crypto: Arc<dyn crypto::ServerConfig>) -> Self {
         let rng = &mut rand::thread_rng();
         let mut master_key = [0u8; 64];
         rng.fill_bytes(&mut master_key);
         let master_key = ring::hkdf::Salt::new(ring::hkdf::HKDF_SHA256, &[]).extract(&master_key);
 
-        Self::new(crypto, Arc::new(master_key))
+        Self::new(
+            crypto,
+            Arc::new(master_key),
+            Some(Arc::new(BloomTokenReusePreventer::default())),
+        )
     }
 }
 

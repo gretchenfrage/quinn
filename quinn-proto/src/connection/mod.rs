@@ -195,7 +195,7 @@ pub struct Connection {
     error: Option<ConnectionError>,
     /// Sent in every outgoing Initial packet. Always empty for servers and after Initial keys are
     /// discarded.
-    retry_token: Bytes,
+    token: Bytes,
     /// Identifies Data-space packet numbers to skip. Not used in earlier spaces.
     packet_number_filter: PacketNumberFilter,
 
@@ -281,6 +281,12 @@ impl Connection {
             client_hello: None,
         });
         let mut rng = StdRng::from_seed(rng_seed);
+        let mut token = Bytes::new();
+        if let Some(new_token_store) = new_token_store.as_ref() {
+            if let Some(new_token) = new_token_store.take(server_name.as_ref().unwrap()) {
+                token = new_token;
+            }
+        }
         let mut this = Self {
             endpoint_config,
             server_config,
@@ -328,7 +334,7 @@ impl Connection {
             timers: TimerTable::default(),
             authentication_failures: 0,
             error: None,
-            retry_token: Bytes::new(),
+            token,
             #[cfg(test)]
             packet_number_filter: match config.deterministic_packet_numbers {
                 false => PacketNumberFilter::new(&mut rng),
@@ -2086,7 +2092,7 @@ impl Connection {
         trace!("discarding {:?} keys", space_id);
         if space_id == SpaceId::Initial {
             // No longer needed
-            self.retry_token = Bytes::new();
+            self.token = Bytes::new();
         }
         let space = &mut self.spaces[space_id];
         space.crypto = None;
@@ -2402,7 +2408,7 @@ impl Connection {
                 self.streams.retransmit_all_for_0rtt();
 
                 let token_len = packet.payload.len() - 16;
-                self.retry_token = packet.payload.freeze().split_to(token_len);
+                self.token = packet.payload.freeze().split_to(token_len);
                 self.state = State::Handshake(state::Handshake {
                     expected_token: Bytes::new(),
                     rem_cid_set: false,

@@ -87,6 +87,7 @@ mod token;
 use token::{ResetToken, Token};
 
 pub mod new_token_store;
+pub mod token_reuse_preventer;
 
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;

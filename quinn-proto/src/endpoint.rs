@@ -513,7 +513,22 @@ impl Endpoint {
                     }
                 }
                 Token::NewToken(token) => {
-                    if token.issued + server_config.new_token_lifetime > SystemTime::now() {
+                    if server_config
+                        .token_reuse_preventer
+                        .as_ref()
+                        .map(|trp| {
+                            token.issued + server_config.new_token_lifetime > SystemTime::now()
+                                && trp
+                                    .using(
+                                        token.rand,
+                                        token.issued,
+                                        server_config.new_token_lifetime,
+                                    )
+                                    .is_ok()
+                        })
+                        .unwrap_or(false)
+                    {
+                        trace!("accepting token from NEW_TOKEN frame");
                         Ok((None, header.dst_cid))
                     } else {
                         Err(TokenDecodeError::InvalidMaybeNewToken)
@@ -522,7 +537,10 @@ impl Endpoint {
             });
             match valid_token {
                 Ok((retry_src_cid, orig_dst_cid)) => (retry_src_cid, orig_dst_cid, true),
-                Err(TokenDecodeError::InvalidMaybeNewToken) => (None, header.dst_cid, false),
+                Err(TokenDecodeError::InvalidMaybeNewToken) => {
+                    trace!("rejecting token from NEW_TOKEN frame");
+                    (None, header.dst_cid, false)
+                }
                 Err(TokenDecodeError::InvalidRetry) => {
                     debug!("rejecting invalid stateless retry token");
                     return Some(DatagramEvent::Response(self.initial_close(
