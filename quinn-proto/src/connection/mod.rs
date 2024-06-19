@@ -3261,7 +3261,7 @@ impl Connection {
                     }
                     .encode(
                         &*self.server_config.as_ref().unwrap().token_key,
-                        &self.path.remote,
+                        &self.path.remote.ip(),
                     );
                     NewToken {
                         token: token.into(),

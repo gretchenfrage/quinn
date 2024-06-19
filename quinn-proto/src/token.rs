@@ -49,7 +49,7 @@ impl Token {
                 let aead_key = key.aead_from_hkdf(retry_src_cid);
 
                 let mut buf = Vec::new();
-                encode_addr(&mut buf, address);
+                encode_socket_addr(&mut buf, address);
                 orig_dst_cid.encode_long(&mut buf);
                 encode_time(&mut buf, issued);
 
@@ -57,7 +57,7 @@ impl Token {
                 buf.push(0);
                 buf
             }
-            &Token::NewToken(ref token) => token.encode(key, address),
+            &Token::NewToken(ref token) => token.encode(key, &address.ip()),
         }
     }
 
@@ -78,8 +78,8 @@ impl Token {
 
                 let data = aead_key.open(&mut sealed_token, &[0])?;
                 let mut reader = io::Cursor::new(data);
-                let token_addr =
-                    decode_addr(&mut reader).ok_or(TokenDecodeError::InvalidMaybeNewToken)?;
+                let token_addr = decode_socket_addr(&mut reader)
+                    .ok_or(TokenDecodeError::InvalidMaybeNewToken)?;
                 if token_addr != *address {
                     return Err(TokenDecodeError::InvalidRetry);
                 }
@@ -101,8 +101,8 @@ impl Token {
                 let mut reader = io::Cursor::new(data);
                 let rand = reader.get_u128();
                 let token_addr =
-                    decode_addr(&mut reader).ok_or(TokenDecodeError::InvalidMaybeNewToken)?;
-                if token_addr != *address {
+                    decode_ip_addr(&mut reader).ok_or(TokenDecodeError::InvalidMaybeNewToken)?;
+                if token_addr != address.ip() {
                     return Err(TokenDecodeError::InvalidMaybeNewToken);
                 }
                 let issued =
@@ -116,12 +116,12 @@ impl Token {
 }
 
 impl NewTokenToken {
-    pub(crate) fn encode(&self, key: &dyn HandshakeTokenKey, address: &SocketAddr) -> Vec<u8> {
+    pub(crate) fn encode(&self, key: &dyn HandshakeTokenKey, address: &IpAddr) -> Vec<u8> {
         let aead_key = key.aead_from_hkdf(&[]);
 
         let mut buf = Vec::new();
         buf.put_u128(self.rand);
-        encode_addr(&mut buf, address);
+        encode_ip_addr(&mut buf, address);
         encode_time(&mut buf, self.issued);
 
         aead_key.seal(&mut buf, &[1]).unwrap();
@@ -131,8 +131,13 @@ impl NewTokenToken {
     }
 }
 
-fn encode_addr(buf: &mut Vec<u8>, address: &SocketAddr) {
-    match address.ip() {
+fn encode_socket_addr(buf: &mut Vec<u8>, address: &SocketAddr) {
+    encode_ip_addr(buf, &address.ip());
+    buf.put_u16(address.port());
+}
+
+fn encode_ip_addr(buf: &mut Vec<u8>, address: &IpAddr) {
+    match address {
         IpAddr::V4(x) => {
             buf.put_u8(0);
             buf.put_slice(&x.octets());
@@ -142,17 +147,20 @@ fn encode_addr(buf: &mut Vec<u8>, address: &SocketAddr) {
             buf.put_slice(&x.octets());
         }
     }
-    buf.put_u16(address.port());
 }
 
-fn decode_addr<B: Buf>(buf: &mut B) -> Option<SocketAddr> {
-    let ip = match buf.get_u8() {
+fn decode_socket_addr<B: Buf>(buf: &mut B) -> Option<SocketAddr> {
+    let ip = decode_ip_addr(buf)?;
+    let port = buf.get_u16();
+    Some(SocketAddr::new(ip, port))
+}
+
+fn decode_ip_addr<B: Buf>(buf: &mut B) -> Option<IpAddr> {
+    Some(match buf.get_u8() {
         0 => IpAddr::V4(buf.get().ok()?),
         1 => IpAddr::V6(buf.get().ok()?),
         _ => return None,
-    };
-    let port = buf.get_u16();
-    Some(SocketAddr::new(ip, port))
+    })
 }
 
 fn encode_time(buf: &mut Vec<u8>, time: SystemTime) {
