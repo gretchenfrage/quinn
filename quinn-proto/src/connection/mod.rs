@@ -2373,12 +2373,7 @@ impl Connection {
                                 &packet.payload,
                             )
                 {
-                    warn!("discarding invalid Retry");
-                    debug!("self.total_authed_packets={:?}, packet.payload.len()={:?}, !self.crypto.is_valid_retry(..) = {:?}", self.total_authed_packets, packet.payload.len(), !self.crypto.is_valid_retry(
-                                &self.rem_cids.active(),
-                                &packet.header_data,
-                                &packet.payload,
-                            ));
+                    trace!("discarding invalid Retry");
                     // - After the client has received and processed an Initial or Retry
                     //   packet from the server, it MUST discard any subsequent Retry
                     //   packets that it receives.
@@ -2388,7 +2383,6 @@ impl Connection {
                     //   that cannot be validated
                     return Ok(());
                 }
-                warn!("accepting Retry");
 
                 trace!("retrying with CID {}", rem_cid);
                 let client_hello = state.client_hello.take().unwrap();
@@ -2431,7 +2425,6 @@ impl Connection {
                     rem_cid_set: false,
                     client_hello: None,
                 });
-                warn!("made it to the end of the whole accepting retry thing");
                 Ok(())
             }
             Header::Long {
@@ -2867,6 +2860,7 @@ impl Connection {
                     if new_token.token.is_empty() {
                         return Err(TransportError::FRAME_ENCODING_ERROR("empty token"));
                     }
+                    trace!("got new token");
                     if let Some(new_token_store) = self.new_token_store.as_ref() {
                         new_token_store.store(self.server_name.as_ref().unwrap(), new_token.token);
                     }

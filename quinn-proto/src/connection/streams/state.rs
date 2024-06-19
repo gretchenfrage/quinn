@@ -623,7 +623,6 @@ impl StreamsState {
     }
 
     pub(crate) fn retransmit_all_for_0rtt(&mut self) {
-        debug!("doing the uh, state.retransmit_all_for_0rtt");
         for dir in Dir::iter() {
             for index in 0..self.next[dir as usize] {
                 let id = StreamId::new(Side::Client, dir, index);

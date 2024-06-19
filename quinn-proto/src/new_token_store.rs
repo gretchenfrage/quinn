@@ -21,18 +21,6 @@ pub trait NewTokenStore: Send + Sync {
     fn take(&self, server_name: &str) -> Option<Bytes>;
 }
 
-/*/// `NewTokenStore` implementation that does not store tokens.
-#[derive(Debug, Copy, Clone)]
-pub struct NoNewTokenStorage;
-
-impl NewTokenStore for NoNewTokenStorage {
-    fn store(&self, _: &str, _: Bytes) {}
-
-    fn take(&self, _: &str) -> Option<Bytes> {
-        None
-    }
-}*/
-
 /// `NewTokenStore` implementation that stores up to `N` tokens per server name for up to a limited
 /// number of server names, in-memory
 pub struct InMemNewTokenStore<const N: usize>(Mutex<InMemNewTokenStoreState<N>>);
@@ -200,8 +188,6 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
 
         // link it as the newest entry
         Self::link(idx, &mut self.entries, &mut self.oldest_newest);
-
-        //tracing::debug!("InMemNewTokenStore.store {:#?}", self);
     }
 
     fn take(&mut self, server_name: &str) -> Option<Bytes> {
@@ -234,10 +220,8 @@ impl<const N: usize> InMemNewTokenStoreState<N> {
                 self.entries.remove(*hmap_entry.get());
                 hmap_entry.remove();
             }
-            //tracing::debug!("InMemNewTokenStore.take {:#?} removed {:?}", self, token);
             Some(token)
         } else {
-            //tracing::debug!("InMemNewTokenStore.take {:#?} removed nothing", self);
             None
         }
     }
