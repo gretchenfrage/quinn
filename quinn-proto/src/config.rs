@@ -2,7 +2,7 @@ use std::{
     fmt,
     net::{SocketAddrV4, SocketAddrV6},
     num::TryFromIntError,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -779,7 +779,7 @@ pub struct ServerConfig {
     pub(crate) new_token_lifetime: Duration,
 
     /// Responsible for limiting clients' ability to reuse tokens from NEW_TOKEN frames
-    pub(crate) token_reuse_preventer: Option<Arc<dyn TokenReusePreventer>>,
+    pub(crate) token_reuse_preventer: Option<Arc<Mutex<Box<dyn TokenReusePreventer>>>>,
 
     /// Number of NEW_TOKEN frames sent to a client when its path is validated.
     pub(crate) new_tokens_sent_upon_validation: u32,
@@ -805,7 +805,7 @@ impl ServerConfig {
     pub fn new(
         crypto: Arc<dyn crypto::ServerConfig>,
         token_key: Arc<dyn HandshakeTokenKey>,
-        token_reuse_preventer: Option<Arc<dyn TokenReusePreventer>>,
+        token_reuse_preventer: Option<Box<dyn TokenReusePreventer>>,
     ) -> Self {
         Self {
             transport: Arc::new(TransportConfig::default()),
@@ -814,7 +814,7 @@ impl ServerConfig {
             token_key,
             retry_token_lifetime: Duration::from_secs(15),
             new_token_lifetime: Duration::from_secs(2 * 7 * 24 * 60 * 60),
-            token_reuse_preventer,
+            token_reuse_preventer: token_reuse_preventer.map(Mutex::new).map(Arc::new),
             new_tokens_sent_upon_validation: 2,
 
             migration: true,
@@ -961,7 +961,7 @@ impl ServerConfig {
         Self::new(
             crypto,
             Arc::new(master_key),
-            Some(Arc::new(BloomTokenReusePreventer::default())),
+            Some(Box::new(BloomTokenReusePreventer::default())),
         )
     }
 }

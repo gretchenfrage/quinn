@@ -2,16 +2,11 @@
 
 use std::{
     hash::{Hash as _, Hasher as _},
-    iter,
-    mem::swap,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        RwLock,
-    },
+    mem::{size_of, swap},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use rustc_hash::FxHasher;
+use rustc_hash::{FxHashSet, FxHasher};
 use tracing::warn;
 
 /// Error for when a token may have been reused
@@ -33,7 +28,7 @@ pub trait TokenReusePreventer: Send + Sync {
     ///
     /// False negatives and false positives are both permissible.
     fn using(
-        &self,
+        &mut self,
         token_rand: u128,
         issued: SystemTime,
         new_token_lifetime: Duration,
@@ -41,105 +36,132 @@ pub trait TokenReusePreventer: Send + Sync {
 }
 
 /// Bloom filter-based `TokenReusePreventer`
-pub struct BloomTokenReusePreventer(RwLock<BloomTokenReusePreventerState>);
+///
+/// Parameterizable over an approximate maximum number of bytes to allocate. Starts out by storing
+/// used tokens in a hash set. Once the hash set becomes too large, converts it to a bloom filter.
+///
+/// Divides time into periods based on `new_token_lifetime` and stores two filters at any given
+/// moment, for each of the two periods currently non-expired tokens could expire in. As such,
+/// turns over filters as time goes on to avoid bloom filter false positive rate increasing
+/// infinitely over time.
+pub struct BloomTokenReusePreventer {
+    bloom_params: BloomParams,
 
-struct BloomTokenReusePreventerState {
+    // filter_1 covers tokens that expire in the period starting at
+    // UNIX_EPOCH + period_idx_1 * new_token_lifetime and extending new_token_lifetime after.
+    // filter_2 covers tokens for the next new_token_lifetime after that.
+    period_idx_1: u128,
+    filter_1: Filter,
+    filter_2: Filter,
+}
+
+#[derive(Clone)]
+struct BloomParams {
+    size_bytes: usize,
     hashers: [FxHasher; 2],
-    k: u32,
+    k_num: u32,
+}
 
-    turnover_idx_1: u128,
-    // bits_1 is a bloom filter for tokens with expiration time in the period starting at:
-    //
-    //     UNIX_EPOCH + turnover_idx_1 * turnover_period
-    //
-    // and extending another turnover_period beyond that. bits_2 is for the next turnover_period
-    // after that.
-    bits_1: Vec<AtomicU64>,
-    bits_2: Vec<AtomicU64>,
+enum Filter {
+    Set(FxHashSet<u128>),
+    Bloom(Vec<u8>),
 }
 
 impl BloomTokenReusePreventer {
-    /// Construct new
+    /// Construct with an approximate maximum memory usage and a bloom filter k number
     ///
-    /// `bitmap_size` is the size in bytes of each of the two bloom filters. Thus, the memory
-    /// consumption of a `BloomTokenReusePreventer` will be
-    pub fn new(bitmap_size: usize, k: u32) -> Self {
-        // TODO assertions
-        BloomTokenReusePreventer(RwLock::new(BloomTokenReusePreventerState {
-            hashers: [FxHasher::default(), FxHasher::default()],
-            k,
+    /// If choosing a custom k number, note that `BloomTokenReusePreventer` always maintains two
+    /// filters between them and divides the allocation budget of `max_bytes` evenly between them.
+    /// As such, each bloom filter will contain `max_bytes * 4` bits.
+    pub fn new(max_bytes: usize, k_num: u32) -> Self {
+        assert!(max_bytes >= 2, "BloomTokenReusePreventer max_bytes too low");
+        assert!(
+            k_num >= 1,
+            "BloomTokenReusePreventer k_num must be at least 1"
+        );
 
-            turnover_idx_1: 0,
-            bits_1: iter::from_fn(|| Some(AtomicU64::new(0)))
-                .take(bitmap_size / 8)
-                .collect(),
-            bits_2: iter::from_fn(|| Some(AtomicU64::new(0)))
-                .take(bitmap_size / 8)
-                .collect(),
-        }))
+        BloomTokenReusePreventer {
+            bloom_params: BloomParams {
+                size_bytes: max_bytes / 2,
+                hashers: [FxHasher::default(), FxHasher::default()],
+                k_num,
+            },
+            period_idx_1: 0,
+            filter_1: Filter::Set(FxHashSet::default()),
+            filter_2: Filter::Set(FxHashSet::default()),
+        }
     }
 }
 
 impl TokenReusePreventer for BloomTokenReusePreventer {
     fn using(
-        &self,
+        &mut self,
         token_rand: u128,
         issued: SystemTime,
         new_token_lifetime: Duration,
     ) -> Result<(), TokenReuseError> {
-        let expires = issued + new_token_lifetime;
-        let turnover_idx =
-            expires.duration_since(UNIX_EPOCH).unwrap().as_nanos() / new_token_lifetime.as_nanos();
+        // calculate period index for token
+        let period_idx = (issued + new_token_lifetime)
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+            / new_token_lifetime.as_nanos();
 
-        let mut turn_over = false;
-        loop {
-            if turn_over {
-                let mut state = self.0.write().unwrap();
-                if turnover_idx < state.turnover_idx_1 {
-                    // shouldn't happen unless time travels backwards or new_token_lifetime changes
-                    warn!("BloomTokenReusePreventer presented with token too far in past");
+        // get relevant filter
+        let filter = if period_idx < self.period_idx_1 {
+            // shouldn't happen unless time travels backwards or new_token_lifetime changes
+            warn!("BloomTokenReusePreventer presented with token too far in past");
+            return Err(TokenReuseError);
+        } else if period_idx == self.period_idx_1 {
+            &mut self.filter_1
+        } else if period_idx == self.period_idx_1 + 1 {
+            &mut self.filter_2
+        } else {
+            // turn over filters
+            if period_idx == self.period_idx_1 + 2 {
+                swap(&mut self.filter_1, &mut self.filter_2);
+            } else {
+                self.filter_1 = Filter::Set(FxHashSet::default());
+            }
+            self.filter_2 = Filter::Set(FxHashSet::default());
+            self.period_idx_1 = period_idx - 1;
+
+            &mut self.filter_2
+        };
+
+        // query and insert
+        match filter {
+            &mut Filter::Set(ref mut hset) => {
+                if !hset.insert(token_rand) {
                     return Err(TokenReuseError);
                 }
-                if turnover_idx > state.turnover_idx_1 + 1 {
-                    if turnover_idx == state.turnover_idx_1 + 2 {
-                        let state_borrow = &mut *state;
-                        swap(&mut state_borrow.bits_1, &mut state_borrow.bits_2);
-                    } else {
-                        for n in &mut state.bits_1 {
-                            *n = AtomicU64::new(0);
+
+                if hset.capacity() * size_of::<u128>() > self.bloom_params.size_bytes {
+                    // convert to bloom
+                    let mut bits = vec![0; self.bloom_params.size_bytes];
+                    for &item in hset.iter() {
+                        for i in self.bloom_params.iter(item) {
+                            bits[(i / 8) as usize] |= 1 << (i % 8);
                         }
                     }
-                    for n in &mut state.bits_2 {
-                        *n = AtomicU64::new(0);
-                    }
-                    state.turnover_idx_1 = turnover_idx - 1;
+                    *filter = Filter::Bloom(bits);
                 }
-                turn_over = false;
-            } else {
-                let state = self.0.read().unwrap();
-                let bits = if turnover_idx < state.turnover_idx_1 {
-                    // shouldn't happen unless time travels backwards or new_token_lifetime changes
-                    warn!("BloomTokenReusePreventer presented with token too far in past");
-                    return Err(TokenReuseError);
-                } else if turnover_idx == state.turnover_idx_1 {
-                    &state.bits_1
-                } else if turnover_idx == state.turnover_idx_1 + 1 {
-                    &state.bits_2
-                } else {
-                    turn_over = true;
-                    continue;
-                };
-
-                let mut reuse = true;
-                for i in state.iter(token_rand) {
+            }
+            &mut Filter::Bloom(ref mut bits) => {
+                let mut refuted = false;
+                for i in self.bloom_params.iter(token_rand) {
+                    let byte = &mut bits[(i / 8) as usize];
                     let mask = 1 << (i % 8);
-                    if (bits[(i / 8) as usize].fetch_or(mask, Ordering::Relaxed) & mask) == 0 {
-                        reuse = false;
-                    }
+                    refuted |= (*byte & mask) == 0;
+                    *byte |= mask;
                 }
-                break if reuse { Err(TokenReuseError) } else { Ok(()) };
+                if !refuted {
+                    return Err(TokenReuseError);
+                }
             }
         }
+
+        Ok(())
     }
 }
 
@@ -147,33 +169,35 @@ impl Default for BloomTokenReusePreventer {
     fn default() -> Self {
         // 10 MiB per bloom filter, totalling 20 MiB
         // k=55 is optimal for a 10 MiB bloom filter and one million hits
+        // sanity check: a 10 MiB hash set can store upper bound 64 kibi tokens
         Self::new(10 << 20, 55)
     }
 }
 
-struct BloomIter<'a> {
-    state: &'a BloomTokenReusePreventerState,
-    hashes: [u64; 2],
-    item: u128,
-    next_ki: u32,
-}
-
-impl BloomTokenReusePreventerState {
+impl BloomParams {
+    /// Iterator over bit array indexes corresponding to item
     fn iter(&self, item: u128) -> BloomIter {
         BloomIter {
-            state: self,
-            hashes: [0; 2],
+            params: self.clone(),
             item,
+            hashes: [0; 2],
             next_ki: 0,
         }
     }
 }
 
-impl<'a> Iterator for BloomIter<'a> {
+struct BloomIter {
+    params: BloomParams,
+    item: u128,
+    hashes: [u64; 2],
+    next_ki: u32,
+}
+
+impl Iterator for BloomIter {
     type Item = u64;
 
     fn next(&mut self) -> Option<u64> {
-        if self.next_ki >= self.state.k {
+        if self.next_ki >= self.params.k_num {
             return None;
         }
 
@@ -181,14 +205,14 @@ impl<'a> Iterator for BloomIter<'a> {
         self.next_ki += 1;
         Some(
             if ki < 2 {
-                let mut hasher = self.state.hashers[ki as usize].clone();
+                let mut hasher = self.params.hashers[ki as usize].clone();
                 self.item.hash(&mut hasher);
                 self.hashes[ki as usize] = hasher.finish();
                 self.hashes[ki as usize]
             } else {
                 self.hashes[0].wrapping_add((ki as u64).wrapping_mul(self.hashes[1]))
                     % 0xFFFF_FFFF_FFFF_FFC5
-            } % (self.state.bits_1.len() as u64 * 8),
+            } % (self.params.size_bytes as u64 * 8),
         )
     }
 }

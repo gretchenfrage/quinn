@@ -517,14 +517,11 @@ impl Endpoint {
                         .token_reuse_preventer
                         .as_ref()
                         .map(|trp| {
-                            token.issued + server_config.new_token_lifetime > SystemTime::now()
-                                && trp
-                                    .using(
-                                        token.rand,
-                                        token.issued,
-                                        server_config.new_token_lifetime,
-                                    )
-                                    .is_ok()
+                            let reuse_ok = trp.lock().unwrap().using(token.rand, token.issued, server_config.new_token_lifetime).is_ok();
+                            if !reuse_ok {
+                                debug!("rejecting token from NEW_TOKEN frame because detected as reuse");
+                            }
+                            token.issued + server_config.new_token_lifetime > SystemTime::now() && reuse_ok
                         })
                         .unwrap_or(false)
                     {
