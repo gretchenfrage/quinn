@@ -4,13 +4,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use bytes::{Buf, BufMut};
-
 use crate::{
     coding::{BufExt, BufMutExt},
-    crypto::{CryptoError, HandshakeTokenKey, HmacKey},
+    crypto::{AeadKey, CryptoError, HandshakeTokenKey, HmacKey},
     shared::ConnectionId,
-    RESET_TOKEN_SIZE,
+    MAX_CID_SIZE, RESET_TOKEN_SIZE,
 };
 
 pub(crate) struct RetryToken {
@@ -27,10 +25,9 @@ impl RetryToken {
         address: &SocketAddr,
         retry_src_cid: &ConnectionId,
     ) -> Vec<u8> {
-        let aead_key = key.aead_from_hkdf(retry_src_cid);
+        let aead_key = handshake_token_aead_key(key, address, retry_src_cid);
 
         let mut buf = Vec::new();
-        encode_addr(&mut buf, address);
         self.orig_dst_cid.encode_long(&mut buf);
         buf.write::<u64>(
             self.issued
@@ -50,24 +47,14 @@ impl RetryToken {
         retry_src_cid: &ConnectionId,
         raw_token_bytes: &[u8],
     ) -> Result<Self, TokenDecodeError> {
-        let aead_key = key.aead_from_hkdf(retry_src_cid);
+        let aead_key = handshake_token_aead_key(key, address, retry_src_cid);
         let mut sealed_token = raw_token_bytes.to_vec();
 
         let data = aead_key.open(&mut sealed_token, &[])?;
         let mut reader = io::Cursor::new(data);
-        let token_addr = decode_addr(&mut reader).ok_or(TokenDecodeError::UnknownToken)?;
-        if token_addr != *address {
-            return Err(TokenDecodeError::WrongAddress);
-        }
-        let orig_dst_cid =
-            ConnectionId::decode_long(&mut reader).ok_or(TokenDecodeError::UnknownToken)?;
-        let issued = UNIX_EPOCH
-            + Duration::new(
-                reader
-                    .get::<u64>()
-                    .map_err(|_| TokenDecodeError::UnknownToken)?,
-                0,
-            );
+        let orig_dst_cid = ConnectionId::decode_long(&mut reader).ok_or(TokenDecodeError)?;
+        let issued =
+            UNIX_EPOCH + Duration::new(reader.get::<u64>().map_err(|_| TokenDecodeError)?, 0);
 
         Ok(Self {
             orig_dst_cid,
@@ -76,43 +63,38 @@ impl RetryToken {
     }
 }
 
-fn encode_addr(buf: &mut Vec<u8>, address: &SocketAddr) {
+fn handshake_token_aead_key(
+    key: &dyn HandshakeTokenKey,
+    address: &SocketAddr,
+    retry_src_cid: &ConnectionId,
+) -> Box<dyn AeadKey> {
+    use io::Write as _;
+
+    // encoded IPV6 socket address = 19 bytes
+    let mut buf = [0; MAX_CID_SIZE + 19];
+    let mut cursor = io::Cursor::new(buf.as_mut_slice());
     match address.ip() {
         IpAddr::V4(x) => {
-            buf.put_u8(0);
-            buf.put_slice(&x.octets());
+            cursor.write_all(&[0]).unwrap();
+            cursor.write_all(&x.octets()).unwrap();
         }
         IpAddr::V6(x) => {
-            buf.put_u8(1);
-            buf.put_slice(&x.octets());
+            cursor.write_all(&[1]).unwrap();
+            cursor.write_all(&x.octets()).unwrap();
         }
     }
-    buf.put_u16(address.port());
+    cursor.write_all(&u16::to_ne_bytes(address.port())).unwrap();
+    cursor.write_all(retry_src_cid).unwrap();
+    key.aead_from_hkdf(&cursor.get_ref()[..cursor.position() as usize])
 }
 
-fn decode_addr<B: Buf>(buf: &mut B) -> Option<SocketAddr> {
-    let ip = match buf.get_u8() {
-        0 => IpAddr::V4(buf.get().ok()?),
-        1 => IpAddr::V6(buf.get().ok()?),
-        _ => return None,
-    };
-    let port = buf.get_u16();
-    Some(SocketAddr::new(ip, port))
-}
-
-/// Reasons why a retry token might fail to validate a client's address
+/// Token was not recognized. It should be silently ignored.
 #[derive(Debug, Copy, Clone)]
-pub(crate) enum TokenDecodeError {
-    /// Token was not recognized. It should be silently ignored.
-    UnknownToken,
-    /// Token was well-formed but associated with an incorrect address. The connection cannot be
-    /// established.
-    WrongAddress,
-}
+pub(crate) struct TokenDecodeError;
 
 impl From<CryptoError> for TokenDecodeError {
     fn from(CryptoError: CryptoError) -> Self {
-        Self::UnknownToken
+        TokenDecodeError
     }
 }
 
@@ -166,6 +148,8 @@ impl fmt::Display for ResetToken {
 
 #[cfg(test)]
 mod test {
+    use bytes::BufMut;
+
     #[cfg(feature = "ring")]
     #[test]
     fn token_sanity() {
