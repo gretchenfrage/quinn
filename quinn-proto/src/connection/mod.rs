@@ -2360,7 +2360,6 @@ impl Connection {
             Header::Retry {
                 src_cid: rem_cid, ..
             } => {
-                warn!("receiving Retry");
                 if self.side.is_server() {
                     return Err(TransportError::PROTOCOL_VIOLATION("client sent Retry").into());
                 }
