@@ -16,7 +16,7 @@ use thiserror::Error;
 use tracing::{debug, error, trace, warn};
 
 use crate::{
-    cid_generator::{ConnectionIdGenerator, RandomConnectionIdGenerator},
+    cid_generator::ConnectionIdGenerator,
     coding::BufMutExt,
     config::{ClientConfig, EndpointConfig, ServerConfig},
     connection::{Connection, ConnectionError},
@@ -63,12 +63,18 @@ impl Endpoint {
     /// `allow_mtud` enables path MTU detection when requested by `Connection` configuration for
     /// better performance. This requires that outgoing packets are never fragmented, which can be
     /// achieved via e.g. the `IPV6_DONTFRAG` socket option.
+    ///
+    /// If `rng_seed` is provided, it will be used to initialize the endpoint's rng (having priority
+    /// over the rng seed configured in [`EndpointConfig`]). Note that the `rng_seed` parameter will
+    /// be removed in a future release, so prefer setting it to `None` and configuring rng seeds
+    /// using [`EndpointConfig::rng_seed`].
     pub fn new(
         config: Arc<EndpointConfig>,
         server_config: Option<Arc<ServerConfig>>,
         allow_mtud: bool,
         rng_seed: Option<[u8; 32]>,
     ) -> Self {
+        let rng_seed = rng_seed.or(config.rng_seed);
         Self {
             rng: rng_seed.map_or(StdRng::from_entropy(), StdRng::from_seed),
             index: ConnectionIndex::default(),
@@ -396,7 +402,7 @@ impl Endpoint {
             return Err(ConnectError::UnsupportedVersion);
         }
 
-        let remote_id = RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid();
+        let remote_id = (config.initial_dst_cid_provider)();
         trace!(initial_dcid = %remote_id);
 
         let ch = ConnectionHandle(self.connections.vacant_key());

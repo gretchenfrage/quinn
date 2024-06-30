@@ -1057,15 +1057,18 @@ impl State {
                         // We don't care if the on-connected future was dropped
                         let _ = x.send(self.inner.accepted_0rtt());
                     }
+                    if self.inner.side().is_client() && !self.inner.accepted_0rtt() {
+                        // Wake up rejected 0-RTT streams so they can fail immediately with
+                        // `ZeroRttRejected` errors.
+                        wake_all(&mut self.blocked_writers);
+                        wake_all(&mut self.blocked_readers);
+                        wake_all(&mut self.stopped);
+                    }
                 }
                 ConnectionLost { reason } => {
                     self.terminate(reason, shared);
                 }
-                Stream(StreamEvent::Writable { id }) => {
-                    if let Some(writer) = self.blocked_writers.remove(&id) {
-                        writer.wake();
-                    }
-                }
+                Stream(StreamEvent::Writable { id }) => wake_stream(id, &mut self.blocked_writers),
                 Stream(StreamEvent::Opened { dir: Dir::Uni }) => {
                     shared.stream_incoming[Dir::Uni as usize].notify_waiters();
                 }
@@ -1078,27 +1081,15 @@ impl State {
                 DatagramsUnblocked => {
                     shared.datagrams_unblocked.notify_waiters();
                 }
-                Stream(StreamEvent::Readable { id }) => {
-                    if let Some(reader) = self.blocked_readers.remove(&id) {
-                        reader.wake();
-                    }
-                }
+                Stream(StreamEvent::Readable { id }) => wake_stream(id, &mut self.blocked_readers),
                 Stream(StreamEvent::Available { dir }) => {
                     // Might mean any number of streams are ready, so we wake up everyone
                     shared.stream_budget_available[dir as usize].notify_waiters();
                 }
-                Stream(StreamEvent::Finished { id }) => {
-                    if let Some(stopped) = self.stopped.remove(&id) {
-                        stopped.wake();
-                    }
-                }
+                Stream(StreamEvent::Finished { id }) => wake_stream(id, &mut self.stopped),
                 Stream(StreamEvent::Stopped { id, .. }) => {
-                    if let Some(stopped) = self.stopped.remove(&id) {
-                        stopped.wake();
-                    }
-                    if let Some(writer) = self.blocked_writers.remove(&id) {
-                        writer.wake();
-                    }
+                    wake_stream(id, &mut self.stopped);
+                    wake_stream(id, &mut self.blocked_writers);
                 }
             }
         }
@@ -1167,12 +1158,8 @@ impl State {
         if let Some(x) = self.on_handshake_data.take() {
             let _ = x.send(());
         }
-        for (_, writer) in self.blocked_writers.drain() {
-            writer.wake()
-        }
-        for (_, reader) in self.blocked_readers.drain() {
-            reader.wake()
-        }
+        wake_all(&mut self.blocked_writers);
+        wake_all(&mut self.blocked_readers);
         shared.stream_budget_available[Dir::Uni as usize].notify_waiters();
         shared.stream_budget_available[Dir::Bi as usize].notify_waiters();
         shared.stream_incoming[Dir::Uni as usize].notify_waiters();
@@ -1182,9 +1169,7 @@ impl State {
         if let Some(x) = self.on_connected.take() {
             let _ = x.send(false);
         }
-        for (_, waker) in self.stopped.drain() {
-            waker.wake();
-        }
+        wake_all(&mut self.stopped);
         shared.closed.notify_waiters();
     }
 
@@ -1226,6 +1211,16 @@ impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("State").field("inner", &self.inner).finish()
     }
+}
+
+fn wake_stream(stream_id: StreamId, wakers: &mut FxHashMap<StreamId, Waker>) {
+    if let Some(waker) = wakers.remove(&stream_id) {
+        waker.wake();
+    }
+}
+
+fn wake_all(wakers: &mut FxHashMap<StreamId, Waker>) {
+    wakers.drain().for_each(|(_, waker)| waker.wake())
 }
 
 /// Errors that can arise when sending a datagram

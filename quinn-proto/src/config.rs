@@ -22,7 +22,9 @@ use crate::{
     crypto::{self, HandshakeTokenKey, HmacKey},
     new_token_store::{InMemNewTokenStore, NewTokenStore},
     token_reuse_preventer::{BloomTokenReusePreventer, TokenReusePreventer},
-    VarInt, VarIntBoundsExceeded, DEFAULT_SUPPORTED_VERSIONS, INITIAL_MTU, MAX_UDP_PAYLOAD,
+    shared::ConnectionId,
+    RandomConnectionIdGenerator, VarInt, VarIntBoundsExceeded, DEFAULT_SUPPORTED_VERSIONS,
+    INITIAL_MTU, MAX_CID_SIZE, MAX_UDP_PAYLOAD,
 };
 
 /// Parameters governing the core QUIC state machine
@@ -629,6 +631,8 @@ pub struct EndpointConfig {
     pub(crate) grease_quic_bit: bool,
     /// Minimum interval between outgoing stateless reset packets
     pub(crate) min_reset_interval: Duration,
+    /// Optional seed to be used internally for random number generation
+    pub(crate) rng_seed: Option<[u8; 32]>,
 }
 
 impl EndpointConfig {
@@ -643,6 +647,7 @@ impl EndpointConfig {
             supported_versions: DEFAULT_SUPPORTED_VERSIONS.to_vec(),
             grease_quic_bit: true,
             min_reset_interval: Duration::from_millis(20),
+            rng_seed: None,
         }
     }
 
@@ -729,6 +734,17 @@ impl EndpointConfig {
         self.min_reset_interval = value;
         self
     }
+
+    /// Optional seed to be used internally for random number generation
+    ///
+    /// By default, quinn will initialize an endpoint's rng using a platform entropy source.
+    /// However, you can seed the rng yourself through this method (e.g. if you need to run quinn
+    /// deterministically or if you are using quinn in an environment that doesn't have a source of
+    /// entropy available).
+    pub fn rng_seed(&mut self, seed: Option<[u8; 32]>) -> &mut Self {
+        self.rng_seed = seed;
+        self
+    }
 }
 
 impl fmt::Debug for EndpointConfig {
@@ -739,6 +755,7 @@ impl fmt::Debug for EndpointConfig {
             .field("cid_generator_factory", &"[ elided ]")
             .field("supported_versions", &self.supported_versions)
             .field("grease_quic_bit", &self.grease_quic_bit)
+            .field("rng_seed", &self.rng_seed)
             .finish()
     }
 }
@@ -1004,6 +1021,9 @@ pub struct ClientConfig {
     /// New token store to use
     pub(crate) new_token_store: Option<Arc<dyn NewTokenStore>>,
 
+    /// Provider that populates the destination connection ID of Initial Packets
+    pub(crate) initial_dst_cid_provider: Arc<dyn Fn() -> ConnectionId + Send + Sync>,
+
     /// QUIC protocol version to use
     pub(crate) version: u32,
 }
@@ -1015,8 +1035,27 @@ impl ClientConfig {
             transport: Default::default(),
             crypto,
             new_token_store: Some(Arc::new(InMemNewTokenStore::<2>::default())),
+            initial_dst_cid_provider: Arc::new(|| {
+                RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid()
+            }),
             version: 1,
         }
+    }
+
+    /// Configure how to populate the destination CID of the initial packet when attempting to
+    /// establish a new connection.
+    ///
+    /// By default, it's populated with random bytes with reasonable length, so unless you have
+    /// a good reason, you do not need to change it.
+    ///
+    /// When prefer to override the default, please note that the generated connection ID MUST be
+    /// at least 8 bytes long and unpredictable, as per section 7.2 of RFC 9000.
+    pub fn initial_dst_cid_provider(
+        &mut self,
+        initial_dst_cid_provider: Arc<dyn Fn() -> ConnectionId + Send + Sync>,
+    ) -> &mut Self {
+        self.initial_dst_cid_provider = initial_dst_cid_provider;
+        self
     }
 
     /// Set a custom [`TransportConfig`]
