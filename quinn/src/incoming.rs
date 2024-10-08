@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use proto::{ConnectionError, ServerConfig};
+use proto::{ConnectionError, ConnectionId, ServerConfig};
 use thiserror::Error;
 
 use crate::{
@@ -95,6 +95,11 @@ impl Incoming {
     /// The inverse is not guaranteed.
     pub fn may_retry(&self) -> bool {
         self.0.as_ref().unwrap().inner.may_retry()
+    }
+
+    /// The original destination CID when initiating the connection
+    pub fn orig_dst_cid(&self) -> ConnectionId {
+        *self.0.as_ref().unwrap().inner.orig_dst_cid()
     }
 }
 

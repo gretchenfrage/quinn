@@ -445,6 +445,18 @@ impl Header {
             VersionNegotiate { ref dst_cid, .. } => dst_cid,
         }
     }
+
+    /// Whether the payload of this packet contains QUIC frames
+    pub(crate) fn has_frames(&self) -> bool {
+        use Header::*;
+        match *self {
+            Initial(_) => true,
+            Long { .. } => true,
+            Retry { .. } => false,
+            Short { .. } => true,
+            VersionNegotiate { .. } => false,
+        }
+    }
 }
 
 pub(crate) struct PartialEncode {
@@ -886,8 +898,6 @@ impl SpaceId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "rustls")]
-    use crate::DEFAULT_SUPPORTED_VERSIONS;
     use hex_literal::hex;
     use std::io;
 
@@ -924,7 +934,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "rustls")]
+    #[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
     #[test]
     fn header_encoding() {
         use crate::crypto::rustls::{initial_keys, initial_suite_from_provider};
@@ -943,7 +953,7 @@ mod tests {
             src_cid: ConnectionId::new(&[]),
             dst_cid: dcid,
             token: Bytes::new(),
-            version: DEFAULT_SUPPORTED_VERSIONS[0],
+            version: crate::DEFAULT_SUPPORTED_VERSIONS[0],
         });
         let encode = header.encode(&mut buf);
         let header_len = buf.len();
@@ -967,7 +977,7 @@ mod tests {
         );
 
         let server = initial_keys(Version::V1, &dcid, Side::Server, &suite);
-        let supported_versions = DEFAULT_SUPPORTED_VERSIONS.to_vec();
+        let supported_versions = crate::DEFAULT_SUPPORTED_VERSIONS.to_vec();
         let decode = PartialDecode::new(
             buf.as_slice().into(),
             &FixedLengthConnectionIdParser::new(0),

@@ -93,7 +93,7 @@ impl FrameStats {
             Frame::Close(_) => self.connection_close += 1,
             Frame::AckFrequency(_) => self.ack_frequency += 1,
             Frame::ImmediateAck => self.immediate_ack += 1,
-            Frame::HandshakeDone => self.handshake_done += 1,
+            Frame::HandshakeDone => self.handshake_done = self.handshake_done.saturating_add(1),
         }
     }
 }
@@ -152,6 +152,8 @@ pub struct PathStats {
     pub lost_plpmtud_probes: u64,
     /// The number of times a black hole was detected in the path
     pub black_holes_detected: u64,
+    /// Largest UDP payload size the path currently supports
+    pub current_mtu: u16,
 }
 
 /// Connection statistics

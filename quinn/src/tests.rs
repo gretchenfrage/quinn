@@ -1,4 +1,4 @@
-#![cfg(feature = "rustls")]
+#![cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
 
 use std::{
     convert::TryInto,
@@ -406,7 +406,6 @@ fn echo_v4() {
 }
 
 #[test]
-#[cfg(any(target_os = "linux", target_os = "macos"))] // Dual-stack sockets aren't the default anywhere else.
 fn echo_dualstack() {
     run_echo(EchoArgs {
         client_addr: SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
@@ -419,7 +418,6 @@ fn echo_dualstack() {
 }
 
 #[test]
-#[cfg(not(tarpaulin))]
 fn stress_receive_window() {
     run_echo(EchoArgs {
         client_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
@@ -432,7 +430,6 @@ fn stress_receive_window() {
 }
 
 #[test]
-#[cfg(not(tarpaulin))]
 fn stress_stream_receive_window() {
     // Note that there is no point in running this with too many streams,
     // since the window is only active within a stream.
@@ -447,7 +444,6 @@ fn stress_stream_receive_window() {
 }
 
 #[test]
-#[cfg(not(tarpaulin))]
 fn stress_both_windows() {
     run_echo(EchoArgs {
         client_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
@@ -527,6 +523,7 @@ fn run_echo(args: EchoArgs) {
             // requires modifying this test - please update the list of supported
             // platforms in the doc comment of `quinn_udp::RecvMeta::dst_ip`.
             if cfg!(target_os = "linux")
+                || cfg!(target_os = "android")
                 || cfg!(target_os = "freebsd")
                 || cfg!(target_os = "openbsd")
                 || cfg!(target_os = "netbsd")

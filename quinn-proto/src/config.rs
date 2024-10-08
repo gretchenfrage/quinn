@@ -6,16 +6,14 @@ use std::{
     time::Duration,
 };
 
-#[cfg(feature = "ring")]
-use rand::RngCore;
-#[cfg(feature = "rustls")]
+#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
 use rustls::client::WebPkiServerVerifier;
-#[cfg(feature = "rustls")]
+#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use thiserror::Error;
 
-#[cfg(feature = "rustls")]
-use crate::crypto::rustls::QuicServerConfig;
+#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+use crate::crypto::rustls::{configured_provider, QuicServerConfig};
 use crate::{
     cid_generator::{ConnectionIdGenerator, HashedConnectionIdGenerator},
     congestion,
@@ -90,7 +88,7 @@ impl TransportConfig {
     /// Maximum duration of inactivity to accept before timing out the connection.
     ///
     /// The true idle timeout is the minimum of this and the peer's own max idle timeout. `None`
-    /// represents an infinite timeout.
+    /// represents an infinite timeout. Defaults to 30 seconds.
     ///
     /// **WARNING**: If a peer or its network path malfunctions or acts maliciously, an infinite
     /// idle timeout can result in permanently hung futures!
@@ -336,7 +334,8 @@ impl Default for TransportConfig {
         Self {
             max_concurrent_bidi_streams: 100u32.into(),
             max_concurrent_uni_streams: 100u32.into(),
-            max_idle_timeout: Some(VarInt(10_000)),
+            // 30 second default recommended by RFC 9308 § 3.2
+            max_idle_timeout: Some(VarInt(30_000)),
             stream_receive_window: STREAM_RWND.into(),
             receive_window: VarInt::MAX,
             send_window: (8 * STREAM_RWND).into(),
@@ -760,16 +759,19 @@ impl fmt::Debug for EndpointConfig {
     }
 }
 
-#[cfg(feature = "ring")]
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 impl Default for EndpointConfig {
     fn default() -> Self {
+        #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
+        use aws_lc_rs::hmac;
+        use rand::RngCore;
+        #[cfg(feature = "ring")]
+        use ring::hmac;
+
         let mut reset_key = [0; 64];
         rand::thread_rng().fill_bytes(&mut reset_key);
 
-        Self::new(Arc::new(ring::hmac::Key::new(
-            ring::hmac::HMAC_SHA256,
-            &reset_key,
-        )))
+        Self::new(Arc::new(hmac::Key::new(hmac::HMAC_SHA256, &reset_key)))
     }
 }
 
@@ -949,7 +951,7 @@ impl ServerConfig {
     }
 }
 
-#[cfg(feature = "rustls")]
+#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
 impl ServerConfig {
     /// Create a server config with the given certificate chain to be presented to clients
     ///
@@ -960,20 +962,26 @@ impl ServerConfig {
     ) -> Result<Self, rustls::Error> {
         Ok(Self::with_crypto(Arc::new(QuicServerConfig::new(
             cert_chain, key,
-        ))))
+        )?)))
     }
 }
 
-#[cfg(feature = "ring")]
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 impl ServerConfig {
     /// Create a server config with the given [`crypto::ServerConfig`]
     ///
     /// Uses a randomized handshake token key and a default `BloomTokenReusePreventer`.
     pub fn with_crypto(crypto: Arc<dyn crypto::ServerConfig>) -> Self {
+        #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
+        use aws_lc_rs::hkdf;
+        use rand::RngCore;
+        #[cfg(feature = "ring")]
+        use ring::hkdf;
+
         let rng = &mut rand::thread_rng();
         let mut master_key = [0u8; 64];
         rng.fill_bytes(&mut master_key);
-        let master_key = ring::hkdf::Salt::new(ring::hkdf::HKDF_SHA256, &[]).extract(&master_key);
+        let master_key = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
 
         Self::new(
             crypto,
@@ -1083,7 +1091,7 @@ impl ClientConfig {
     }
 }
 
-#[cfg(feature = "rustls")]
+#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
 impl ClientConfig {
     /// Create a client configuration that trusts the platform's native roots
     #[cfg(feature = "platform-verifier")]
@@ -1098,7 +1106,7 @@ impl ClientConfig {
         roots: Arc<rustls::RootCertStore>,
     ) -> Result<Self, rustls::client::VerifierBuilderError> {
         Ok(Self::new(Arc::new(crypto::rustls::QuicClientConfig::new(
-            WebPkiServerVerifier::builder(roots).build()?,
+            WebPkiServerVerifier::builder_with_provider(roots, configured_provider()).build()?,
         ))))
     }
 }

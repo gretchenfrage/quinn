@@ -1,4 +1,11 @@
-#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "visionos",
+    target_os = "openbsd",
+    target_os = "solaris",
+)))]
 use std::ptr;
 use std::{
     io::{self, IoSliceMut},
@@ -15,7 +22,8 @@ use std::{
 use socket2::SockRef;
 
 use super::{
-    cmsg, log_sendmsg_error, EcnCodepoint, RecvMeta, Transmit, UdpSockRef, IO_ERROR_LOG_INTERVAL,
+    cmsg, log::debug, log_sendmsg_error, EcnCodepoint, RecvMeta, Transmit, UdpSockRef,
+    IO_ERROR_LOG_INTERVAL,
 };
 
 // Defined in netinet6/in6.h on OpenBSD, this is not yet exported by the libc crate
@@ -42,7 +50,7 @@ pub struct UdpSocketState {
     gro_segments: usize,
     may_fragment: bool,
 
-    /// True if we have received EINVAL error from `sendmsg` or `sendmmsg` system call at least once.
+    /// True if we have received EINVAL error from `sendmsg` system call at least once.
     ///
     /// If enabled, we assume that old kernel is used and switch to fallback mode.
     /// In particular, we do not use IP_TOS cmsg_type in this case,
@@ -60,7 +68,10 @@ impl UdpSocketState {
             || cfg!(target_os = "netbsd")
             || cfg!(target_os = "macos")
             || cfg!(target_os = "ios")
+            || cfg!(target_os = "tvos")
+            || cfg!(target_os = "visionos")
             || cfg!(target_os = "android")
+            || cfg!(target_os = "solaris")
         {
             cmsg_platform_space +=
                 unsafe { libc::CMSG_SPACE(mem::size_of::<libc::in6_pktinfo>() as _) as usize };
@@ -83,11 +94,12 @@ impl UdpSocketState {
 
         // mac and ios do not support IP_RECVTOS on dual-stack sockets :(
         // older macos versions also don't have the flag and will error out if we don't ignore it
-        #[cfg(not(any(target_os = "openbsd", target_os = "netbsd")))]
+        #[cfg(not(any(target_os = "openbsd", target_os = "netbsd", target_os = "solaris")))]
         if is_ipv4 || !io.only_v6()? {
-            if let Err(err) = set_socket_option(&*io, libc::IPPROTO_IP, libc::IP_RECVTOS, OPTION_ON)
+            if let Err(_err) =
+                set_socket_option(&*io, libc::IPPROTO_IP, libc::IP_RECVTOS, OPTION_ON)
             {
-                tracing::debug!("Ignoring error setting IP_RECVTOS on socket: {err:?}",);
+                debug!("Ignoring error setting IP_RECVTOS on socket: {_err:?}");
             }
         }
 
@@ -119,7 +131,13 @@ impl UdpSocketState {
                 )?;
             }
         }
-        #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "ios"))]
+        #[cfg(any(
+            target_os = "freebsd",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "visionos"
+        ))]
         {
             if is_ipv4 {
                 // Set `may_fragment` to `true` if this option is not supported on the platform.
@@ -136,10 +154,13 @@ impl UdpSocketState {
             target_os = "openbsd",
             target_os = "netbsd",
             target_os = "macos",
-            target_os = "ios"
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "visionos",
+            target_os = "solaris",
         ))]
         // IP_RECVDSTADDR == IP_SENDSRCADDR on FreeBSD
-        // macOS uses only IP_RECVDSTADDR, no IP_SENDSRCADDR on macOS
+        // macOS uses only IP_RECVDSTADDR, no IP_SENDSRCADDR on macOS (the same on Solaris)
         // macOS also supports IP_PKTINFO
         {
             if is_ipv4 {
@@ -209,15 +230,17 @@ impl UdpSocketState {
         self.may_fragment
     }
 
-    /// Returns true if we previously got an EINVAL error from `sendmsg` or `sendmmsg` syscall.
+    /// Returns true if we previously got an EINVAL error from `sendmsg` syscall.
     fn sendmsg_einval(&self) -> bool {
         self.sendmsg_einval.load(Ordering::Relaxed)
     }
 
-    /// Sets the flag indicating we got EINVAL error from `sendmsg` or `sendmmsg` syscall.
+    /// Sets the flag indicating we got EINVAL error from `sendmsg` syscall.
     #[cfg(not(any(
         target_os = "macos",
         target_os = "ios",
+        target_os = "tvos",
+        target_os = "visionos",
         target_os = "openbsd",
         target_os = "netbsd"
     )))]
@@ -229,6 +252,8 @@ impl UdpSocketState {
 #[cfg(not(any(
     target_os = "macos",
     target_os = "ios",
+    target_os = "tvos",
+    target_os = "visionos",
     target_os = "openbsd",
     target_os = "netbsd"
 )))]
@@ -283,7 +308,7 @@ fn send(
                         // Prevent new transmits from being scheduled using GSO. Existing GSO transmits
                         // may already be in the pipeline, so we need to tolerate additional failures.
                         if state.max_gso_segments() > 1 {
-                            tracing::error!("got transmit error, halting segmentation offload");
+                            crate::log::error!("got transmit error, halting segmentation offload");
                             state
                                 .max_gso_segments
                                 .store(1, std::sync::atomic::Ordering::Relaxed);
@@ -319,6 +344,8 @@ fn send(
 #[cfg(any(
     target_os = "macos",
     target_os = "ios",
+    target_os = "tvos",
+    target_os = "visionos",
     target_os = "openbsd",
     target_os = "netbsd"
 ))]
@@ -335,6 +362,8 @@ fn send(state: &UdpSocketState, io: SockRef<'_>, transmit: &Transmit<'_>) -> io:
         &mut ctrl,
         cfg!(target_os = "macos")
             || cfg!(target_os = "ios")
+            || cfg!(target_os = "tvos")
+            || cfg!(target_os = "visionos")
             || cfg!(target_os = "openbsd")
             || cfg!(target_os = "netbsd"),
         state.sendmsg_einval(),
@@ -365,7 +394,14 @@ fn send(state: &UdpSocketState, io: SockRef<'_>, transmit: &Transmit<'_>) -> io:
     Ok(())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "visionos",
+    target_os = "openbsd",
+    target_os = "solaris",
+)))]
 fn recv(io: SockRef<'_>, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> io::Result<usize> {
     let mut names = [MaybeUninit::<libc::sockaddr_storage>::uninit(); BATCH_SIZE];
     let mut ctrls = [cmsg::Aligned(MaybeUninit::<[u8; CMSG_LEN]>::uninit()); BATCH_SIZE];
@@ -381,10 +417,12 @@ fn recv(io: SockRef<'_>, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> 
     }
     let msg_count = loop {
         let n = unsafe {
-            recvmmsg_with_fallback(
+            libc::recvmmsg(
                 io.as_raw_fd(),
                 hdrs.as_mut_ptr(),
                 bufs.len().min(BATCH_SIZE) as _,
+                0,
+                ptr::null_mut::<libc::timespec>(),
             )
         };
         if n == -1 {
@@ -402,7 +440,14 @@ fn recv(io: SockRef<'_>, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> 
     Ok(msg_count as usize)
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios", target_os = "openbsd"))]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "visionos",
+    target_os = "openbsd",
+    target_os = "solaris",
+))]
 fn recv(io: SockRef<'_>, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> io::Result<usize> {
     let mut name = MaybeUninit::<libc::sockaddr_storage>::uninit();
     let mut ctrl = cmsg::Aligned(MaybeUninit::<[u8; CMSG_LEN]>::uninit());
@@ -424,76 +469,6 @@ fn recv(io: SockRef<'_>, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> 
     };
     meta[0] = decode_recv(&name, &hdr, n as usize);
     Ok(1)
-}
-
-/// Implementation of `recvmmsg` with a fallback
-/// to `recvmsg` if syscall is not available.
-///
-/// It uses [`libc::syscall`] instead of [`libc::recvmmsg`]
-/// to avoid linking error on systems where libc does not contain `recvmmsg`.
-#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")))]
-unsafe fn recvmmsg_with_fallback(
-    sockfd: libc::c_int,
-    msgvec: *mut libc::mmsghdr,
-    vlen: libc::c_uint,
-) -> libc::c_int {
-    let flags = 0;
-    let timeout = ptr::null_mut::<libc::timespec>();
-
-    #[cfg(not(any(target_os = "freebsd", target_os = "netbsd")))]
-    {
-        let ret =
-            libc::syscall(libc::SYS_recvmmsg, sockfd, msgvec, vlen, flags, timeout) as libc::c_int;
-        if ret != -1 {
-            return ret;
-        }
-    }
-
-    // libc on FreeBSD and NetBSD implement `recvmmsg` as a high-level abstraction over
-    // `recvmsg`, thus `SYS_recvmmsg` constant and direct system call do not exist
-    #[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
-    {
-        #[cfg(target_os = "freebsd")]
-        let vlen = vlen as usize;
-        let ret = libc::recvmmsg(sockfd, msgvec, vlen, flags, timeout) as libc::c_int;
-        if ret != -1 {
-            return ret;
-        }
-    }
-
-    let e = io::Error::last_os_error();
-    match e.raw_os_error() {
-        Some(libc::ENOSYS) => {
-            // Fallback to `recvmsg`.
-            recvmmsg_fallback(sockfd, msgvec, vlen)
-        }
-        _ => -1,
-    }
-}
-
-/// Fallback implementation of `recvmmsg` using `recvmsg`
-/// for systems which do not support `recvmmsg`
-/// such as Linux <2.6.33.
-#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")))]
-unsafe fn recvmmsg_fallback(
-    sockfd: libc::c_int,
-    msgvec: *mut libc::mmsghdr,
-    vlen: libc::c_uint,
-) -> libc::c_int {
-    let flags = 0;
-    if vlen == 0 {
-        return 0;
-    }
-
-    let n = libc::recvmsg(sockfd, &mut (*msgvec).msg_hdr, flags);
-    if n == -1 {
-        -1
-    } else {
-        // type of `msg_len` field differs on Linux and FreeBSD,
-        // it is up to the compiler to infer and cast `n` to correct type
-        (*msgvec).msg_len = n as _;
-        1
-    }
 }
 
 const CMSG_LEN: usize = 88;
@@ -565,6 +540,9 @@ fn prepare_msg(
                     target_os = "netbsd",
                     target_os = "macos",
                     target_os = "ios",
+                    target_os = "tvos",
+                    target_os = "visionos",
+                    target_os = "solaris",
                 ))]
                 {
                     if encode_src_ip {
@@ -623,7 +601,7 @@ fn decode_recv(
                 ecn_bits = cmsg::decode::<u8, libc::cmsghdr>(cmsg);
             },
             // FreeBSD uses IP_RECVTOS here, and we can be liberal because cmsgs are opt-in.
-            #[cfg(not(any(target_os = "openbsd", target_os = "netbsd")))]
+            #[cfg(not(any(target_os = "openbsd", target_os = "netbsd", target_os = "solaris")))]
             (libc::IPPROTO_IP, libc::IP_RECVTOS) => unsafe {
                 ecn_bits = cmsg::decode::<u8, libc::cmsghdr>(cmsg);
             },
@@ -631,7 +609,10 @@ fn decode_recv(
                 // Temporary hack around broken macos ABI. Remove once upstream fixes it.
                 // https://bugreport.apple.com/web/?problemID=48761855
                 #[allow(clippy::unnecessary_cast)] // cmsg.cmsg_len defined as size_t
-                if (cfg!(target_os = "macos") || cfg!(target_os = "ios"))
+                if (cfg!(target_os = "macos")
+                    || cfg!(target_os = "ios")
+                    || cfg!(target_os = "tvos")
+                    || cfg!(target_os = "visionos"))
                     && cmsg.cmsg_len as usize == libc::CMSG_LEN(mem::size_of::<u8>() as _) as usize
                 {
                     ecn_bits = cmsg::decode::<u8, libc::cmsghdr>(cmsg);
@@ -652,6 +633,8 @@ fn decode_recv(
                 target_os = "netbsd",
                 target_os = "macos",
                 target_os = "ios",
+                target_os = "tvos",
+                target_os = "visionos",
             ))]
             (libc::IPPROTO_IP, libc::IP_RECVDSTADDR) => {
                 let in_addr = unsafe { cmsg::decode::<libc::in_addr, libc::cmsghdr>(cmsg) };
@@ -702,11 +685,21 @@ fn decode_recv(
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "visionos"
+)))]
 // Chosen somewhat arbitrarily; might benefit from additional tuning.
 pub(crate) const BATCH_SIZE: usize = 32;
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "visionos"
+))]
 pub(crate) const BATCH_SIZE: usize = 1;
 
 #[cfg(target_os = "linux")]

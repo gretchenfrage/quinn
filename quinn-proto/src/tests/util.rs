@@ -21,7 +21,7 @@ use rustls::{
 };
 use tracing::{info_span, trace};
 
-use super::crypto::rustls::{QuicClientConfig, QuicServerConfig};
+use super::crypto::rustls::{configured_provider, QuicClientConfig, QuicServerConfig};
 use super::*;
 
 pub(super) const DEFAULT_MTU: usize = 1452;
@@ -306,6 +306,7 @@ pub(super) enum IncomingConnectionBehavior {
     AcceptAll,
     RejectAll,
     Validate,
+    ValidateThenReject,
     Wait,
 }
 
@@ -373,6 +374,13 @@ impl TestEndpoint {
                             IncomingConnectionBehavior::Validate => {
                                 if incoming.remote_address_validated() {
                                     let _ = self.try_accept(incoming, now);
+                                } else {
+                                    self.retry(incoming);
+                                }
+                            }
+                            IncomingConnectionBehavior::ValidateThenReject => {
+                                if incoming.remote_address_validated() {
+                                    self.reject(incoming);
                                 } else {
                                     self.retry(incoming);
                                 }
@@ -590,7 +598,7 @@ fn server_crypto_inner(
         )
     });
 
-    let mut config = QuicServerConfig::inner(vec![cert], key);
+    let mut config = QuicServerConfig::inner(vec![cert], key).unwrap();
     if let Some(alpn) = alpn {
         config.alpn_protocols = alpn;
     }
@@ -632,7 +640,7 @@ fn client_crypto_inner(
     }
 
     let mut inner = QuicClientConfig::inner(
-        WebPkiServerVerifier::builder(Arc::new(roots))
+        WebPkiServerVerifier::builder_with_provider(Arc::new(roots), configured_provider())
             .build()
             .unwrap(),
     );
