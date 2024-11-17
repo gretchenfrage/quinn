@@ -20,8 +20,7 @@ use crate::{
     coding::BufMutExt,
     config::{ServerConfig, TransportConfig},
     crypto::{self, KeyPair, Keys, PacketKey},
-    frame,
-    frame::{Close, Datagram, FrameStruct, NewToken},
+    frame::{self, Close, Datagram, FrameStruct, NewToken},
     new_token_store::NewTokenStore,
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
@@ -286,10 +285,6 @@ impl Connection {
                 token = new_token;
             }
         }
-        let new_tokens_to_send = server_config
-            .as_ref()
-            .map(|sc| sc.new_tokens_sent_upon_validation)
-            .unwrap_or(0);
         let mut this = Self {
             endpoint_config,
             server_config,
@@ -302,15 +297,7 @@ impl Connection {
                 now,
                 if pref_addr_cid.is_some() { 2 } else { 1 },
             ),
-            path: PathData::new(
-                remote,
-                allow_mtud,
-                None,
-                now,
-                path_validated,
-                &config,
-                new_tokens_to_send,
-            ),
+            path: PathData::new(remote, allow_mtud, None, now, path_validated, &config),
             allow_mtud,
             local_ip,
             prev_path: None,
@@ -385,6 +372,9 @@ impl Connection {
             stats: ConnectionStats::default(),
             version,
         };
+        if path_validated {
+            this.path_validated();
+        }
         if side.is_client() {
             // Kick off the connection
             this.write_crypto();
@@ -2431,7 +2421,7 @@ impl Connection {
                     );
                     return Ok(());
                 }
-                self.path.validated = true;
+                self.path_validated();
 
                 self.process_early_payload(now, packet)?;
                 if self.state.is_closed() {
@@ -2709,7 +2699,7 @@ impl Connection {
                         trace!("new path validated");
                         self.timers.stop(Timer::PathValidation);
                         self.path.challenge = None;
-                        self.path.validated = true;
+                        self.path_validated();
                         if let Some((_, ref mut prev_path)) = self.prev_path {
                             prev_path.challenge = None;
                             prev_path.challenge_pending = false;
@@ -2965,10 +2955,6 @@ impl Connection {
                 now,
                 false,
                 &self.config,
-                self.server_config
-                    .as_ref()
-                    .map(|sc| sc.new_tokens_sent_upon_validation)
-                    .unwrap_or(0),
             )
         };
         new_path.challenge = Some(self.rng.gen());
@@ -3244,32 +3230,27 @@ impl Connection {
             self.datagrams.send_blocked = false;
         }
 
-        if space_id == SpaceId::Data {
-            // NEW_TOKEN
-            while self.path.new_tokens_to_send > 0 {
-                let new_token = self.path.pending_new_token.take().unwrap_or_else(|| {
-                    let token = NewTokenToken {
-                        rand: self.rng.gen(),
-                        issued: SystemTime::now(),
-                    }
-                    .encode(
-                        &*self.server_config.as_ref().unwrap().token_key,
-                        &self.path.remote.ip(),
-                    );
-                    NewToken {
-                        token: token.into(),
-                    }
-                });
+        // NEW_TOKEN
+        while let Some((remote_addr, new_token)) = space.pending.new_tokens.pop() {
+            debug_assert_eq!(space_id, SpaceId::Data);
 
-                if buf.len() + new_token.size() >= max_size {
-                    self.path.pending_new_token = Some(new_token);
-                    break;
-                }
-
-                new_token.encode(buf);
-                self.path.new_tokens_to_send -= 1;
+            if remote_addr != self.path.remote {
+                continue;
             }
 
+            if buf.len() + new_token.size() >= max_size {
+                space.pending.new_tokens.push((remote_addr, new_token));
+                break;
+            }
+
+            new_token.encode(buf);
+            sent.retransmits
+                .get_or_create()
+                .new_tokens
+                .push((remote_addr, new_token));
+        }
+
+        if space_id == SpaceId::Data {
             // STREAM
             sent.stream_frames = self.streams.write_stream_frames(buf, max_size);
             self.stats.frame_tx.stream += sent.stream_frames.len() as u64;
@@ -3630,6 +3611,28 @@ impl Connection {
         // this writing, all QUIC cipher suites use 16-byte tags. We could return `None` instead,
         // but that would needlessly prevent sending datagrams during 0-RTT.
         key.map_or(16, |x| x.tag_len())
+    }
+
+    fn path_validated(&mut self) {
+        self.path.validated = true;
+        if let Some(server_config) = self.server_config.as_ref() {
+            for _ in 0..server_config.new_tokens_sent_upon_validation {
+                let token = NewTokenToken {
+                    rand: self.rng.gen(),
+                    issued: SystemTime::now(),
+                }
+                .encode(&*server_config.token_key, &self.path.remote.ip());
+                self.spaces[SpaceId::Data as usize]
+                    .pending
+                    .new_tokens
+                    .push((
+                        self.path.remote,
+                        NewToken {
+                            token: token.into(),
+                        },
+                    ));
+            }
+        }
     }
 }
 

@@ -2,6 +2,7 @@ use std::{
     cmp,
     collections::{BTreeMap, VecDeque},
     mem,
+    net::SocketAddr,
     ops::{Bound, Index, IndexMut},
     time::{Duration, Instant},
 };
@@ -310,6 +311,7 @@ pub struct Retransmits {
     pub(super) retire_cids: Vec<u64>,
     pub(super) ack_frequency: bool,
     pub(super) handshake_done: bool,
+    pub(super) new_tokens: Vec<(SocketAddr, frame::NewToken)>,
 }
 
 impl Retransmits {
@@ -327,6 +329,7 @@ impl Retransmits {
             && self.retire_cids.is_empty()
             && !self.ack_frequency
             && !self.handshake_done
+            && self.new_tokens.is_empty()
     }
 }
 
@@ -348,6 +351,7 @@ impl ::std::ops::BitOrAssign for Retransmits {
         self.retire_cids.extend(rhs.retire_cids);
         self.ack_frequency |= rhs.ack_frequency;
         self.handshake_done |= rhs.handshake_done;
+        self.new_tokens.extend_from_slice(&rhs.new_tokens);
     }
 }
 
