@@ -5,6 +5,7 @@ use std::{
     fmt, io, mem,
     net::{IpAddr, SocketAddr},
     sync::Arc,
+    time::{Duration, Instant, SystemTime},
 };
 
 use bytes::{Bytes, BytesMut};
@@ -19,7 +20,8 @@ use crate::{
     coding::BufMutExt,
     config::{ServerConfig, TransportConfig},
     crypto::{self, KeyPair, Keys, PacketKey},
-    frame::{self, Close, Datagram, FrameStruct},
+    frame::{self, Close, Datagram, FrameStruct, NewToken},
+    new_token_store::NewTokenStore,
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
         PacketNumber, PartialDecode, SpaceId,
@@ -29,11 +31,10 @@ use crate::{
         ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
         EndpointEvent, EndpointEventInner,
     },
-    token::ResetToken,
+    token::{NewTokenToken, ResetToken},
     transport_parameters::TransportParameters,
-    Dir, Duration, EndpointConfig, Frame, Instant, Side, StreamId, Transmit, TransportError,
-    TransportErrorCode, VarInt, INITIAL_MTU, MAX_CID_SIZE, MAX_STREAM_COUNT, MIN_INITIAL_SIZE,
-    TIMER_GRANULARITY,
+    Dir, EndpointConfig, Frame, Side, StreamId, Transmit, TransportError, TransportErrorCode,
+    VarInt, INITIAL_MTU, MAX_CID_SIZE, MAX_STREAM_COUNT, MIN_INITIAL_SIZE, TIMER_GRANULARITY,
 };
 
 mod ack_frequency;
@@ -193,7 +194,7 @@ pub struct Connection {
     error: Option<ConnectionError>,
     /// Sent in every outgoing Initial packet. Always empty for servers and after Initial keys are
     /// discarded.
-    retry_token: Bytes,
+    token: Bytes,
     /// Identifies Data-space packet numbers to skip. Not used in earlier spaces.
     packet_number_filter: PacketNumberFilter,
 
@@ -226,6 +227,9 @@ pub struct Connection {
     /// no outgoing application data.
     app_limited: bool,
 
+    new_token_store: Option<Arc<dyn NewTokenStore>>,
+    server_name: Option<String>,
+
     streams: StreamsState,
     /// Surplus remote CIDs for future use on new paths
     rem_cids: CidQueue,
@@ -257,6 +261,8 @@ impl Connection {
         allow_mtud: bool,
         rng_seed: [u8; 32],
         path_validated: bool,
+        new_token_store: Option<Arc<dyn NewTokenStore>>,
+        server_name: Option<String>,
     ) -> Self {
         let side = if server_config.is_some() {
             Side::Server
@@ -273,6 +279,12 @@ impl Connection {
             client_hello: None,
         });
         let mut rng = StdRng::from_seed(rng_seed);
+        let mut token = Bytes::new();
+        if let Some(new_token_store) = new_token_store.as_ref() {
+            if let Some(new_token) = new_token_store.take(server_name.as_ref().unwrap()) {
+                token = new_token;
+            }
+        }
         let mut this = Self {
             endpoint_config,
             server_config,
@@ -323,7 +335,7 @@ impl Connection {
             timers: TimerTable::default(),
             authentication_failures: 0,
             error: None,
-            retry_token: Bytes::new(),
+            token,
             #[cfg(test)]
             packet_number_filter: match config.deterministic_packet_numbers {
                 false => PacketNumberFilter::new(&mut rng),
@@ -345,6 +357,9 @@ impl Connection {
             receiving_ecn: false,
             total_authed_packets: 0,
 
+            new_token_store,
+            server_name,
+
             streams: StreamsState::new(
                 side,
                 config.max_concurrent_uni_streams,
@@ -360,6 +375,9 @@ impl Connection {
             stats: ConnectionStats::default(),
             version,
         };
+        if path_validated {
+            this.path_validated();
+        }
         if side.is_client() {
             // Kick off the connection
             this.write_crypto();
@@ -2105,7 +2123,7 @@ impl Connection {
         trace!("discarding {:?} keys", space_id);
         if space_id == SpaceId::Initial {
             // No longer needed
-            self.retry_token = Bytes::new();
+            self.token = Bytes::new();
         }
         let space = &mut self.spaces[space_id];
         space.crypto = None;
@@ -2424,7 +2442,7 @@ impl Connection {
                 self.streams.retransmit_all_for_0rtt();
 
                 let token_len = packet.payload.len() - 16;
-                self.retry_token = packet.payload.freeze().split_to(token_len);
+                self.token = packet.payload.freeze().split_to(token_len);
                 self.state = State::Handshake(state::Handshake {
                     expected_token: Bytes::new(),
                     rem_cid_set: false,
@@ -2444,7 +2462,7 @@ impl Connection {
                     );
                     return Ok(());
                 }
-                self.path.validated = true;
+                self.path_validated();
 
                 self.process_early_payload(now, packet)?;
                 if self.state.is_closed() {
@@ -2722,7 +2740,7 @@ impl Connection {
                         trace!("new path validated");
                         self.timers.stop(Timer::PathValidation);
                         self.path.challenge = None;
-                        self.path.validated = true;
+                        self.path_validated();
                         if let Some((_, ref mut prev_path)) = self.prev_path {
                             prev_path.challenge = None;
                             prev_path.challenge_pending = false;
@@ -2858,15 +2876,17 @@ impl Connection {
                         self.update_rem_cid();
                     }
                 }
-                Frame::NewToken { token } => {
+                Frame::NewToken(new_token) => {
                     if self.side.is_server() {
                         return Err(TransportError::PROTOCOL_VIOLATION("client sent NEW_TOKEN"));
                     }
-                    if token.is_empty() {
+                    if new_token.token.is_empty() {
                         return Err(TransportError::FRAME_ENCODING_ERROR("empty token"));
                     }
                     trace!("got new token");
-                    // TODO: Cache, or perhaps forward to user?
+                    if let Some(new_token_store) = self.new_token_store.as_ref() {
+                        new_token_store.store(self.server_name.as_ref().unwrap(), new_token.token);
+                    }
                 }
                 Frame::Datagram(datagram) => {
                     if self
@@ -3251,7 +3271,26 @@ impl Connection {
             self.datagrams.send_blocked = false;
         }
 
-        // STREAM
+        // NEW_TOKEN
+        while let Some((remote_addr, new_token)) = space.pending.new_tokens.pop() {
+            debug_assert_eq!(space_id, SpaceId::Data);
+
+            if remote_addr != self.path.remote {
+                continue;
+            }
+
+            if buf.len() + new_token.size() >= max_size {
+                space.pending.new_tokens.push((remote_addr, new_token));
+                break;
+            }
+
+            new_token.encode(buf);
+            sent.retransmits
+                .get_or_create()
+                .new_tokens
+                .push((remote_addr, new_token));
+        }
+
         if space_id == SpaceId::Data {
             sent.stream_frames =
                 self.streams
@@ -3611,6 +3650,28 @@ impl Connection {
         // this writing, all QUIC cipher suites use 16-byte tags. We could return `None` instead,
         // but that would needlessly prevent sending datagrams during 0-RTT.
         key.map_or(16, |x| x.tag_len())
+    }
+
+    fn path_validated(&mut self) {
+        self.path.validated = true;
+        if let Some(server_config) = self.server_config.as_ref() {
+            for _ in 0..server_config.new_tokens_sent_upon_validation {
+                let token = NewTokenToken {
+                    rand: self.rng.gen(),
+                    issued: SystemTime::now(),
+                }
+                .encode(&*server_config.token_key, &self.path.remote.ip());
+                self.spaces[SpaceId::Data as usize]
+                    .pending
+                    .new_tokens
+                    .push((
+                        self.path.remote,
+                        NewToken {
+                            token: token.into(),
+                        },
+                    ));
+            }
+        }
     }
 }
 

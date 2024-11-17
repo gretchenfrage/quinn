@@ -113,7 +113,7 @@ impl PacketBuilder {
             SpaceId::Initial => Header::Initial(InitialHeader {
                 src_cid: conn.handshake_cid,
                 dst_cid,
-                token: conn.retry_token.clone(),
+                token: conn.token.clone(),
                 number,
                 version,
             }),
