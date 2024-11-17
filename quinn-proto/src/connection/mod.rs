@@ -31,7 +31,7 @@ use crate::{
         ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
         EndpointEvent, EndpointEventInner,
     },
-    token::{NewTokenToken, ResetToken},
+    token::{ResetToken, Token, TokenInner},
     transport_parameters::TransportParameters,
     Dir, EndpointConfig, Frame, Side, StreamId, Transmit, TransportError, TransportErrorCode,
     VarInt, INITIAL_MTU, MAX_CID_SIZE, MAX_STREAM_COUNT, MIN_INITIAL_SIZE, TIMER_GRANULARITY,
@@ -3652,15 +3652,20 @@ impl Connection {
         key.map_or(16, |x| x.tag_len())
     }
 
+    /// Mark the path as validated, and enqueue NEW_TOKEN frames to be sent as appropriate
     fn path_validated(&mut self) {
         self.path.validated = true;
         if let Some(server_config) = self.server_config.as_ref() {
+            self.spaces[SpaceId::Data as usize]
+                .pending
+                .new_tokens
+                .clear();
             for _ in 0..server_config.new_tokens_sent_upon_validation {
-                let token = NewTokenToken {
-                    rand: self.rng.gen(),
+                let token_inner = TokenInner::Validation {
                     issued: SystemTime::now(),
-                }
-                .encode(&*server_config.token_key, &self.path.remote.ip());
+                };
+                let token = Token::new(&mut self.rng, token_inner)
+                    .encode(&*server_config.token_key, &self.path.remote);
                 self.spaces[SpaceId::Data as usize]
                     .pending
                     .new_tokens

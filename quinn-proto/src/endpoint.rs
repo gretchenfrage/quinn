@@ -30,7 +30,7 @@ use crate::{
         ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
         EndpointEvent, EndpointEventInner, IssuedCid,
     },
-    token::TokenDecodeError,
+    token::{TokenDecodeError, TokenInner},
     transport_parameters::{PreferredAddress, TransportParameters},
     Instant, ResetToken, Side, SystemTime, Token, Transmit, TransportConfig, TransportError,
     INITIAL_MTU, MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
@@ -503,43 +503,39 @@ impl Endpoint {
             let valid_token = Token::from_bytes(
                 &*server_config.token_key,
                 &addresses.remote,
-                &header.dst_cid,
                 &header.token,
             )
-            .and_then(|token| match token {
-                Token::Retry {
-                    orig_dst_cid,
-                    issued,
-                } => {
+            .and_then(|token| match token.inner {
+                TokenInner::Retry { orig_dst_cid, issued } => {
                     if issued + server_config.retry_token_lifetime > SystemTime::now() {
                         Ok((Some(header.dst_cid), orig_dst_cid))
                     } else {
                         Err(TokenDecodeError::InvalidRetry)
                     }
                 }
-                Token::NewToken(token) => {
+                TokenInner::Validation { issued } => {
                     if server_config
                         .token_reuse_preventer
                         .as_ref()
                         .map(|trp| {
-                            let reuse_ok = trp.lock().unwrap().using(token.rand, token.issued, server_config.new_token_lifetime).is_ok();
+                            let reuse_ok = trp.lock().unwrap().using(token.rand, issued, server_config.new_token_lifetime).is_ok();
                             if !reuse_ok {
                                 debug!("rejecting token from NEW_TOKEN frame because detected as reuse");
                             }
-                            token.issued + server_config.new_token_lifetime > SystemTime::now() && reuse_ok
+                            issued + server_config.new_token_lifetime > SystemTime::now() && reuse_ok
                         })
                         .unwrap_or(false)
                     {
                         trace!("accepting token from NEW_TOKEN frame");
                         Ok((None, header.dst_cid))
                     } else {
-                        Err(TokenDecodeError::InvalidMaybeNewToken)
+                        Err(TokenDecodeError::UnknownToken)
                     }
                 }
             });
             match valid_token {
                 Ok((retry_src_cid, orig_dst_cid)) => (retry_src_cid, orig_dst_cid, true),
-                Err(TokenDecodeError::InvalidMaybeNewToken) => {
+                Err(TokenDecodeError::UnknownToken) => {
                     trace!("rejecting token from NEW_TOKEN frame");
                     (None, header.dst_cid, false)
                 }
@@ -786,15 +782,12 @@ impl Endpoint {
         // retried by the application layer.
         let loc_cid = self.local_cid_generator.generate_cid();
 
-        let token = Token::Retry {
+        let token_inner = TokenInner::Retry {
             orig_dst_cid: incoming.packet.header.dst_cid,
             issued: SystemTime::now(),
-        }
-        .encode(
-            &*server_config.token_key,
-            &incoming.addresses.remote,
-            &loc_cid,
-        );
+        };
+        let token = Token::new(&mut self.rng, token_inner)
+            .encode(&*server_config.token_key, &incoming.addresses.remote);
 
         let header = Header::Retry {
             src_cid: loc_cid,
