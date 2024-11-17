@@ -515,14 +515,14 @@ impl Endpoint {
                 }
                 TokenInner::Validation { issued } => {
                     if server_config
-                        .token_reuse_preventer
+                        .validation_token_log
                         .as_ref()
                         .map(|trp| {
-                            let reuse_ok = trp.lock().unwrap().using(token.rand, issued, server_config.new_token_lifetime).is_ok();
+                            let reuse_ok = trp.check_and_insert(token.rand, issued, server_config.validation_token_lifetime).is_ok();
                             if !reuse_ok {
                                 debug!("rejecting token from NEW_TOKEN frame because detected as reuse");
                             }
-                            issued + server_config.new_token_lifetime > SystemTime::now() && reuse_ok
+                            issued + server_config.validation_token_lifetime > SystemTime::now() && reuse_ok
                         })
                         .unwrap_or(false)
                     {

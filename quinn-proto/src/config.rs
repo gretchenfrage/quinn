@@ -2,7 +2,7 @@ use std::{
     fmt,
     net::{SocketAddrV4, SocketAddrV6},
     num::TryFromIntError,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 
@@ -20,7 +20,7 @@ use crate::{
     crypto::{self, HandshakeTokenKey, HmacKey},
     new_token_store::{InMemNewTokenStore, NewTokenStore},
     shared::ConnectionId,
-    token_reuse_preventer::{BloomTokenReusePreventer, TokenReusePreventer},
+    token_reuse_preventer::{BloomTokenLog, TokenLog},
     RandomConnectionIdGenerator, VarInt, VarIntBoundsExceeded, DEFAULT_SUPPORTED_VERSIONS,
     INITIAL_MTU, MAX_CID_SIZE, MAX_UDP_PAYLOAD,
 };
@@ -813,14 +813,15 @@ pub struct ServerConfig {
     /// Duration after a stateless retry token was issued for which it's considered valid
     pub(crate) retry_token_lifetime: Duration,
 
-    /// Duration after a NEW_TOKEN frame token was issued for which it's considered valid
-    pub(crate) new_token_lifetime: Duration,
+    /// Duration after an address validation token was issued for which it's considered valid
+    pub(crate) validation_token_lifetime: Duration,
 
     /// Responsible for limiting clients' ability to reuse tokens from NEW_TOKEN frames
-    pub(crate) token_reuse_preventer: Option<Arc<Mutex<Box<dyn TokenReusePreventer>>>>,
+    pub(crate) validation_token_log: Option<Arc<dyn TokenLog>>,
 
-    /// Number of NEW_TOKEN frames sent to a client when its path is validated.
-    pub(crate) new_tokens_sent_upon_validation: u32,
+    /// Number of address validation tokens sent to a client via NEW_TOKEN frames when its path is
+    /// validated
+    pub(crate) validation_tokens_sent: u32,
 
     /// Whether to allow clients to migrate to new addresses
     ///
@@ -839,11 +840,13 @@ pub struct ServerConfig {
 impl ServerConfig {
     /// Create a default config with a particular handshake token key
     ///
-    /// Setting `token_reuse_preventer` to `None` makes the server ignore all NEW_HANDSHAKE tokens.
+    /// Setting `validation_token_log` to `None` makes the server ignore all address validation
+    /// tokens originating from NEW_TOKEN frames, although stateless retry tokens may still be
+    /// accepted.
     pub fn new(
         crypto: Arc<dyn crypto::ServerConfig>,
         token_key: Arc<dyn HandshakeTokenKey>,
-        token_reuse_preventer: Option<Box<dyn TokenReusePreventer>>,
+        validation_token_log: Option<Arc<dyn TokenLog>>,
     ) -> Self {
         Self {
             transport: Arc::new(TransportConfig::default()),
@@ -851,9 +854,9 @@ impl ServerConfig {
 
             token_key,
             retry_token_lifetime: Duration::from_secs(15),
-            new_token_lifetime: Duration::from_secs(2 * 7 * 24 * 60 * 60),
-            token_reuse_preventer: token_reuse_preventer.map(Mutex::new).map(Arc::new),
-            new_tokens_sent_upon_validation: 2,
+            validation_token_lifetime: Duration::from_secs(2 * 7 * 24 * 60 * 60),
+            validation_token_log,
+            validation_tokens_sent: 2,
 
             migration: true,
 
@@ -879,22 +882,31 @@ impl ServerConfig {
     }
 
     /// Duration after a stateless retry token was issued for which it's considered valid
+    ///
+    /// Default to 15 seconds.
     pub fn retry_token_lifetime(&mut self, value: Duration) -> &mut Self {
         self.retry_token_lifetime = value;
         self
     }
 
-    /// Duration after a NEW_TOKEN frame token was issued for which it's considered valid
-    pub fn new_token_lifetime(&mut self, value: Duration) -> &mut Self {
-        self.new_token_lifetime = value;
+    /// Duration after an address validation token was issued for which it's considered valid
+    ///
+    /// This refers only to tokens sent in NEW_TOKEN frames, in contrast to stateless retry tokens.
+    ///
+    /// Defaults to 2 weeks.
+    pub fn validation_token_lifetime(&mut self, value: Duration) -> &mut Self {
+        self.validation_token_lifetime = value;
         self
     }
 
-    /// Number of tokens issue to clients in NEW_TOKEN frames when their path is validated
+    /// Number of address validation tokens sent to a client via NEW_TOKEN frames when its path is
+    /// validated
+    ///
+    /// This refers only to tokens sent in NEW_TOKEN frames, in contrast to stateless retry tokens.
     ///
     /// Defaults to 2.
-    pub fn new_tokens_sent_upon_validation(&mut self, value: u32) -> &mut Self {
-        self.new_tokens_sent_upon_validation = value;
+    pub fn validation_tokens_sent(&mut self, value: u32) -> &mut Self {
+        self.validation_tokens_sent = value;
         self
     }
 
@@ -1005,7 +1017,7 @@ impl ServerConfig {
         Self::new(
             crypto,
             Arc::new(master_key),
-            Some(Box::new(BloomTokenReusePreventer::default())),
+            Some(Arc::new(BloomTokenLog::default())),
         )
     }
 }
@@ -1015,10 +1027,10 @@ impl fmt::Debug for ServerConfig {
         fmt.debug_struct("ServerConfig<T>")
             .field("transport", &self.transport)
             .field("retry_token_lifetime", &self.retry_token_lifetime)
-            .field("new_token_lifetime", &self.new_token_lifetime)
+            .field("new_token_lifetime", &self.validation_token_lifetime)
             .field(
                 "new_tokens_sent_upon_validation",
-                &self.new_tokens_sent_upon_validation,
+                &self.validation_tokens_sent,
             )
             .field("migration", &self.migration)
             .field("preferred_address_v4", &self.preferred_address_v4)

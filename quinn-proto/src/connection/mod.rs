@@ -3660,7 +3660,7 @@ impl Connection {
                 .pending
                 .new_tokens
                 .clear();
-            for _ in 0..server_config.new_tokens_sent_upon_validation {
+            for _ in 0..server_config.validation_tokens_sent {
                 let token_inner = TokenInner::Validation {
                     issued: SystemTime::now(),
                 };
