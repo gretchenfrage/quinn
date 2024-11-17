@@ -78,7 +78,7 @@ struct InMemNewTokenStoreEntry<const N: usize> {
 impl<const N: usize> InMemNewTokenStoreState<N> {
     fn new(size_limit: usize) -> Self {
         assert!(size_limit > 0, "size limit cannot be 0");
-        InMemNewTokenStoreState {
+        Self {
             size_limit,
             lookup: HashMap::new(),
             entries: Slab::new(),

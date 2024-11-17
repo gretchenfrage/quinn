@@ -40,8 +40,8 @@ impl Token {
         address: &SocketAddr,
         retry_src_cid: &ConnectionId,
     ) -> Vec<u8> {
-        match self {
-            &Token::Retry {
+        match *self {
+            Self::Retry {
                 orig_dst_cid,
                 issued,
             } => {
@@ -56,7 +56,7 @@ impl Token {
                 buf.push(0);
                 buf
             }
-            &Token::NewToken(ref token) => token.encode(key, &address.ip()),
+            Self::NewToken(ref token) => token.encode(key, &address.ip()),
         }
     }
 

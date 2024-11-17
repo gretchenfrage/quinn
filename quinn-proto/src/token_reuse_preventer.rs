@@ -80,7 +80,7 @@ impl BloomTokenReusePreventer {
             "BloomTokenReusePreventer k_num must be at least 1"
         );
 
-        BloomTokenReusePreventer {
+        Self {
             bloom_params: BloomParams {
                 size_bytes: max_bytes / 2,
                 hashers: [FxHasher::default(), FxHasher::default()],
@@ -130,8 +130,8 @@ impl TokenReusePreventer for BloomTokenReusePreventer {
         };
 
         // query and insert
-        match filter {
-            &mut Filter::Set(ref mut hset) => {
+        match *filter {
+            Filter::Set(ref mut hset) => {
                 if !hset.insert(token_rand) {
                     return Err(TokenReuseError);
                 }
@@ -147,7 +147,7 @@ impl TokenReusePreventer for BloomTokenReusePreventer {
                     *filter = Filter::Bloom(bits);
                 }
             }
-            &mut Filter::Bloom(ref mut bits) => {
+            Filter::Bloom(ref mut bits) => {
                 let mut refuted = false;
                 for i in self.bloom_params.iter(token_rand) {
                     let byte = &mut bits[(i / 8) as usize];
