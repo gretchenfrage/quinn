@@ -3,7 +3,6 @@ use std::{
     mem,
     net::{Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::Arc,
-    time::{Duration, Instant},
 };
 
 use assert_matches::assert_matches;
@@ -14,6 +13,10 @@ use hex_literal::hex;
 use rand::RngCore;
 #[cfg(feature = "ring")]
 use ring::hmac;
+#[cfg(all(feature = "rustls-aws-lc-rs", not(feature = "rustls-ring")))]
+use rustls::crypto::aws_lc_rs::default_provider;
+#[cfg(feature = "rustls-ring")]
+use rustls::crypto::ring::default_provider;
 use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     server::WebPkiClientVerifier,
@@ -27,9 +30,18 @@ use crate::{
     crypto::rustls::QuicServerConfig,
     frame::FrameStruct,
     transport_parameters::TransportParameters,
+    Duration, Instant,
 };
 mod util;
 use util::*;
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use wasm_bindgen_test::wasm_bindgen_test as test;
+
+// Enable this if you want to run these tests in the browser.
+// Unfortunately it's either-or: Enable this and you can run in the browser, disable to run in nodejs.
+// #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+// wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 #[test]
 fn version_negotiate_server() {
@@ -458,7 +470,7 @@ fn reject_missing_client_cert() {
     let key = PrivatePkcs8KeyDer::from(CERTIFIED_KEY.key_pair.serialize_der());
     let cert = CERTIFIED_KEY.cert.der().clone();
 
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let provider = Arc::new(default_provider());
     let config = rustls::ServerConfig::builder_with_provider(provider.clone())
         .with_protocol_versions(&[&rustls::version::TLS13])
         .unwrap()

@@ -1,4 +1,4 @@
-use std::{cmp, net::SocketAddr, time::Duration, time::Instant};
+use std::{cmp, net::SocketAddr};
 
 use tracing::trace;
 
@@ -7,7 +7,7 @@ use super::{
     pacing::Pacer,
     spaces::{PacketSpace, SentPacket},
 };
-use crate::{congestion, packet::SpaceId, TransportConfig, TIMER_GRANULARITY};
+use crate::{congestion, packet::SpaceId, Duration, Instant, TransportConfig, TIMER_GRANULARITY};
 
 /// Description of a particular network path
 pub(super) struct PathData {
@@ -113,6 +113,18 @@ impl PathData {
             in_flight: InFlight::new(),
             first_packet: None,
         }
+    }
+
+    /// Resets RTT, congestion control and MTU states.
+    ///
+    /// This is useful when it is known the underlying path has changed.
+    pub(super) fn reset(&mut self, now: Instant, config: &TransportConfig) {
+        self.rtt = RttEstimator::new(config.initial_rtt);
+        self.congestion = config
+            .congestion_controller_factory
+            .clone()
+            .build(now, config.get_initial_mtu());
+        self.mtud.reset(config.get_initial_mtu(), config.min_mtu);
     }
 
     /// Indicates whether we're a server that hasn't validated the peer's address and hasn't

@@ -1,5 +1,5 @@
-use crate::{packet::SpaceId, MtuDiscoveryConfig, MAX_UDP_PAYLOAD};
-use std::{cmp, time::Instant};
+use crate::{packet::SpaceId, Instant, MtuDiscoveryConfig, MAX_UDP_PAYLOAD};
+use std::cmp;
 use tracing::trace;
 
 /// Implements Datagram Packetization Layer Path Maximum Transmission Unit Discovery
@@ -54,6 +54,15 @@ impl MtuDiscovery {
             state,
             black_hole_detector: BlackHoleDetector::new(min_mtu),
         }
+    }
+
+    pub(super) fn reset(&mut self, current_mtu: u16, min_mtu: u16) {
+        self.current_mtu = current_mtu;
+        if let Some(state) = self.state.take() {
+            self.state = Some(EnabledMtuDiscovery::new(state.config));
+            self.on_peer_max_udp_payload_size_received(state.peer_max_udp_payload_size);
+        }
+        self.black_hole_detector = BlackHoleDetector::new(min_mtu);
     }
 
     /// Returns the current MTU
@@ -510,9 +519,9 @@ const BLACK_HOLE_THRESHOLD: usize = 3;
 mod tests {
     use super::*;
     use crate::packet::SpaceId;
+    use crate::Duration;
     use crate::MAX_UDP_PAYLOAD;
     use assert_matches::assert_matches;
-    use std::time::Duration;
 
     fn default_mtud() -> MtuDiscovery {
         let config = MtuDiscoveryConfig::default();

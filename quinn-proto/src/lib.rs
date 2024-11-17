@@ -24,7 +24,6 @@ use std::{
     fmt,
     net::{IpAddr, SocketAddr},
     ops,
-    time::Duration,
 };
 
 mod cid_queue;
@@ -47,6 +46,9 @@ pub use crate::connection::{
     WriteError, Written,
 };
 
+#[cfg(feature = "rustls")]
+pub use rustls;
+
 mod config;
 pub use config::{
     AckFrequencyConfig, ClientConfig, ConfigError, EndpointConfig, IdleTimeout, MtuDiscoveryConfig,
@@ -57,7 +59,7 @@ pub mod crypto;
 
 mod frame;
 use crate::frame::Frame;
-pub use crate::frame::{ApplicationClose, ConnectionClose, Datagram};
+pub use crate::frame::{ApplicationClose, ConnectionClose, Datagram, FrameType};
 
 mod endpoint;
 pub use crate::endpoint::{
@@ -91,6 +93,12 @@ pub mod token_reuse_preventer;
 
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
+
+// Deal with time
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[doc(hidden)]
 #[cfg(fuzzing)]
