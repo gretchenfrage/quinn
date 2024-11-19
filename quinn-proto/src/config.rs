@@ -430,9 +430,9 @@ impl fmt::Debug for TransportConfig {
             .field("allow_spin", allow_spin)
             .field("datagram_receive_buffer_size", datagram_receive_buffer_size)
             .field("datagram_send_buffer_size", datagram_send_buffer_size)
-            .field("congestion_controller_factory", &"[ opaque ]")
+            // congestion_controller_factory not debug
             .field("enable_segmentation_offload", enable_segmentation_offload)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -765,13 +765,13 @@ impl EndpointConfig {
 impl fmt::Debug for EndpointConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("EndpointConfig")
-            .field("reset_key", &"[ elided ]")
+            // reset_key not debug
             .field("max_udp_payload_size", &self.max_udp_payload_size)
-            .field("cid_generator_factory", &"[ elided ]")
+            // cid_generator_factory not debug
             .field("supported_versions", &self.supported_versions)
             .field("grease_quic_bit", &self.grease_quic_bit)
             .field("rng_seed", &self.rng_seed)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -799,7 +799,7 @@ pub struct ServerConfig {
     /// Transport configuration to use for incoming connections
     pub transport: Arc<TransportConfig>,
 
-    /// TLS configuration used for incoming connections.
+    /// TLS configuration used for incoming connections
     ///
     /// Must be set to use TLS 1.3 only.
     pub crypto: Arc<dyn crypto::ServerConfig>,
@@ -807,7 +807,7 @@ pub struct ServerConfig {
     /// Used to generate one-time AEAD keys to protect handshake tokens
     pub(crate) token_key: Arc<dyn HandshakeTokenKey>,
 
-    /// Microseconds after a stateless retry token was issued for which it's considered valid.
+    /// Duration after a stateless retry token was issued for which it's considered valid.
     pub(crate) retry_token_lifetime: Duration,
 
     /// Whether to allow clients to migrate to new addresses
@@ -854,13 +854,15 @@ impl ServerConfig {
         self
     }
 
-    /// Private key used to authenticate data included in handshake tokens.
+    /// Private key used to authenticate data included in handshake tokens
     pub fn token_key(&mut self, value: Arc<dyn HandshakeTokenKey>) -> &mut Self {
         self.token_key = value;
         self
     }
 
-    /// Duration after a stateless retry token was issued for which it's considered valid.
+    /// Duration after a stateless retry token was issued for which it's considered valid
+    ///
+    /// Defaults to 15 seconds.
     pub fn retry_token_lifetime(&mut self, value: Duration) -> &mut Self {
         self.retry_token_lifetime = value;
         self
@@ -875,14 +877,16 @@ impl ServerConfig {
         self
     }
 
-    /// The preferred IPv4 address that will be communicated to clients during handshaking.
+    /// The preferred IPv4 address that will be communicated to clients during handshaking
+    ///
     /// If the client is able to reach this address, it will switch to it.
     pub fn preferred_address_v4(&mut self, address: Option<SocketAddrV4>) -> &mut Self {
         self.preferred_address_v4 = address;
         self
     }
 
-    /// The preferred IPv6 address that will be communicated to clients during handshaking.
+    /// The preferred IPv6 address that will be communicated to clients during handshaking
+    ///
     /// If the client is able to reach this address, it will switch to it.
     pub fn preferred_address_v6(&mut self, address: Option<SocketAddrV6>) -> &mut Self {
         self.preferred_address_v6 = address;
@@ -978,8 +982,8 @@ impl fmt::Debug for ServerConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("ServerConfig<T>")
             .field("transport", &self.transport)
-            .field("crypto", &"ServerConfig { elided }")
-            .field("token_key", &"[ elided ]")
+            // crypto not debug
+            // token not debug
             .field("retry_token_lifetime", &self.retry_token_lifetime)
             .field("migration", &self.migration)
             .field("preferred_address_v4", &self.preferred_address_v4)
@@ -990,7 +994,7 @@ impl fmt::Debug for ServerConfig {
                 "incoming_buffer_size_total",
                 &self.incoming_buffer_size_total,
             )
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -1027,7 +1031,7 @@ impl ClientConfig {
     }
 
     /// Configure how to populate the destination CID of the initial packet when attempting to
-    /// establish a new connection.
+    /// establish a new connection
     ///
     /// By default, it's populated with random bytes with reasonable length, so unless you have
     /// a good reason, you do not need to change it.
@@ -1079,7 +1083,7 @@ impl fmt::Debug for ClientConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("ClientConfig<T>")
             .field("transport", &self.transport)
-            .field("crypto", &"ClientConfig { elided }")
+            // crypto not debug
             .field("version", &self.version)
             .finish_non_exhaustive()
     }
@@ -1106,7 +1110,7 @@ impl From<VarIntBoundsExceeded> for ConfigError {
     }
 }
 
-/// Maximum duration of inactivity to accept before timing out the connection.
+/// Maximum duration of inactivity to accept before timing out the connection
 ///
 /// This wraps an underlying [`VarInt`], representing the duration in milliseconds. Values can be
 /// constructed by converting directly from `VarInt`, or using `TryFrom<Duration>`.
