@@ -499,15 +499,26 @@ impl Endpoint {
         let (retry_src_cid, orig_dst_cid) = if header.token.is_empty() {
             (None, header.dst_cid)
         } else {
-            match Token::decode(&*server_config.token_key, &addresses.remote, &header.token) {
-                Ok(token)
-                    if token.inner.issued + server_config.retry_token_lifetime
-                        > SystemTime::now() =>
-                {
-                    (Some(header.dst_cid), token.inner.orig_dst_cid)
+            let valid_token =
+                Token::decode(&*server_config.token_key, &addresses.remote, &header.token)
+                    .and_then(|token| {
+                        let TokenInner {
+                            orig_dst_cid,
+                            issued,
+                        } = token.inner;
+                        if issued + server_config.retry_token_lifetime > SystemTime::now() {
+                            Ok((Some(header.dst_cid), orig_dst_cid))
+                        } else {
+                            Err(TokenDecodeError::InvalidRetry)
+                        }
+                    });
+            match valid_token {
+                Ok((retry_src_cid, orig_dst_cid)) => (retry_src_cid, orig_dst_cid),
+                Err(TokenDecodeError::UnknownToken) => {
+                    trace!("ignoring unknown token");
+                    (None, header.dst_cid)
                 }
-                Err(TokenDecodeError::UnknownToken) => (None, header.dst_cid),
-                _ => {
+                Err(TokenDecodeError::InvalidRetry) => {
                     debug!("rejecting invalid retry token");
                     return Some(DatagramEvent::Response(self.initial_close(
                         header.version,
