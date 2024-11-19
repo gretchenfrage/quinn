@@ -228,7 +228,7 @@ impl<const N: usize> Queue<N> {
     /// Construct empty
     fn new() -> Self {
         const EMPTY_BYTES: Bytes = Bytes::new();
-        Queue {
+        Self {
             elems: [EMPTY_BYTES; N],
             start: 0,
             len: 0,
