@@ -13,23 +13,31 @@ use crate::{
     Duration, SystemTime, RESET_TOKEN_SIZE, UNIX_EPOCH,
 };
 
-/// A retry token
+/// An address validation / retry token
 ///
 /// The data in this struct is encoded and encrypted in the context of not only a handshake token
 /// key, but also a client socket address.
 pub(crate) struct Token {
     /// Randomly generated value, which must be unique, and is visible to the client
     pub(crate) rand: u128,
-    /// Content which is encrypted from the client
+    /// Content depending on how token originated, which is encrypted from the client
     pub(crate) inner: TokenInner,
 }
 
-/// Content of [`Token`] that is encrypted from the client
-pub(crate) struct TokenInner {
-    /// The destination connection ID set in the very first packet from the client
-    pub(crate) orig_dst_cid: ConnectionId,
-    /// The time at which this token was issued
-    pub(crate) issued: SystemTime,
+/// Content of [`Token`] that depends on how token originated, and is encrypted from the client
+pub(crate) enum TokenInner {
+    /// Token that originated from a Retry packet
+    Retry {
+        /// The destination connection ID set in the very first packet from the client
+        orig_dst_cid: ConnectionId,
+        /// The time at which this token was issued
+        issued: SystemTime,
+    },
+    /// Token that originated from a NEW_TOKEN frame
+    Validation {
+        /// The time at which this token was issued
+        issued: SystemTime,
+    },
 }
 
 impl Token {
@@ -83,23 +91,51 @@ impl Token {
 impl TokenInner {
     /// Encode without encryption
     fn encode(&self, buf: &mut Vec<u8>, address: &SocketAddr) {
-        encode_socket_addr(buf, address);
-        self.orig_dst_cid.encode_long(buf);
-        encode_time(buf, self.issued);
+        match *self {
+            Self::Retry {
+                orig_dst_cid,
+                issued,
+            } => {
+                buf.push(0);
+                encode_socket_addr(buf, address);
+                orig_dst_cid.encode_long(buf);
+                encode_time(buf, issued);
+            }
+            Self::Validation { issued } => {
+                buf.push(1);
+                encode_ip_addr(buf, &address.ip());
+                encode_time(buf, issued);
+            }
+        }
     }
 
     /// Try to decode without encryption, but do validate that the address is acceptable
     fn decode<B: Buf>(buf: &mut B, address: &SocketAddr) -> Result<Self, TokenDecodeError> {
-        let token_address = decode_socket_addr(buf).ok_or(TokenDecodeError::UnknownToken)?;
-        if token_address != *address {
-            return Err(TokenDecodeError::InvalidRetry);
+        match buf.get::<u8>().ok().ok_or(TokenDecodeError::UnknownToken)? {
+            0 => {
+                let token_address =
+                    decode_socket_addr(buf).ok_or(TokenDecodeError::UnknownToken)?;
+                if token_address != *address {
+                    return Err(TokenDecodeError::InvalidRetry);
+                }
+                let orig_dst_cid =
+                    ConnectionId::decode_long(buf).ok_or(TokenDecodeError::UnknownToken)?;
+                let issued = decode_time(buf).ok_or(TokenDecodeError::UnknownToken)?;
+                Ok(Self::Retry {
+                    orig_dst_cid,
+                    issued,
+                })
+            }
+            1 => {
+                let token_address = decode_ip_addr(buf).ok_or(TokenDecodeError::UnknownToken)?;
+                if token_address != address.ip() {
+                    return Err(TokenDecodeError::UnknownToken);
+                }
+                let issued = decode_time(buf).ok_or(TokenDecodeError::UnknownToken)?;
+                Ok(Self::Validation { issued })
+            }
+            _ => Err(TokenDecodeError::UnknownToken),
         }
-        let orig_dst_cid = ConnectionId::decode_long(buf).ok_or(TokenDecodeError::UnknownToken)?;
-        let issued = decode_time(buf).ok_or(TokenDecodeError::UnknownToken)?;
-        Ok(Self {
-            orig_dst_cid,
-            issued,
-        })
     }
 }
 
@@ -163,7 +199,10 @@ pub(crate) enum TokenDecodeError {
     /// [_RFC 9000 § 8.1.3:_](https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1.3-10)
     ///
     /// > If the token is invalid, then the server SHOULD proceed as if the client did not have a
-    ///   validated address, including potentially sending a Retry packet
+    /// > validated address, including potentially sending a Retry packet.
+    ///
+    /// That said, this error is also used for tokens that _can_ be unambiguously decrypted/decoded
+    /// as a token from a NEW_TOKEN frame, but which are simply not valid.
     UnknownToken,
     /// Token was unambiguously from a Retry packet, and was not valid.
     ///
@@ -254,7 +293,7 @@ mod test {
         let issued_1 = UNIX_EPOCH + Duration::new(42, 0); // Fractional seconds would be lost
         let token = Token {
             rand: rng.gen(),
-            inner: TokenInner {
+            inner: TokenInner::Retry {
                 orig_dst_cid: orig_dst_cid_1,
                 issued: issued_1,
             },
@@ -263,8 +302,16 @@ mod test {
 
         let token_2 = Token::decode(&prk, &addr, &encoded).expect("token didn't validate");
         assert_eq!(token.rand, token_2.rand);
-        assert_eq!(orig_dst_cid_1, token_2.inner.orig_dst_cid);
-        assert_eq!(issued_1, token_2.inner.issued);
+        match token_2.inner {
+            TokenInner::Retry {
+                orig_dst_cid: orig_dst_cid_2,
+                issued: issued_2,
+            } => {
+                assert_eq!(orig_dst_cid_1, orig_dst_cid_2);
+                assert_eq!(issued_1, issued_2);
+            }
+            _ => panic!("token decoded as wrong variant"),
+        }
     }
 
     #[test]

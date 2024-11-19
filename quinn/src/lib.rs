@@ -62,11 +62,12 @@ mod send_stream;
 mod work_limiter;
 
 pub use proto::{
-    congestion, crypto, AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ClosedStream,
-    ConfigError, ConnectError, ConnectionClose, ConnectionError, ConnectionId,
+    congestion, crypto, AckFrequencyConfig, ApplicationClose, BloomTokenLog, Chunk, ClientConfig,
+    ClosedStream, ConfigError, ConnectError, ConnectionClose, ConnectionError, ConnectionId,
     ConnectionIdGenerator, ConnectionStats, Dir, EcnCodepoint, EndpointConfig, FrameStats,
-    FrameType, IdleTimeout, MtuDiscoveryConfig, PathStats, ServerConfig, Side, StreamId, Transmit,
-    TransportConfig, TransportErrorCode, UdpStats, VarInt, VarIntBoundsExceeded, Written,
+    FrameType, IdleTimeout, MtuDiscoveryConfig, PathStats, ServerConfig, Side, StreamId, TokenLog,
+    TokenReuseError, Transmit, TransportConfig, TransportErrorCode, UdpStats, VarInt,
+    VarIntBoundsExceeded, Written,
 };
 #[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
 pub use rustls;
