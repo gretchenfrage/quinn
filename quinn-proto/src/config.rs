@@ -3,6 +3,7 @@ use std::{
     net::{SocketAddrV4, SocketAddrV6},
     num::TryFromIntError,
     sync::Arc,
+    time::Duration,
 };
 
 #[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
@@ -18,8 +19,10 @@ use crate::{
     congestion,
     crypto::{self, HandshakeTokenKey, HmacKey},
     shared::ConnectionId,
-    Duration, RandomConnectionIdGenerator, VarInt, VarIntBoundsExceeded,
-    DEFAULT_SUPPORTED_VERSIONS, INITIAL_MTU, MAX_CID_SIZE, MAX_UDP_PAYLOAD,
+    token_reuse_preventer::{BloomTokenLog, TokenLog},
+    validation_token_store::{ValidationTokenMemoryCache, ValidationTokenStore},
+    RandomConnectionIdGenerator, VarInt, VarIntBoundsExceeded, DEFAULT_SUPPORTED_VERSIONS,
+    INITIAL_MTU, MAX_CID_SIZE, MAX_UDP_PAYLOAD,
 };
 
 /// Parameters governing the core QUIC state machine
@@ -799,7 +802,7 @@ pub struct ServerConfig {
     /// Transport configuration to use for incoming connections
     pub transport: Arc<TransportConfig>,
 
-    /// TLS configuration used for incoming connections.
+    /// TLS configuration used for incoming connections
     ///
     /// Must be set to use TLS 1.3 only.
     pub crypto: Arc<dyn crypto::ServerConfig>,
@@ -807,8 +810,18 @@ pub struct ServerConfig {
     /// Used to generate one-time AEAD keys to protect handshake tokens
     pub(crate) token_key: Arc<dyn HandshakeTokenKey>,
 
-    /// Microseconds after a stateless retry token was issued for which it's considered valid.
+    /// Duration after a stateless retry token was issued for which it's considered valid
     pub(crate) retry_token_lifetime: Duration,
+
+    /// Duration after an address validation token was issued for which it's considered valid
+    pub(crate) validation_token_lifetime: Duration,
+
+    /// Responsible for limiting clients' ability to reuse tokens from NEW_TOKEN frames
+    pub(crate) validation_token_log: Option<Arc<dyn TokenLog>>,
+
+    /// Number of address validation tokens sent to a client via NEW_TOKEN frames when its path is
+    /// validated
+    pub(crate) validation_tokens_sent: u32,
 
     /// Whether to allow clients to migrate to new addresses
     ///
@@ -826,9 +839,14 @@ pub struct ServerConfig {
 
 impl ServerConfig {
     /// Create a default config with a particular handshake token key
+    ///
+    /// Setting `validation_token_log` to `None` makes the server ignore all address validation
+    /// tokens originating from NEW_TOKEN frames, although stateless retry tokens may still be
+    /// accepted.
     pub fn new(
         crypto: Arc<dyn crypto::ServerConfig>,
         token_key: Arc<dyn HandshakeTokenKey>,
+        validation_token_log: Option<Arc<dyn TokenLog>>,
     ) -> Self {
         Self {
             transport: Arc::new(TransportConfig::default()),
@@ -836,6 +854,9 @@ impl ServerConfig {
 
             token_key,
             retry_token_lifetime: Duration::from_secs(15),
+            validation_token_lifetime: Duration::from_secs(2 * 7 * 24 * 60 * 60),
+            validation_token_log,
+            validation_tokens_sent: 2,
 
             migration: true,
 
@@ -854,15 +875,38 @@ impl ServerConfig {
         self
     }
 
-    /// Private key used to authenticate data included in handshake tokens.
+    /// Private key used to authenticate data included in handshake tokens
     pub fn token_key(&mut self, value: Arc<dyn HandshakeTokenKey>) -> &mut Self {
         self.token_key = value;
         self
     }
 
-    /// Duration after a stateless retry token was issued for which it's considered valid.
+    /// Duration after a stateless retry token was issued for which it's considered valid
+    ///
+    /// Default to 15 seconds.
     pub fn retry_token_lifetime(&mut self, value: Duration) -> &mut Self {
         self.retry_token_lifetime = value;
+        self
+    }
+
+    /// Duration after an address validation token was issued for which it's considered valid
+    ///
+    /// This refers only to tokens sent in NEW_TOKEN frames, in contrast to stateless retry tokens.
+    ///
+    /// Defaults to 2 weeks.
+    pub fn validation_token_lifetime(&mut self, value: Duration) -> &mut Self {
+        self.validation_token_lifetime = value;
+        self
+    }
+
+    /// Number of address validation tokens sent to a client via NEW_TOKEN frames when its path is
+    /// validated
+    ///
+    /// This refers only to tokens sent in NEW_TOKEN frames, in contrast to stateless retry tokens.
+    ///
+    /// Defaults to 2.
+    pub fn validation_tokens_sent(&mut self, value: u32) -> &mut Self {
+        self.validation_tokens_sent = value;
         self
     }
 
@@ -957,7 +1001,7 @@ impl ServerConfig {
 impl ServerConfig {
     /// Create a server config with the given [`crypto::ServerConfig`]
     ///
-    /// Uses a randomized handshake token key.
+    /// Uses a randomized handshake token key and a default `BloomTokenReusePreventer`.
     pub fn with_crypto(crypto: Arc<dyn crypto::ServerConfig>) -> Self {
         #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
         use aws_lc_rs::hkdf;
@@ -970,7 +1014,11 @@ impl ServerConfig {
         rng.fill_bytes(&mut master_key);
         let master_key = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
 
-        Self::new(crypto, Arc::new(master_key))
+        Self::new(
+            crypto,
+            Arc::new(master_key),
+            Some(Arc::new(BloomTokenLog::default())),
+        )
     }
 }
 
@@ -978,9 +1026,12 @@ impl fmt::Debug for ServerConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("ServerConfig<T>")
             .field("transport", &self.transport)
-            .field("crypto", &"ServerConfig { elided }")
-            .field("token_key", &"[ elided ]")
             .field("retry_token_lifetime", &self.retry_token_lifetime)
+            .field("new_token_lifetime", &self.validation_token_lifetime)
+            .field(
+                "new_tokens_sent_upon_validation",
+                &self.validation_tokens_sent,
+            )
             .field("migration", &self.migration)
             .field("preferred_address_v4", &self.preferred_address_v4)
             .field("preferred_address_v6", &self.preferred_address_v6)
@@ -990,7 +1041,7 @@ impl fmt::Debug for ServerConfig {
                 "incoming_buffer_size_total",
                 &self.incoming_buffer_size_total,
             )
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -1006,6 +1057,9 @@ pub struct ClientConfig {
     /// Cryptographic configuration to use
     pub(crate) crypto: Arc<dyn crypto::ClientConfig>,
 
+    /// Address validation token store to use
+    pub(crate) validation_token_store: Option<Arc<dyn ValidationTokenStore>>,
+
     /// Provider that populates the destination connection ID of Initial Packets
     pub(crate) initial_dst_cid_provider: Arc<dyn Fn() -> ConnectionId + Send + Sync>,
 
@@ -1019,6 +1073,7 @@ impl ClientConfig {
         Self {
             transport: Default::default(),
             crypto,
+            validation_token_store: Some(Arc::new(ValidationTokenMemoryCache::<2>::default())),
             initial_dst_cid_provider: Arc::new(|| {
                 RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid()
             }),
@@ -1045,6 +1100,21 @@ impl ClientConfig {
     /// Set a custom [`TransportConfig`]
     pub fn transport_config(&mut self, transport: Arc<TransportConfig>) -> &mut Self {
         self.transport = transport;
+        self
+    }
+
+    /// Set a custom [`ValidationTokenStore`]
+    ///
+    /// Defaults to an in-memory store limited to 256 servers and 2 tokens per server. This default
+    /// is chosen to complement `rustls`'s default
+    /// [`ClientSessionStore`][rustls::client::ClientSessionStore].
+    ///
+    /// Setting to `None` disables the use of tokens from NEW_TOKEN frames as a client.
+    pub fn validation_token_store(
+        &mut self,
+        validation_token_store: Option<Arc<dyn ValidationTokenStore>>,
+    ) -> &mut Self {
+        self.validation_token_store = validation_token_store;
         self
     }
 
@@ -1079,7 +1149,8 @@ impl fmt::Debug for ClientConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("ClientConfig<T>")
             .field("transport", &self.transport)
-            .field("crypto", &"ClientConfig { elided }")
+            // crypto isn't debug
+            // new token store isn't debug
             .field("version", &self.version)
             .finish_non_exhaustive()
     }

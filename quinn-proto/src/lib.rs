@@ -86,7 +86,13 @@ pub use crate::cid_generator::{
 };
 
 mod token;
-use token::{ResetToken, RetryToken};
+use token::{ResetToken, Token};
+
+mod token_reuse_preventer;
+pub use token_reuse_preventer::{BloomTokenLog, TokenLog, TokenReuseError};
+
+mod validation_token_store;
+pub use validation_token_store::{ValidationTokenMemoryCache, ValidationTokenStore};
 
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
