@@ -60,7 +60,7 @@ fn rand_to_fingerprint(rand: u128) -> u64 {
 
 /// `BuildHasher` of `IdentityHasher`.
 #[derive(Default)]
-pub struct IdentityBuildHasher;
+struct IdentityBuildHasher;
 
 impl BuildHasher for IdentityBuildHasher {
     type Hasher = IdentityHasher;
@@ -72,7 +72,7 @@ impl BuildHasher for IdentityBuildHasher {
 
 /// Hasher that assumes the thing being hashes is a `u64` and is the identity operation.
 #[derive(Default)]
-pub struct IdentityHasher {
+struct IdentityHasher {
     data: [u8; 8],
     #[cfg(debug_assertions)]
     wrote_8_byte_slice: bool,
@@ -246,6 +246,6 @@ impl Default for BloomTokenLog {
     fn default() -> Self {
         // 10 MiB per bloom filter, totalling 20 MiB. expected one million hits.
         // sanity check: a 10 MiB hash set can store upper bound 128 kibi token fingerprints.
-        Self::new_expected_items(10 << 20, 1_000_000_000)
+        Self::new_expected_items(10 << 20, 1_000_000)
     }
 }

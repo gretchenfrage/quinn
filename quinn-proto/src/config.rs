@@ -18,9 +18,9 @@ use crate::{
     cid_generator::{ConnectionIdGenerator, HashedConnectionIdGenerator},
     congestion,
     crypto::{self, HandshakeTokenKey, HmacKey},
-    new_token_store::{InMemNewTokenStore, NewTokenStore},
     shared::ConnectionId,
     token_reuse_preventer::{BloomTokenLog, TokenLog},
+    validation_token_store::{ValidationTokenMemoryCache, ValidationTokenStore},
     RandomConnectionIdGenerator, VarInt, VarIntBoundsExceeded, DEFAULT_SUPPORTED_VERSIONS,
     INITIAL_MTU, MAX_CID_SIZE, MAX_UDP_PAYLOAD,
 };
@@ -1057,8 +1057,8 @@ pub struct ClientConfig {
     /// Cryptographic configuration to use
     pub(crate) crypto: Arc<dyn crypto::ClientConfig>,
 
-    /// New token store to use
-    pub(crate) new_token_store: Option<Arc<dyn NewTokenStore>>,
+    /// Address validation token store to use
+    pub(crate) validation_token_store: Option<Arc<dyn ValidationTokenStore>>,
 
     /// Provider that populates the destination connection ID of Initial Packets
     pub(crate) initial_dst_cid_provider: Arc<dyn Fn() -> ConnectionId + Send + Sync>,
@@ -1073,7 +1073,7 @@ impl ClientConfig {
         Self {
             transport: Default::default(),
             crypto,
-            new_token_store: Some(Arc::new(InMemNewTokenStore::<2>::default())),
+            validation_token_store: Some(Arc::new(ValidationTokenMemoryCache::<2>::default())),
             initial_dst_cid_provider: Arc::new(|| {
                 RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid()
             }),
@@ -1103,15 +1103,18 @@ impl ClientConfig {
         self
     }
 
-    /// Set a custom [`NewTokenStore`]
+    /// Set a custom [`ValidationTokenStore`]
     ///
-    /// Defaults to an in-memory store limited to 256 servers and 2 tokens per server. Setting to
-    /// `None` disables the use of tokens from NEW_TOKEN frames as a client.
-    pub fn new_token_store(
+    /// Defaults to an in-memory store limited to 256 servers and 2 tokens per server. This default
+    /// is chosen to complement `rustls`'s default
+    /// [`ClientSessionStore`][rustls::client::ClientSessionStore].
+    ///
+    /// Setting to `None` disables the use of tokens from NEW_TOKEN frames as a client.
+    pub fn validation_token_store(
         &mut self,
-        new_token_store: Option<Arc<dyn NewTokenStore>>,
+        validation_token_store: Option<Arc<dyn ValidationTokenStore>>,
     ) -> &mut Self {
-        self.new_token_store = new_token_store;
+        self.validation_token_store = validation_token_store;
         self
     }
 

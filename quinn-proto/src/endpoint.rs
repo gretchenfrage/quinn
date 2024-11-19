@@ -21,7 +21,6 @@ use crate::{
     connection::{Connection, ConnectionError},
     crypto::{self, Keys, UnsupportedVersion},
     frame,
-    new_token_store::NewTokenStore,
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, Packet,
         PacketDecodeError, PacketNumber, PartialDecode, ProtectedInitialHeader,
@@ -32,6 +31,7 @@ use crate::{
     },
     token::{TokenDecodeError, TokenInner},
     transport_parameters::{PreferredAddress, TransportParameters},
+    validation_token_store::ValidationTokenStore,
     Instant, ResetToken, Side, SystemTime, Token, Transmit, TransportConfig, TransportError,
     INITIAL_MTU, MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
 };
@@ -433,7 +433,7 @@ impl Endpoint {
             None,
             config.transport,
             true,
-            config.new_token_store,
+            config.validation_token_store,
             Some(server_name.into()),
         );
         Ok((ch, conn))
@@ -843,7 +843,7 @@ impl Endpoint {
         server_config: Option<Arc<ServerConfig>>,
         transport_config: Arc<TransportConfig>,
         path_validated: bool,
-        new_token_store: Option<Arc<dyn NewTokenStore>>,
+        new_token_store: Option<Arc<dyn ValidationTokenStore>>,
         server_name: Option<String>,
     ) -> Connection {
         let mut rng_seed = [0; 32];

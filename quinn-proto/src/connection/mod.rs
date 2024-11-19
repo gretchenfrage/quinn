@@ -21,7 +21,6 @@ use crate::{
     config::{ServerConfig, TransportConfig},
     crypto::{self, KeyPair, Keys, PacketKey},
     frame::{self, Close, Datagram, FrameStruct, NewToken},
-    new_token_store::NewTokenStore,
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
         PacketNumber, PartialDecode, SpaceId,
@@ -33,6 +32,7 @@ use crate::{
     },
     token::{ResetToken, Token, TokenInner},
     transport_parameters::TransportParameters,
+    validation_token_store::ValidationTokenStore,
     Dir, EndpointConfig, Frame, Side, StreamId, Transmit, TransportError, TransportErrorCode,
     VarInt, INITIAL_MTU, MAX_CID_SIZE, MAX_STREAM_COUNT, MIN_INITIAL_SIZE, TIMER_GRANULARITY,
 };
@@ -227,7 +227,7 @@ pub struct Connection {
     /// no outgoing application data.
     app_limited: bool,
 
-    new_token_store: Option<Arc<dyn NewTokenStore>>,
+    new_token_store: Option<Arc<dyn ValidationTokenStore>>,
     server_name: Option<String>,
 
     streams: StreamsState,
@@ -261,7 +261,7 @@ impl Connection {
         allow_mtud: bool,
         rng_seed: [u8; 32],
         path_validated: bool,
-        new_token_store: Option<Arc<dyn NewTokenStore>>,
+        new_token_store: Option<Arc<dyn ValidationTokenStore>>,
         server_name: Option<String>,
     ) -> Self {
         let side = if server_config.is_some() {
@@ -3289,6 +3289,7 @@ impl Connection {
                 .get_or_create()
                 .new_tokens
                 .push((remote_addr, new_token));
+            self.stats.frame_tx.new_token += 1;
         }
 
         if space_id == SpaceId::Data {
