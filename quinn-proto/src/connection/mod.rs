@@ -19,7 +19,7 @@ use crate::{
     coding::BufMutExt,
     config::{ServerConfig, TransportConfig},
     crypto::{self, KeyPair, Keys, PacketKey},
-    frame::{self, Close, Datagram, FrameStruct},
+    frame::{self, Close, Datagram, FrameStruct, NewToken},
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
         PacketNumber, PartialDecode, SpaceId,
@@ -29,11 +29,11 @@ use crate::{
         ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
         EndpointEvent, EndpointEventInner,
     },
-    token::ResetToken,
+    token::{ResetToken, Token, TokenInner},
     transport_parameters::TransportParameters,
-    Dir, Duration, EndpointConfig, Frame, Instant, Side, StreamId, Transmit, TransportError,
-    TransportErrorCode, VarInt, INITIAL_MTU, MAX_CID_SIZE, MAX_STREAM_COUNT, MIN_INITIAL_SIZE,
-    TIMER_GRANULARITY,
+    Dir, Duration, EndpointConfig, Frame, Instant, Side, StreamId, SystemTime, Transmit,
+    TransportError, TransportErrorCode, VarInt, INITIAL_MTU, MAX_CID_SIZE, MAX_STREAM_COUNT,
+    MIN_INITIAL_SIZE, TIMER_GRANULARITY,
 };
 
 mod ack_frequency;
@@ -360,6 +360,9 @@ impl Connection {
             stats: ConnectionStats::default(),
             version,
         };
+        if path_validated {
+            this.on_path_validated();
+        }
         if side.is_client() {
             // Kick off the connection
             this.write_crypto();
@@ -2440,7 +2443,7 @@ impl Connection {
                     );
                     return Ok(());
                 }
-                self.path.validated = true;
+                self.on_path_validated();
 
                 self.process_early_payload(now, packet)?;
                 if self.state.is_closed() {
@@ -2854,7 +2857,7 @@ impl Connection {
                         self.update_rem_cid();
                     }
                 }
-                Frame::NewToken { token } => {
+                Frame::NewToken(NewToken { token }) => {
                     if self.side.is_server() {
                         return Err(TransportError::PROTOCOL_VIOLATION("client sent NEW_TOKEN"));
                     }
@@ -3247,6 +3250,37 @@ impl Connection {
             self.datagrams.send_blocked = false;
         }
 
+        // NEW_TOKEN
+        while let Some(remote_addr) = space.pending.new_tokens.pop() {
+            debug_assert_eq!(space_id, SpaceId::Data);
+            let server_config = self.server_config.as_ref().unwrap();
+
+            if remote_addr != self.path.remote {
+                continue;
+            }
+
+            let token_inner = TokenInner::Validation {
+                issued: SystemTime::now(),
+            };
+            let token = Token::new(&mut self.rng, token_inner)
+                .encode(&*server_config.token_key, &self.path.remote);
+            let new_token = NewToken {
+                token: token.into(),
+            };
+
+            if buf.len() + new_token.size() >= max_size {
+                space.pending.new_tokens.push(remote_addr);
+                break;
+            }
+
+            new_token.encode(buf);
+            sent.retransmits
+                .get_or_create()
+                .new_tokens
+                .push(remote_addr);
+            self.stats.frame_tx.new_token += 1;
+        }
+
         // STREAM
         if space_id == SpaceId::Data {
             sent.stream_frames =
@@ -3607,6 +3641,18 @@ impl Connection {
         // this writing, all QUIC cipher suites use 16-byte tags. We could return `None` instead,
         // but that would needlessly prevent sending datagrams during 0-RTT.
         key.map_or(16, |x| x.tag_len())
+    }
+
+    /// Mark the path as validated, and enqueue NEW_TOKEN frames to be sent as appropriate
+    fn on_path_validated(&mut self) {
+        self.path.validated = true;
+        if let Some(server_config) = self.server_config.as_ref() {
+            let new_tokens = &mut self.spaces[SpaceId::Data as usize].pending.new_tokens;
+            new_tokens.clear();
+            for _ in 0..server_config.validation_tokens_sent {
+                new_tokens.push(self.path.remote);
+            }
+        }
     }
 }
 
