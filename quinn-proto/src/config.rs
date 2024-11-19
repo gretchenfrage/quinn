@@ -18,7 +18,7 @@ use crate::{
     congestion,
     crypto::{self, HandshakeTokenKey, HmacKey},
     shared::ConnectionId,
-    Duration, RandomConnectionIdGenerator, VarInt, VarIntBoundsExceeded,
+    BloomTokenLog, Duration, RandomConnectionIdGenerator, TokenLog, VarInt, VarIntBoundsExceeded,
     DEFAULT_SUPPORTED_VERSIONS, INITIAL_MTU, MAX_CID_SIZE, MAX_UDP_PAYLOAD,
 };
 
@@ -810,6 +810,16 @@ pub struct ServerConfig {
     /// Duration after a retry token was issued for which it's considered valid
     pub(crate) retry_token_lifetime: Duration,
 
+    /// Duration after an address validation token was issued for which it's considered valid
+    pub(crate) validation_token_lifetime: Duration,
+
+    /// Responsible for limiting clients' ability to reuse tokens from NEW_TOKEN frames
+    pub(crate) validation_token_log: Option<Arc<dyn TokenLog>>,
+
+    /// Number of address validation tokens sent to a client via NEW_TOKEN frames when its path is
+    /// validated
+    pub(crate) validation_tokens_sent: u32,
+
     /// Whether to allow clients to migrate to new addresses
     ///
     /// Improves behavior for clients that move between different internet connections or suffer NAT
@@ -825,12 +835,18 @@ pub struct ServerConfig {
 }
 
 const DEFAULT_RETRY_TOKEN_LIFETIME_SECS: u64 = 15;
+const DEFAULT_VALIDATION_TOKEN_LIFETIME_SECS: u64 = 2 * 7 * 24 * 60 * 60;
 
 impl ServerConfig {
     /// Create a default config with a particular handshake token key
+    ///
+    /// Setting `validation_token_log` to `None` makes the server ignore all address validation
+    /// tokens originating from NEW_TOKEN frames, although stateless retry tokens may still be
+    /// accepted.
     pub fn new(
         crypto: Arc<dyn crypto::ServerConfig>,
         token_key: Arc<dyn HandshakeTokenKey>,
+        validation_token_log: Option<Arc<dyn TokenLog>>,
     ) -> Self {
         Self {
             transport: Arc::new(TransportConfig::default()),
@@ -838,6 +854,9 @@ impl ServerConfig {
 
             token_key,
             retry_token_lifetime: Duration::from_secs(DEFAULT_RETRY_TOKEN_LIFETIME_SECS),
+            validation_token_lifetime: Duration::from_secs(DEFAULT_VALIDATION_TOKEN_LIFETIME_SECS),
+            validation_token_log,
+            validation_tokens_sent: 2,
 
             migration: true,
 
@@ -867,6 +886,27 @@ impl ServerConfig {
     /// Defaults to 15 seconds.
     pub fn retry_token_lifetime(&mut self, value: Duration) -> &mut Self {
         self.retry_token_lifetime = value;
+        self
+    }
+
+    /// Duration after an address validation token was issued for which it's considered valid
+    ///
+    /// This refers only to tokens sent in NEW_TOKEN frames, in contrast to stateless retry tokens.
+    ///
+    /// Defaults to 2 weeks.
+    pub fn validation_token_lifetime(&mut self, value: Duration) -> &mut Self {
+        self.validation_token_lifetime = value;
+        self
+    }
+
+    /// Number of address validation tokens sent to a client via NEW_TOKEN frames when its path is
+    /// validated
+    ///
+    /// This refers only to tokens sent in NEW_TOKEN frames, in contrast to stateless retry tokens.
+    ///
+    /// Defaults to 2.
+    pub fn validation_tokens_sent(&mut self, value: u32) -> &mut Self {
+        self.validation_tokens_sent = value;
         self
     }
 
@@ -963,7 +1003,7 @@ impl ServerConfig {
 impl ServerConfig {
     /// Create a server config with the given [`crypto::ServerConfig`]
     ///
-    /// Uses a randomized handshake token key.
+    /// Uses a randomized handshake token key and a default `BloomTokenLog`.
     pub fn with_crypto(crypto: Arc<dyn crypto::ServerConfig>) -> Self {
         #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
         use aws_lc_rs::hkdf;
@@ -976,7 +1016,11 @@ impl ServerConfig {
         rng.fill_bytes(&mut master_key);
         let master_key = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
 
-        Self::new(crypto, Arc::new(master_key))
+        Self::new(
+            crypto,
+            Arc::new(master_key),
+            Some(Arc::new(BloomTokenLog::default())),
+        )
     }
 }
 
@@ -987,6 +1031,8 @@ impl fmt::Debug for ServerConfig {
             // crypto not debug
             // token not debug
             .field("retry_token_lifetime", &self.retry_token_lifetime)
+            .field("validation_token_lifetime", &self.validation_token_lifetime)
+            .field("validation_tokens_sent", &self.validation_tokens_sent)
             .field("migration", &self.migration)
             .field("preferred_address_v4", &self.preferred_address_v4)
             .field("preferred_address_v6", &self.preferred_address_v6)
