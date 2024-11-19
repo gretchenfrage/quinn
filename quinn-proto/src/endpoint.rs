@@ -494,27 +494,44 @@ impl Endpoint {
 
         let server_config = self.server_config.as_ref().unwrap().clone();
 
-        let (retry_src_cid, orig_dst_cid) = if header.token.is_empty() {
-            (None, header.dst_cid)
+        let (retry_src_cid, orig_dst_cid, validated) = if header.token.is_empty() {
+            (None, header.dst_cid, false)
         } else {
             let valid_token =
                 Token::decode(&*server_config.token_key, &addresses.remote, &header.token)
-                    .and_then(|token| {
-                        let TokenInner {
-                            orig_dst_cid,
-                            issued,
-                        } = token.inner;
-                        if issued + server_config.retry_token_lifetime > SystemTime::now() {
-                            Ok((Some(header.dst_cid), orig_dst_cid))
-                        } else {
-                            Err(TokenDecodeError::InvalidRetry)
+                    .and_then(|token| match token.inner {
+                        TokenInner::Retry { orig_dst_cid, issued } => {
+                            if issued + server_config.retry_token_lifetime > SystemTime::now() {
+                                Ok((Some(header.dst_cid), orig_dst_cid))
+                            } else {
+                                Err(TokenDecodeError::InvalidRetry)
+                            }
+                        }
+                        TokenInner::Validation { issued } => {
+                            if server_config
+                                .validation_token_log
+                                .as_ref()
+                                .map(|log| {
+                                    let reuse_ok = log.check_and_insert(token.rand, issued, server_config.validation_token_lifetime).is_ok();
+                                    if !reuse_ok {
+                                        debug!("rejecting token from NEW_TOKEN frame because detected as reuse");
+                                    }
+                                    issued + server_config.validation_token_lifetime > SystemTime::now() && reuse_ok
+                                })
+                                .unwrap_or(false)
+                            {
+                                trace!("accepting token from NEW_TOKEN frame");
+                                Ok((None, header.dst_cid))
+                            } else {
+                                Err(TokenDecodeError::UnknownToken)
+                            }
                         }
                     });
             match valid_token {
-                Ok((retry_src_cid, orig_dst_cid)) => (retry_src_cid, orig_dst_cid),
+                Ok((retry_src_cid, orig_dst_cid)) => (retry_src_cid, orig_dst_cid, true),
                 Err(TokenDecodeError::UnknownToken) => {
                     trace!("ignoring unknown token");
-                    (None, header.dst_cid)
+                    (None, header.dst_cid, false)
                 }
                 Err(TokenDecodeError::InvalidRetry) => {
                     debug!("rejecting invalid stateless retry token");
@@ -547,6 +564,7 @@ impl Endpoint {
             retry_src_cid,
             orig_dst_cid,
             incoming_idx,
+            validated,
             improper_drop_warner: IncomingImproperDropWarner,
         }))
     }
@@ -756,7 +774,7 @@ impl Endpoint {
         // retried by the application layer.
         let loc_cid = self.local_cid_generator.generate_cid();
 
-        let token_inner = TokenInner {
+        let token_inner = TokenInner::Retry {
             orig_dst_cid: incoming.packet.header.dst_cid,
             issued: SystemTime::now(),
         };
@@ -1185,6 +1203,7 @@ pub struct Incoming {
     retry_src_cid: Option<ConnectionId>,
     orig_dst_cid: ConnectionId,
     incoming_idx: usize,
+    validated: bool,
     improper_drop_warner: IncomingImproperDropWarner,
 }
 
@@ -1205,8 +1224,19 @@ impl Incoming {
     ///
     /// This means that the sender of the initial packet has proved that they can receive traffic
     /// sent to `self.remote_address()`.
+    ///
+    /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
+    /// The inverse is not guaranteed.
     pub fn remote_address_validated(&self) -> bool {
         self.retry_src_cid.is_some()
+    }
+
+    /// Whether it is legal to respond with a retry packet
+    ///
+    /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
+    /// The inverse is not guaranteed.
+    pub fn may_retry(&self) -> bool {
+        self.retry_src_cid.is_none()
     }
 
     /// The original destination connection ID sent by the client
@@ -1225,6 +1255,7 @@ impl fmt::Debug for Incoming {
             .field("retry_src_cid", &self.retry_src_cid)
             .field("orig_dst_cid", &self.orig_dst_cid)
             .field("incoming_idx", &self.incoming_idx)
+            .field("validated", &self.validated)
             // improper drop warner contains no information
             .finish_non_exhaustive()
     }
