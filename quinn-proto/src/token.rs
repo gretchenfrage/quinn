@@ -13,7 +13,7 @@ use crate::{
     Duration, SystemTime, RESET_TOKEN_SIZE, UNIX_EPOCH,
 };
 
-/// A retry token
+/// An address validation / retry token
 ///
 /// The data in this struct is encoded and encrypted in the context of not only a handshake token
 /// key, but also a client socket address.
@@ -200,6 +200,9 @@ pub(crate) enum TokenDecodeError {
     ///
     /// > If the token is invalid, then the server SHOULD proceed as if the client did not have a
     /// > validated address, including potentially sending a Retry packet
+    ///
+    /// That said, this error is also used for tokens that _can_ be unambiguously decrypted/decoded
+    /// as a token from a NEW_TOKEN frame, but which are simply not valid.
     UnknownToken,
     /// Token was unambiguously from a Retry packet, and was not valid.
     ///

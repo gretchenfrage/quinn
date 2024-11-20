@@ -808,7 +808,7 @@ pub struct ServerConfig {
     /// Used to generate one-time AEAD keys to protect handshake tokens
     pub(crate) token_key: Arc<dyn HandshakeTokenKey>,
 
-    /// Microseconds after a stateless retry token was issued for which it's considered valid.
+    /// Duration after a stateless retry token was issued for which it's considered valid
     pub(crate) retry_token_lifetime: Duration,
 
     /// Duration after an address validation token was issued for which it's considered valid
@@ -1032,6 +1032,8 @@ impl fmt::Debug for ServerConfig {
             // crypto not debug
             // token not debug
             .field("retry_token_lifetime", &self.retry_token_lifetime)
+            .field("validation_token_lifetime", &self.validation_token_lifetime)
+            .field("validation_tokens_sent", &self.validation_tokens_sent,)
             .field("migration", &self.migration)
             .field("preferred_address_v4", &self.preferred_address_v4)
             .field("preferred_address_v6", &self.preferred_address_v6)
@@ -1149,6 +1151,7 @@ impl fmt::Debug for ClientConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("ClientConfig<T>")
             .field("transport", &self.transport)
+            // new_token_store not debug
             // crypto not debug
             .field("version", &self.version)
             .finish_non_exhaustive()
