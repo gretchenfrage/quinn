@@ -32,7 +32,7 @@ use crate::{
     token::{TokenDecodeError, TokenInner},
     transport_parameters::{PreferredAddress, TransportParameters},
     Instant, ResetToken, Side, SystemTime, Token, Transmit, TransportConfig, TransportError,
-    INITIAL_MTU, MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
+    ValidationTokenStore, INITIAL_MTU, MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
 };
 
 /// The main entry point to the library
@@ -432,6 +432,8 @@ impl Endpoint {
             None,
             config.transport,
             true,
+            config.validation_token_store,
+            Some(server_name.into()),
         );
         Ok((ch, conn))
     }
@@ -669,6 +671,8 @@ impl Endpoint {
             Some(server_config),
             transport_config,
             remote_address_validated,
+            None,
+            None,
         );
         self.index.insert_initial(dst_cid, ch);
 
@@ -837,6 +841,8 @@ impl Endpoint {
         server_config: Option<Arc<ServerConfig>>,
         transport_config: Arc<TransportConfig>,
         path_validated: bool,
+        new_token_store: Option<Arc<dyn ValidationTokenStore>>,
+        server_name: Option<String>,
     ) -> Connection {
         let mut rng_seed = [0; 32];
         self.rng.fill_bytes(&mut rng_seed);
@@ -861,6 +867,8 @@ impl Endpoint {
             self.allow_mtud,
             rng_seed,
             path_validated,
+            new_token_store,
+            server_name,
         );
 
         let mut cids_issued = 0;
