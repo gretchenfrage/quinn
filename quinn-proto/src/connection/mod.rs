@@ -31,9 +31,9 @@ use crate::{
     },
     token::{ResetToken, Token, TokenInner},
     transport_parameters::TransportParameters,
-    Dir, Duration, EndpointConfig, Frame, Instant, Side, StreamId, SystemTime, Transmit,
-    TransportError, TransportErrorCode, VarInt, INITIAL_MTU, MAX_CID_SIZE, MAX_STREAM_COUNT,
-    MIN_INITIAL_SIZE, TIMER_GRANULARITY,
+    Dir, Duration, EndpointConfig, Frame, Instant, Side, StreamId, SystemTime, TokenStore,
+    Transmit, TransportError, TransportErrorCode, VarInt, INITIAL_MTU, MAX_CID_SIZE,
+    MAX_STREAM_COUNT, MIN_INITIAL_SIZE, TIMER_GRANULARITY,
 };
 
 mod ack_frequency;
@@ -193,7 +193,7 @@ pub struct Connection {
     error: Option<ConnectionError>,
     /// Sent in every outgoing Initial packet. Always empty for servers and after Initial keys are
     /// discarded.
-    retry_token: Bytes,
+    token: Bytes,
     /// Identifies Data-space packet numbers to skip. Not used in earlier spaces.
     packet_number_filter: PacketNumberFilter,
 
@@ -226,6 +226,9 @@ pub struct Connection {
     /// no outgoing application data.
     app_limited: bool,
 
+    token_store: Option<Arc<dyn TokenStore>>,
+    server_name: Option<String>,
+
     streams: StreamsState,
     /// Surplus remote CIDs for future use on new paths
     rem_cids: CidQueue,
@@ -257,6 +260,8 @@ impl Connection {
         allow_mtud: bool,
         rng_seed: [u8; 32],
         path_validated: bool,
+        token_store: Option<Arc<dyn TokenStore>>,
+        server_name: Option<String>,
     ) -> Self {
         let side = if server_config.is_some() {
             Side::Server
@@ -273,6 +278,10 @@ impl Connection {
             client_hello: None,
         });
         let mut rng = StdRng::from_seed(rng_seed);
+        let token = token_store
+            .as_ref()
+            .and_then(|store| store.take(server_name.as_ref().unwrap()))
+            .unwrap_or_default();
         let mut this = Self {
             endpoint_config,
             server_config,
@@ -323,7 +332,7 @@ impl Connection {
             timers: TimerTable::default(),
             authentication_failures: 0,
             error: None,
-            retry_token: Bytes::new(),
+            token,
             #[cfg(test)]
             packet_number_filter: match config.deterministic_packet_numbers {
                 false => PacketNumberFilter::new(&mut rng),
@@ -344,6 +353,9 @@ impl Connection {
             app_limited: false,
             receiving_ecn: false,
             total_authed_packets: 0,
+
+            token_store,
+            server_name,
 
             streams: StreamsState::new(
                 side,
@@ -2104,7 +2116,7 @@ impl Connection {
         trace!("discarding {:?} keys", space_id);
         if space_id == SpaceId::Initial {
             // No longer needed
-            self.retry_token = Bytes::new();
+            self.token = Bytes::new();
         }
         let space = &mut self.spaces[space_id];
         space.crypto = None;
@@ -2423,7 +2435,7 @@ impl Connection {
                 self.streams.retransmit_all_for_0rtt();
 
                 let token_len = packet.payload.len() - 16;
-                self.retry_token = packet.payload.freeze().split_to(token_len);
+                self.token = packet.payload.freeze().split_to(token_len);
                 self.state = State::Handshake(state::Handshake {
                     expected_token: Bytes::new(),
                     rem_cid_set: false,
@@ -2865,7 +2877,9 @@ impl Connection {
                         return Err(TransportError::FRAME_ENCODING_ERROR("empty token"));
                     }
                     trace!("got new token");
-                    // TODO: Cache, or perhaps forward to user?
+                    if let Some(store) = self.token_store.as_ref() {
+                        store.insert(self.server_name.as_ref().unwrap(), token);
+                    }
                 }
                 Frame::Datagram(datagram) => {
                     if self

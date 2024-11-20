@@ -96,6 +96,9 @@ mod bloom_token_log;
 #[cfg(feature = "fastbloom")]
 pub use bloom_token_log::BloomTokenLog;
 
+mod token_store;
+pub use token_store::{TokenMemoryCache, TokenStore};
+
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 
