@@ -18,8 +18,9 @@ use crate::{
     congestion,
     crypto::{self, HandshakeTokenKey, HmacKey},
     shared::ConnectionId,
-    BloomTokenLog, Duration, RandomConnectionIdGenerator, TokenLog, VarInt, VarIntBoundsExceeded,
-    DEFAULT_SUPPORTED_VERSIONS, INITIAL_MTU, MAX_CID_SIZE, MAX_UDP_PAYLOAD,
+    BloomTokenLog, Duration, RandomConnectionIdGenerator, TokenLog, ValidationTokenMemoryCache,
+    ValidationTokenStore, VarInt, VarIntBoundsExceeded, DEFAULT_SUPPORTED_VERSIONS, INITIAL_MTU,
+    MAX_CID_SIZE, MAX_UDP_PAYLOAD,
 };
 
 /// Parameters governing the core QUIC state machine
@@ -1056,6 +1057,9 @@ pub struct ClientConfig {
     /// Cryptographic configuration to use
     pub(crate) crypto: Arc<dyn crypto::ClientConfig>,
 
+    /// Validation token store to use
+    pub(crate) validation_token_store: Option<Arc<dyn ValidationTokenStore>>,
+
     /// Provider that populates the destination connection ID of Initial Packets
     pub(crate) initial_dst_cid_provider: Arc<dyn Fn() -> ConnectionId + Send + Sync>,
 
@@ -1069,6 +1073,7 @@ impl ClientConfig {
         Self {
             transport: Default::default(),
             crypto,
+            validation_token_store: Some(Arc::new(ValidationTokenMemoryCache::<2>::default())),
             initial_dst_cid_provider: Arc::new(|| {
                 RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid()
             }),
@@ -1095,6 +1100,21 @@ impl ClientConfig {
     /// Set a custom [`TransportConfig`]
     pub fn transport_config(&mut self, transport: Arc<TransportConfig>) -> &mut Self {
         self.transport = transport;
+        self
+    }
+
+    /// Set a custom [`ValidationTokenStore`]
+    ///
+    /// Defaults to an in-memory store limited to 256 servers and 2 tokens per server. This default
+    /// is chosen to complement `rustls`'s default
+    /// [`ClientSessionStore`][rustls::client::ClientSessionStore].
+    ///
+    /// Setting to `None` disables the use of tokens from NEW_TOKEN frames as a client.
+    pub fn validation_token_store(
+        &mut self,
+        validation_token_store: Option<Arc<dyn ValidationTokenStore>>,
+    ) -> &mut Self {
+        self.validation_token_store = validation_token_store;
         self
     }
 
