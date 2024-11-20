@@ -808,7 +808,7 @@ pub struct ServerConfig {
     /// Used to generate one-time AEAD keys to protect handshake tokens
     pub(crate) token_key: Arc<dyn HandshakeTokenKey>,
 
-    /// Duration after a retry token was issued for which it's considered valid.
+    /// Duration after a retry token was issued for which it's considered valid
     pub(crate) retry_token_lifetime: Duration,
 
     /// Duration after an address validation token was issued for which it's considered valid
