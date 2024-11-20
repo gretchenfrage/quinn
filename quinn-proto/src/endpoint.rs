@@ -759,7 +759,7 @@ impl Endpoint {
 
     /// Respond with a retry packet, requiring the client to retry with address validation
     ///
-    /// Errors if `incoming.remote_address_validated()` is true.
+    /// Errors if `incoming.may_retry()` is false.
     pub fn retry(&mut self, incoming: Incoming, buf: &mut Vec<u8>) -> Result<Transmit, RetryError> {
         if incoming.remote_address_validated() {
             return Err(RetryError(incoming));
@@ -1218,7 +1218,7 @@ pub struct Incoming {
 impl Incoming {
     /// The local IP address which was used when the peer established the connection
     ///
-    /// This has the same behavior as [`Connection::local_ip`].
+    /// This has the same behavior as [`Connection::local_ip`]
     pub fn local_ip(&self) -> Option<IpAddr> {
         self.addresses.local_ip
     }
@@ -1236,7 +1236,7 @@ impl Incoming {
     /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
     /// The inverse is not guaranteed.
     pub fn remote_address_validated(&self) -> bool {
-        self.retry_src_cid.is_some()
+        self.validated
     }
 
     /// Whether it is legal to respond with a retry packet

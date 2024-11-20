@@ -16,7 +16,7 @@ use tracing::warn;
 /// Error for when a validation token may have been reused
 pub struct TokenReuseError;
 
-/// Responsible for limiting clients' ability to reuse address validation tokens
+/// Responsible for limiting clients' ability to reuse validation tokens
 ///
 /// [_RFC 9000 § 8.1.4:_](https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1.4)
 ///
