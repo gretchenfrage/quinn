@@ -91,6 +91,9 @@ use token::{ResetToken, Token};
 mod token_log;
 pub use token_log::{BloomTokenLog, TokenLog, TokenReuseError};
 
+mod validation_token_store;
+pub use validation_token_store::{ValidationTokenMemoryCache, ValidationTokenStore};
+
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 
