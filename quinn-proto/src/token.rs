@@ -12,6 +12,13 @@ use crate::{
     Duration, SystemTime, RESET_TOKEN_SIZE, UNIX_EPOCH,
 };
 
+/// State in an [`Incoming`] determined by a token or lack thereof
+#[derive(Debug)]
+pub(crate) struct IncomingTokenState {
+    pub(crate) retry_src_cid: Option<ConnectionId>,
+    pub(crate) orig_dst_cid: ConnectionId,
+}
+
 /// A retry token
 ///
 /// The data in this struct is encoded and encrypted in the context of not only a handshake token
