@@ -31,7 +31,7 @@ use crate::{
     },
     token::TokenDecodeError,
     transport_parameters::{PreferredAddress, TransportParameters},
-    Duration, Instant, ResetToken, RetryToken, Side, SystemTime, Transmit, TransportConfig,
+    Duration, Instant, ResetToken, Side, SystemTime, Token, Transmit, TransportConfig,
     TransportError, INITIAL_MTU, MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
 };
 
@@ -499,7 +499,7 @@ impl Endpoint {
         let (retry_src_cid, orig_dst_cid) = if header.token.is_empty() {
             (None, header.dst_cid)
         } else {
-            match RetryToken::from_bytes(
+            match Token::decode(
                 &*server_config.token_key,
                 &addresses.remote,
                 &header.dst_cid,
@@ -772,7 +772,7 @@ impl Endpoint {
         // retried by the application layer.
         let loc_cid = self.local_cid_generator.generate_cid();
 
-        let token = RetryToken {
+        let token = Token {
             orig_dst_cid: incoming.packet.header.dst_cid,
             issued: SystemTime::now(),
         }
