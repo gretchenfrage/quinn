@@ -31,13 +31,9 @@ impl Token {
         address: &SocketAddr,
         retry_src_cid: &ConnectionId,
     ) -> Vec<u8> {
-        let aead_key = key.aead_from_hkdf(retry_src_cid);
-
         let mut buf = Vec::new();
-        encode_socket_addr(&mut buf, address);
-        self.orig_dst_cid.encode_long(&mut buf);
-        encode_time(&mut buf, self.issued);
-
+        self.encode_inner(&mut buf, address);
+        let aead_key = key.aead_from_hkdf(retry_src_cid);
         aead_key.seal(&mut buf, &[]).unwrap();
 
         buf
@@ -52,17 +48,27 @@ impl Token {
     ) -> Result<Self, TokenDecodeError> {
         let aead_key = key.aead_from_hkdf(retry_src_cid);
         let mut sealed_token = raw_token_bytes.to_vec();
+        let encoded = aead_key.open(&mut sealed_token, &[])?;
 
-        let data = aead_key.open(&mut sealed_token, &[])?;
-        let mut reader = io::Cursor::new(data);
-        let token_addr = decode_socket_addr(&mut reader).ok_or(TokenDecodeError::UnknownToken)?;
-        if token_addr != *address {
+        let mut cursor = io::Cursor::new(encoded);
+        Self::decode_inner(&mut cursor, address)
+    }
+
+    /// Encode without encryption
+    fn encode_inner(&self, buf: &mut Vec<u8>, address: &SocketAddr) {
+        encode_socket_addr(buf, address);
+        self.orig_dst_cid.encode_long(buf);
+        encode_time(buf, self.issued);
+    }
+
+    /// Try to decode without encryption, but do validate that the address is acceptable
+    fn decode_inner<B: Buf>(buf: &mut B, address: &SocketAddr) -> Result<Self, TokenDecodeError> {
+        let token_address = decode_socket_addr(buf).ok_or(TokenDecodeError::UnknownToken)?;
+        if token_address != *address {
             return Err(TokenDecodeError::InvalidRetry);
         }
-        let orig_dst_cid =
-            ConnectionId::decode_long(&mut reader).ok_or(TokenDecodeError::UnknownToken)?;
-        let issued = decode_time(&mut reader).ok_or(TokenDecodeError::UnknownToken)?;
-
+        let orig_dst_cid = ConnectionId::decode_long(buf).ok_or(TokenDecodeError::UnknownToken)?;
+        let issued = decode_time(buf).ok_or(TokenDecodeError::UnknownToken)?;
         Ok(Self {
             orig_dst_cid,
             issued,
