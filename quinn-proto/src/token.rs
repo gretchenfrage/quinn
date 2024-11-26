@@ -51,7 +51,12 @@ impl Token {
         let encoded = aead_key.open(&mut sealed_token, &[])?;
 
         let mut cursor = io::Cursor::new(encoded);
-        Self::decode_inner(&mut cursor, address)
+        let token = Self::decode_inner(&mut cursor, address)?;
+        if cursor.has_remaining() {
+            return Err(TokenDecodeError::UnknownToken);
+        }
+
+        Ok(token)
     }
 
     /// Encode without encryption
