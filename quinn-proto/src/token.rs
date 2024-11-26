@@ -8,8 +8,9 @@ use bytes::{Buf, BufMut};
 use crate::{
     coding::{BufExt, BufMutExt},
     crypto::{CryptoError, HandshakeTokenKey, HmacKey},
+    packet::InitialHeader,
     shared::ConnectionId,
-    Duration, SystemTime, RESET_TOKEN_SIZE, UNIX_EPOCH,
+    Duration, ServerConfig, SystemTime, RESET_TOKEN_SIZE, UNIX_EPOCH,
 };
 
 /// State in an [`Incoming`] determined by a token or lack thereof
@@ -17,6 +18,16 @@ use crate::{
 pub(crate) struct IncomingTokenState {
     pub(crate) retry_src_cid: Option<ConnectionId>,
     pub(crate) orig_dst_cid: ConnectionId,
+}
+
+impl IncomingTokenState {
+    /// Construct for an `Incoming` which is not validated by a token
+    pub(crate) fn default(header: &InitialHeader) -> Self {
+        IncomingTokenState {
+            retry_src_cid: None,
+            orig_dst_cid: header.dst_cid,
+        }
+    }
 }
 
 /// A retry token
@@ -64,6 +75,26 @@ impl Token {
         }
 
         Ok(token)
+    }
+
+    /// Ensure that this token validates an `Incoming`, and construct its token state
+    pub(crate) fn validate(
+        &self,
+        header: &InitialHeader,
+        server_config: &ServerConfig,
+    ) -> Result<IncomingTokenState, TokenDecodeError> {
+        let Token {
+            orig_dst_cid,
+            issued,
+        } = *self;
+        if issued + server_config.retry_token_lifetime > SystemTime::now() {
+            Ok(IncomingTokenState {
+                retry_src_cid: Some(header.dst_cid),
+                orig_dst_cid,
+            })
+        } else {
+            Err(TokenDecodeError::InvalidRetry)
+        }
     }
 
     /// Encode without encryption
