@@ -746,7 +746,7 @@ impl Endpoint {
     ///
     /// Errors if `incoming.remote_address_validated()` is true.
     pub fn retry(&mut self, incoming: Incoming, buf: &mut Vec<u8>) -> Result<Transmit, RetryError> {
-        if incoming.remote_address_validated() {
+        if !incoming.may_retry() {
             return Err(RetryError(incoming));
         }
 
@@ -763,7 +763,7 @@ impl Endpoint {
         // retried by the application layer.
         let loc_cid = self.local_cid_generator.generate_cid();
 
-        let token_inner = TokenInner {
+        let token_inner = TokenInner::Retry {
             orig_dst_cid: incoming.packet.header.dst_cid,
             issued: SystemTime::now(),
         };
@@ -1206,8 +1206,19 @@ impl Incoming {
     ///
     /// This means that the sender of the initial packet has proved that they can receive traffic
     /// sent to `self.remote_address()`.
+    ///
+    /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
+    /// The inverse is not guaranteed.
     pub fn remote_address_validated(&self) -> bool {
-        self.token_state.retry_src_cid.is_some()
+        self.token_state.validated
+    }
+
+    /// Whether it is legal to respond with a retry packet
+    ///
+    /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
+    /// The inverse is not guaranteed.
+    pub fn may_retry(&self) -> bool {
+        self.token_state.retry_src_cid.is_none()
     }
 
     /// The original destination connection ID sent by the client
