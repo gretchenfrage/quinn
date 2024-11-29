@@ -29,7 +29,7 @@ use crate::{
         ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
         EndpointEvent, EndpointEventInner, IssuedCid,
     },
-    token::{IncomingTokenState, TokenDecodeError},
+    token::{IncomingTokenState, TokenDecodeError, TokenInner},
     transport_parameters::{PreferredAddress, TransportParameters},
     Duration, Instant, ResetToken, Side, SystemTime, Token, Transmit, TransportConfig,
     TransportError, INITIAL_MTU, MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
@@ -499,13 +499,9 @@ impl Endpoint {
         let token_state = if header.token.is_empty() {
             IncomingTokenState::default(&header)
         } else {
-            let valid_token = Token::decode(
-                &*server_config.token_key,
-                &addresses.remote,
-                &header.dst_cid,
-                &header.token,
-            )
-            .and_then(|token| token.validate(&header, &server_config));
+            let valid_token =
+                Token::decode(&*server_config.token_key, &addresses.remote, &header.token)
+                    .and_then(|token| token.validate(&header, &server_config));
             match valid_token {
                 Ok(token_state) => token_state,
                 Err(TokenDecodeError::UnknownToken) => {
@@ -767,15 +763,12 @@ impl Endpoint {
         // retried by the application layer.
         let loc_cid = self.local_cid_generator.generate_cid();
 
-        let token = Token {
+        let token_inner = TokenInner {
             orig_dst_cid: incoming.packet.header.dst_cid,
             issued: SystemTime::now(),
-        }
-        .encode(
-            &*server_config.token_key,
-            &incoming.addresses.remote,
-            &loc_cid,
-        );
+        };
+        let token = Token::new(&mut self.rng, token_inner)
+            .encode(&*server_config.token_key, &incoming.addresses.remote);
 
         let header = Header::Retry {
             src_cid: loc_cid,

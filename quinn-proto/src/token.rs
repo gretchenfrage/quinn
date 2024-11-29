@@ -4,6 +4,7 @@ use std::{
 };
 
 use bytes::{Buf, BufMut};
+use rand::Rng;
 
 use crate::{
     coding::{BufExt, BufMutExt},
@@ -35,25 +36,29 @@ impl IncomingTokenState {
 /// The data in this struct is encoded and encrypted in the context of not only a handshake token
 /// key, but also a client socket address.
 pub(crate) struct Token {
-    /// The destination connection ID set in the very first packet from the client
-    pub(crate) orig_dst_cid: ConnectionId,
-    /// The time at which this token was issued
-    pub(crate) issued: SystemTime,
+    /// Randomly generated value, which must be unique, and is visible to the client
+    pub(crate) rand: u128,
+    /// Content which is encrypted from the client
+    pub(crate) inner: TokenInner,
 }
 
 impl Token {
+    /// Construct with newly sampled randomness
+    pub(crate) fn new<R: Rng>(rng: &mut R, inner: TokenInner) -> Self {
+        Self {
+            rand: rng.gen(),
+            inner,
+        }
+    }
+
     /// Encode and encrypt
-    pub(crate) fn encode(
-        &self,
-        key: &dyn HandshakeTokenKey,
-        address: &SocketAddr,
-        retry_src_cid: &ConnectionId,
-    ) -> Vec<u8> {
+    pub(crate) fn encode(&self, key: &dyn HandshakeTokenKey, address: &SocketAddr) -> Vec<u8> {
         let mut buf = Vec::new();
-        self.encode_inner(&mut buf, address);
-        let aead_key = key.aead_from_hkdf(retry_src_cid);
+        self.inner.encode(&mut buf, address);
+        let aead_key = key.aead_from_hkdf(&self.rand.to_le_bytes());
         aead_key.seal(&mut buf, &[]).unwrap();
 
+        buf.extend(&self.rand.to_le_bytes());
         buf
     }
 
@@ -61,20 +66,27 @@ impl Token {
     pub(crate) fn decode(
         key: &dyn HandshakeTokenKey,
         address: &SocketAddr,
-        retry_src_cid: &ConnectionId,
         raw_token_bytes: &[u8],
     ) -> Result<Self, TokenDecodeError> {
-        let aead_key = key.aead_from_hkdf(retry_src_cid);
-        let mut sealed_token = raw_token_bytes.to_vec();
-        let encoded = aead_key.open(&mut sealed_token, &[])?;
+        let rand_slice_start = raw_token_bytes
+            .len()
+            .checked_sub(size_of::<u128>())
+            .ok_or(TokenDecodeError::UnknownToken)?;
+        let mut rand_bytes = [0; size_of::<u128>()];
+        rand_bytes.copy_from_slice(&raw_token_bytes[rand_slice_start..]);
+        let rand = u128::from_le_bytes(rand_bytes);
+
+        let aead_key = key.aead_from_hkdf(&rand_bytes);
+        let mut sealed_inner = raw_token_bytes[..rand_slice_start].to_vec();
+        let encoded = aead_key.open(&mut sealed_inner, &[])?;
 
         let mut cursor = io::Cursor::new(encoded);
-        let token = Self::decode_inner(&mut cursor, address)?;
+        let inner = TokenInner::decode(&mut cursor, address)?;
         if cursor.has_remaining() {
             return Err(TokenDecodeError::UnknownToken);
         }
 
-        Ok(token)
+        Ok(Self { rand, inner })
     }
 
     /// Ensure that this token validates an `Incoming`, and construct its token state
@@ -83,10 +95,10 @@ impl Token {
         header: &InitialHeader,
         server_config: &ServerConfig,
     ) -> Result<IncomingTokenState, TokenDecodeError> {
-        let Token {
+        let TokenInner {
             orig_dst_cid,
             issued,
-        } = *self;
+        } = self.inner;
         if issued + server_config.retry_token_lifetime > SystemTime::now() {
             Ok(IncomingTokenState {
                 retry_src_cid: Some(header.dst_cid),
@@ -96,16 +108,26 @@ impl Token {
             Err(TokenDecodeError::InvalidRetry)
         }
     }
+}
 
+/// Content of [`Token`] that is encrypted from the client
+pub(crate) struct TokenInner {
+    /// The destination connection ID set in the very first packet from the client
+    pub(crate) orig_dst_cid: ConnectionId,
+    /// The time at which this token was issued
+    pub(crate) issued: SystemTime,
+}
+
+impl TokenInner {
     /// Encode without encryption
-    fn encode_inner(&self, buf: &mut Vec<u8>, address: &SocketAddr) {
+    fn encode(&self, buf: &mut Vec<u8>, address: &SocketAddr) {
         encode_socket_addr(buf, address);
         self.orig_dst_cid.encode_long(buf);
         encode_time(buf, self.issued);
     }
 
     /// Try to decode without encryption, but do validate that the address is acceptable
-    fn decode_inner<B: Buf>(buf: &mut B, address: &SocketAddr) -> Result<Self, TokenDecodeError> {
+    fn decode<B: Buf>(buf: &mut B, address: &SocketAddr) -> Result<Self, TokenDecodeError> {
         let token_address = decode_socket_addr(buf).ok_or(TokenDecodeError::UnknownToken)?;
         if token_address != *address {
             return Err(TokenDecodeError::InvalidRetry);
@@ -255,7 +277,7 @@ mod test {
         use crate::MAX_CID_SIZE;
         use crate::{Duration, UNIX_EPOCH};
 
-        use rand::RngCore;
+        use rand::prelude::*;
         use std::net::Ipv6Addr;
 
         let rng = &mut rand::thread_rng();
@@ -266,24 +288,26 @@ mod test {
         let prk = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
 
         let addr = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 4433);
-        let retry_src_cid = RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid();
+        let orig_dst_cid_1 = RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid();
+        let issued_1 = UNIX_EPOCH + Duration::new(42, 0); // Fractional seconds would be lost
         let token = Token {
-            orig_dst_cid: RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid(),
-            issued: UNIX_EPOCH + Duration::new(42, 0), // Fractional seconds would be lost
+            rand: rng.gen(),
+            inner: TokenInner {
+                orig_dst_cid: orig_dst_cid_1,
+                issued: issued_1,
+            },
         };
-        let encoded = token.encode(&prk, &addr, &retry_src_cid);
+        let encoded = token.encode(&prk, &addr);
 
-        let decoded =
-            Token::decode(&prk, &addr, &retry_src_cid, &encoded).expect("token didn't validate");
-        assert_eq!(token.orig_dst_cid, decoded.orig_dst_cid);
-        assert_eq!(token.issued, decoded.issued);
+        let token_2 = Token::decode(&prk, &addr, &encoded).expect("token didn't validate");
+        assert_eq!(token.rand, token_2.rand);
+        assert_eq!(orig_dst_cid_1, token_2.inner.orig_dst_cid);
+        assert_eq!(issued_1, token_2.inner.issued);
     }
 
     #[test]
     fn invalid_token_returns_err() {
         use super::*;
-        use crate::cid_generator::{ConnectionIdGenerator, RandomConnectionIdGenerator};
-        use crate::MAX_CID_SIZE;
         use rand::RngCore;
         use std::net::Ipv6Addr;
 
@@ -295,7 +319,6 @@ mod test {
         let prk = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
 
         let addr = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 4433);
-        let retry_src_cid = RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid();
 
         let mut invalid_token = Vec::new();
 
@@ -304,6 +327,6 @@ mod test {
         invalid_token.put_slice(&random_data);
 
         // Assert: garbage sealed data returns err
-        assert!(Token::decode(&prk, &addr, &retry_src_cid, &invalid_token).is_err());
+        assert!(Token::decode(&prk, &addr, &invalid_token).is_err());
     }
 }
