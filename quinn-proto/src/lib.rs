@@ -89,6 +89,11 @@ mod token;
 use token::{ResetToken, Token};
 pub use token::{TokenLog, TokenReuseError};
 
+#[cfg(feature = "fastbloom")]
+mod bloom_token_log;
+#[cfg(feature = "fastbloom")]
+pub use bloom_token_log::BloomTokenLog;
+
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 
