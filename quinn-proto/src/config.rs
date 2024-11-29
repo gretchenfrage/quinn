@@ -20,8 +20,8 @@ use crate::{
     congestion,
     crypto::{self, HandshakeTokenKey, HmacKey},
     shared::ConnectionId,
-    Duration, RandomConnectionIdGenerator, TokenLog, TokenStore, VarInt, VarIntBoundsExceeded,
-    DEFAULT_SUPPORTED_VERSIONS, INITIAL_MTU, MAX_CID_SIZE, MAX_UDP_PAYLOAD,
+    Duration, RandomConnectionIdGenerator, TokenLog, TokenMemoryCache, TokenStore, VarInt,
+    VarIntBoundsExceeded, DEFAULT_SUPPORTED_VERSIONS, INITIAL_MTU, MAX_CID_SIZE, MAX_UDP_PAYLOAD,
 };
 
 /// Parameters governing the core QUIC state machine
@@ -1083,7 +1083,7 @@ impl ClientConfig {
         Self {
             transport: Default::default(),
             crypto,
-            token_store: None,
+            token_store: Some(Arc::new(TokenMemoryCache::<2>::default())),
             initial_dst_cid_provider: Arc::new(|| {
                 RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid()
             }),
