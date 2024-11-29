@@ -253,15 +253,38 @@ impl SideState {
     }
 }
 
+/// Parameters to `Connection::new` specific to it being client-side or server-side
+pub(crate) enum SideArgs {
+    Client,
+    Server {
+        server_config: Arc<ServerConfig>,
+        pref_addr_cid: Option<ConnectionId>,
+        path_validated: bool,
+    },
+}
+
+impl SideArgs {
+    pub(crate) fn side(&self) -> Side {
+        match *self {
+            Self::Client { .. } => Side::Client,
+            Self::Server { .. } => Side::Server,
+        }
+    }
+    pub(crate) fn pref_addr_cid(&self) -> Option<ConnectionId> {
+        match *self {
+            Self::Client { .. } => None,
+            Self::Server { pref_addr_cid, .. } => pref_addr_cid,
+        }
+    }
+}
+
 impl Connection {
     pub(crate) fn new(
         endpoint_config: Arc<EndpointConfig>,
-        server_config: Option<Arc<ServerConfig>>,
         config: Arc<TransportConfig>,
         init_cid: ConnectionId,
         loc_cid: ConnectionId,
         rem_cid: ConnectionId,
-        pref_addr_cid: Option<ConnectionId>,
         remote: SocketAddr,
         local_ip: Option<IpAddr>,
         crypto: Box<dyn crypto::Session>,
@@ -270,14 +293,19 @@ impl Connection {
         version: u32,
         allow_mtud: bool,
         rng_seed: [u8; 32],
-        path_validated: bool,
+        side_args: SideArgs,
     ) -> Self {
-        let side_state = if let Some(server_config) = server_config.clone() {
-            SideState::Server { server_config }
-        } else {
-            assert!(pref_addr_cid.is_none());
-            assert!(path_validated);
-            SideState::Client
+        let (side_state, pref_addr_cid, path_validated) = match side_args {
+            SideArgs::Client => (SideState::Client, None, true),
+            SideArgs::Server {
+                server_config,
+                pref_addr_cid,
+                path_validated,
+            } => (
+                SideState::Server { server_config },
+                pref_addr_cid,
+                path_validated,
+            ),
         };
         let side = side_state.side();
         let initial_space = PacketSpace {
