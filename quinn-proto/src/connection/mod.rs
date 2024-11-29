@@ -129,7 +129,6 @@ use timer::{Timer, TimerTable};
 /// events or timeouts with different instants must not be interleaved.
 pub struct Connection {
     endpoint_config: Arc<EndpointConfig>,
-    server_config: Option<Arc<ServerConfig>>,
     config: Arc<TransportConfig>,
     rng: StdRng,
     crypto: Box<dyn crypto::Session>,
@@ -145,7 +144,7 @@ pub struct Connection {
     allow_mtud: bool,
     prev_path: Option<(ConnectionId, PathData)>,
     state: State,
-    side: Side,
+    side_state: SideState,
     /// Whether or not 0-RTT was enabled during the handshake. Does not imply acceptance.
     zero_rtt_enabled: bool,
     /// Set if 0-RTT is supported, then cleared when no longer needed.
@@ -191,9 +190,6 @@ pub struct Connection {
     authentication_failures: u64,
     /// Why the connection was lost, if it has been
     error: Option<ConnectionError>,
-    /// Sent in every outgoing Initial packet. Always empty for servers and after Initial keys are
-    /// discarded.
-    retry_token: Bytes,
     /// Identifies Data-space packet numbers to skip. Not used in earlier spaces.
     packet_number_filter: PacketNumberFilter,
 
@@ -239,6 +235,26 @@ pub struct Connection {
     version: u32,
 }
 
+/// Fields of `Connection` specific to it being client-side or server-side
+enum SideState {
+    Client {
+        /// Sent in every outgoing Initial packet. Always empty after Initial keys are discarded
+        token: Bytes,
+    },
+    Server {
+        server_config: Arc<ServerConfig>,
+    },
+}
+
+impl SideState {
+    fn side(&self) -> Side {
+        match *self {
+            Self::Client { .. } => Side::Client,
+            Self::Server { .. } => Side::Server,
+        }
+    }
+}
+
 impl Connection {
     pub(crate) fn new(
         endpoint_config: Arc<EndpointConfig>,
@@ -258,13 +274,18 @@ impl Connection {
         rng_seed: [u8; 32],
         path_validated: bool,
     ) -> Self {
-        let side = if server_config.is_some() {
-            Side::Server
+        let side_state = if let Some(server_config) = server_config.clone() {
+            SideState::Server { server_config }
         } else {
-            Side::Client
+            assert!(pref_addr_cid.is_none());
+            assert!(path_validated);
+            SideState::Client {
+                token: Bytes::new(),
+            }
         };
+        let side = side_state.side();
         let initial_space = PacketSpace {
-            crypto: Some(crypto.initial_keys(&init_cid, side)),
+            crypto: Some(crypto.initial_keys(&init_cid, side_state.side())),
             ..PacketSpace::new(now)
         };
         let state = State::Handshake(state::Handshake {
@@ -275,7 +296,6 @@ impl Connection {
         let mut rng = StdRng::from_seed(rng_seed);
         let mut this = Self {
             endpoint_config,
-            server_config,
             crypto,
             handshake_cid: loc_cid,
             rem_handshake_cid: rem_cid,
@@ -289,8 +309,8 @@ impl Connection {
             allow_mtud,
             local_ip,
             prev_path: None,
-            side,
             state,
+            side_state,
             zero_rtt_enabled: false,
             zero_rtt_crypto: None,
             key_phase: false,
@@ -323,7 +343,6 @@ impl Connection {
             timers: TimerTable::default(),
             authentication_failures: 0,
             error: None,
-            retry_token: Bytes::new(),
             #[cfg(test)]
             packet_number_filter: match config.deterministic_packet_numbers {
                 false => PacketNumberFilter::new(&mut rng),
@@ -420,7 +439,7 @@ impl Connection {
     /// Provide control over streams
     #[must_use]
     pub fn recv_stream(&mut self, id: StreamId) -> RecvStream<'_> {
-        assert!(id.dir() == Dir::Bi || id.initiator() != self.side);
+        assert!(id.dir() == Dir::Bi || id.initiator() != self.side_state.side());
         RecvStream {
             id,
             state: &mut self.streams,
@@ -431,7 +450,7 @@ impl Connection {
     /// Provide control over streams
     #[must_use]
     pub fn send_stream(&mut self, id: StreamId) -> SendStream<'_> {
-        assert!(id.dir() == Dir::Bi || id.initiator() == self.side);
+        assert!(id.dir() == Dir::Bi || id.initiator() == self.side_state.side());
         SendStream {
             id,
             state: &mut self.streams,
@@ -798,7 +817,7 @@ impl Connection {
 
             if self.spaces[SpaceId::Initial].crypto.is_some()
                 && space_id == SpaceId::Handshake
-                && self.side.is_client()
+                && self.side_state.side().is_client()
             {
                 // A client stops both sending and processing Initial packets when it
                 // sends its first Handshake packet.
@@ -826,8 +845,8 @@ impl Connection {
             coalesce = coalesce && !builder.short_header;
 
             // https://tools.ietf.org/html/draft-ietf-quic-transport-34#section-14.1
-            pad_datagram |=
-                space_id == SpaceId::Initial && (self.side.is_client() || ack_eliciting);
+            pad_datagram |= space_id == SpaceId::Initial
+                && (self.side_state.side().is_client() || ack_eliciting);
 
             if close {
                 trace!("sending CONNECTION_CLOSE");
@@ -1045,7 +1064,7 @@ impl Connection {
         if self.spaces[space_id].crypto.is_none()
             && (space_id != SpaceId::Data
                 || self.zero_rtt_crypto.is_none()
-                || self.side.is_server())
+                || self.side_state.side().is_server())
         {
             // No keys available for this space
             return SendableFrames::empty();
@@ -1076,7 +1095,10 @@ impl Connection {
                 // forbids migration, drop the datagram. This could be relaxed to heuristically
                 // permit NAT-rebinding-like migration.
                 if remote != self.path.remote
-                    && self.server_config.as_ref().map_or(true, |x| !x.migration)
+                    && match self.side_state {
+                        SideState::Server { ref server_config } => !server_config.migration,
+                        SideState::Client { .. } => true,
+                    }
                 {
                     trace!("discarding packet from unrecognized peer {}", remote);
                     return;
@@ -1297,7 +1319,7 @@ impl Connection {
 
     /// Look up whether we're the client or server of this Connection
     pub fn side(&self) -> Side {
-        self.side
+        self.side_state.side()
     }
 
     /// The latest socket address for this connection's peer
@@ -1774,7 +1796,7 @@ impl Connection {
 
     #[allow(clippy::suspicious_operation_groupings)]
     fn peer_completed_address_validation(&self) -> bool {
-        if self.side.is_server() || self.state.is_closed() {
+        if self.side_state.side().is_server() || self.state.is_closed() {
             return true;
         }
         // The server is guaranteed to have validated our address if any of our handshake or 1-RTT
@@ -1859,7 +1881,7 @@ impl Connection {
             Some(x) => x,
             None => return,
         };
-        if self.side.is_server() {
+        if self.side_state.side().is_server() {
             if self.spaces[SpaceId::Initial].crypto.is_some() && space_id == SpaceId::Handshake {
                 // A server stops sending and processing Initial packets when it receives its first Handshake packet.
                 self.discard_space(now, SpaceId::Initial);
@@ -1874,7 +1896,7 @@ impl Connection {
         if packet >= space.rx_packet {
             space.rx_packet = packet;
             // Update outgoing spin bit, inverting iff we're the client
-            self.spin = self.side.is_client() ^ spin;
+            self.spin = self.side_state.side().is_client() ^ spin;
         }
     }
 
@@ -1920,7 +1942,7 @@ impl Connection {
     ) -> Result<(), ConnectionError> {
         let span = trace_span!("first recv");
         let _guard = span.enter();
-        debug_assert!(self.side.is_server());
+        debug_assert!(self.side_state.side().is_server());
         let len = packet.header_data.len() + packet.payload.len();
         self.path.total_recvd = len as u64;
 
@@ -1952,7 +1974,7 @@ impl Connection {
             Some(x) => x,
             None => return,
         };
-        if self.side.is_client() {
+        if self.side_state.side().is_client() {
             match self.crypto.transport_parameters() {
                 Ok(params) => {
                     let params = params
@@ -2058,7 +2080,7 @@ impl Connection {
             let offset = self.spaces[space].crypto_offset;
             let outgoing = Bytes::from(outgoing);
             if let State::Handshake(ref mut state) = self.state {
-                if space == SpaceId::Initial && offset == 0 && self.side.is_client() {
+                if space == SpaceId::Initial && offset == 0 && self.side_state.side().is_client() {
                     state.client_hello = Some(outgoing.clone());
                 }
             }
@@ -2090,7 +2112,7 @@ impl Connection {
         self.spaces[space].crypto = Some(crypto);
         debug_assert!(space as usize > self.highest_space as usize);
         self.highest_space = space;
-        if space == SpaceId::Data && self.side.is_client() {
+        if space == SpaceId::Data && self.side_state.side().is_client() {
             // Discard 0-RTT keys because 1-RTT keys are available.
             self.zero_rtt_crypto = None;
         }
@@ -2101,7 +2123,9 @@ impl Connection {
         trace!("discarding {:?} keys", space_id);
         if space_id == SpaceId::Initial {
             // No longer needed
-            self.retry_token = Bytes::new();
+            if let SideState::Client { ref mut token, .. } = self.side_state {
+                *token = Bytes::new();
+            }
         }
         let space = &mut self.spaces[space_id];
         space.crypto = None;
@@ -2236,7 +2260,7 @@ impl Connection {
                 } else {
                     if let Header::Initial(InitialHeader { ref token, .. }) = packet.header {
                         if let State::Handshake(ref hs) = self.state {
-                            if self.side.is_server() && token != &hs.expected_token {
+                            if self.side_state.side().is_server() && token != &hs.expected_token {
                                 // Clients must send the same retry token in every Initial. Initial
                                 // packets can be spoofed, so we discard rather than killing the
                                 // connection.
@@ -2362,7 +2386,7 @@ impl Connection {
             Header::Retry {
                 src_cid: rem_cid, ..
             } => {
-                if self.side.is_server() {
+                if self.side_state.side().is_server() {
                     return Err(TransportError::PROTOCOL_VIOLATION("client sent Retry").into());
                 }
 
@@ -2398,7 +2422,7 @@ impl Connection {
 
                 self.discard_space(now, SpaceId::Initial); // Make sure we clean up after any retransmitted Initials
                 self.spaces[SpaceId::Initial] = PacketSpace {
-                    crypto: Some(self.crypto.initial_keys(&rem_cid, self.side)),
+                    crypto: Some(self.crypto.initial_keys(&rem_cid, self.side_state.side())),
                     next_packet_number: self.spaces[SpaceId::Initial].next_packet_number,
                     crypto_offset: client_hello.len() as u64,
                     ..PacketSpace::new(now)
@@ -2420,7 +2444,10 @@ impl Connection {
                 self.streams.retransmit_all_for_0rtt();
 
                 let token_len = packet.payload.len() - 16;
-                self.retry_token = packet.payload.freeze().split_to(token_len);
+                let SideState::Client { ref mut token, .. } = self.side_state else {
+                    unreachable!("we already short-circuited if we're server");
+                };
+                *token = packet.payload.freeze().split_to(token_len);
                 self.state = State::Handshake(state::Handshake {
                     expected_token: Bytes::new(),
                     rem_cid_set: false,
@@ -2452,7 +2479,7 @@ impl Connection {
                     return Ok(());
                 }
 
-                if self.side.is_client() {
+                if self.side_state.side().is_client() {
                     // Client-only because server params were set from the client's Initial
                     let params =
                         self.crypto
@@ -2465,7 +2492,7 @@ impl Connection {
 
                     if self.has_0rtt() {
                         if !self.crypto.early_data_accepted().unwrap() {
-                            debug_assert!(self.side.is_client());
+                            debug_assert!(self.side_state.side().is_client());
                             debug!("0-RTT rejected");
                             self.accepted_0rtt = false;
                             self.streams.zero_rtt_rejected();
@@ -2523,7 +2550,7 @@ impl Connection {
                 let starting_space = self.highest_space;
                 self.process_early_payload(now, packet)?;
 
-                if self.side.is_server()
+                if self.side_state.side().is_server()
                     && starting_space == SpaceId::Initial
                     && self.highest_space != SpaceId::Initial
                 {
@@ -2745,7 +2772,7 @@ impl Connection {
                     debug!(offset, "peer claims to be blocked at connection level");
                 }
                 Frame::StreamDataBlocked { id, offset } => {
-                    if id.initiator() == self.side && id.dir() == Dir::Uni {
+                    if id.initiator() == self.side_state.side() && id.dir() == Dir::Uni {
                         debug!("got STREAM_DATA_BLOCKED on send-only {}", id);
                         return Err(TransportError::STREAM_STATE_ERROR(
                             "STREAM_DATA_BLOCKED on send-only stream",
@@ -2768,7 +2795,7 @@ impl Connection {
                     );
                 }
                 Frame::StopSending(frame::StopSending { id, error_code }) => {
-                    if id.initiator() != self.side {
+                    if id.initiator() != self.side_state.side() {
                         if id.dir() == Dir::Uni {
                             debug!("got STOP_SENDING on recv-only {}", id);
                             return Err(TransportError::STREAM_STATE_ERROR(
@@ -2848,14 +2875,14 @@ impl Connection {
                         }
                     };
 
-                    if self.side.is_server() && self.rem_cids.active_seq() == 0 {
+                    if self.side_state.side().is_server() && self.rem_cids.active_seq() == 0 {
                         // We're a server still using the initial remote CID for the client, so
                         // let's switch immediately to enable clientside stateless resets.
                         self.update_rem_cid();
                     }
                 }
                 Frame::NewToken { token } => {
-                    if self.side.is_server() {
+                    if self.side_state.side().is_server() {
                         return Err(TransportError::PROTOCOL_VIOLATION("client sent NEW_TOKEN"));
                     }
                     if token.is_empty() {
@@ -2900,7 +2927,7 @@ impl Connection {
                         .set_immediate_ack_required();
                 }
                 Frame::HandshakeDone => {
-                    if self.side.is_server() {
+                    if self.side_state.side().is_server() {
                         return Err(TransportError::PROTOCOL_VIOLATION(
                             "client sent HANDSHAKE_DONE",
                         ));
@@ -2938,11 +2965,11 @@ impl Connection {
             && !is_probing_packet
             && number == self.spaces[SpaceId::Data].rx_packet
         {
+            let SideState::Server { ref server_config } = self.side_state else {
+                panic!("packets from unknown remote should be dropped by clients");
+            };
             debug_assert!(
-                self.server_config
-                    .as_ref()
-                    .expect("packets from unknown remote should be dropped by clients")
-                    .migration,
+                server_config.migration,
                 "migration-initiating packets should have been dropped immediately"
             );
             self.migrate(now, remote);
@@ -3312,7 +3339,7 @@ impl Connection {
     /// Handle transport parameters received from the peer
     fn handle_peer_params(&mut self, params: TransportParameters) -> Result<(), TransportError> {
         if Some(self.orig_rem_cid) != params.initial_src_cid
-            || (self.side.is_client()
+            || (self.side_state.side().is_client()
                 && (Some(self.initial_dst_cid) != params.original_dst_cid
                     || self.retry_src_cid != params.retry_src_cid))
         {
