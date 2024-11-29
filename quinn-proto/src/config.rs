@@ -20,7 +20,7 @@ use crate::{
     congestion,
     crypto::{self, HandshakeTokenKey, HmacKey},
     shared::ConnectionId,
-    Duration, RandomConnectionIdGenerator, TokenLog, VarInt, VarIntBoundsExceeded,
+    Duration, RandomConnectionIdGenerator, TokenLog, TokenStore, VarInt, VarIntBoundsExceeded,
     DEFAULT_SUPPORTED_VERSIONS, INITIAL_MTU, MAX_CID_SIZE, MAX_UDP_PAYLOAD,
 };
 
@@ -1067,6 +1067,9 @@ pub struct ClientConfig {
     /// Cryptographic configuration to use
     pub(crate) crypto: Arc<dyn crypto::ClientConfig>,
 
+    /// Validation token store to use
+    pub(crate) token_store: Option<Arc<dyn TokenStore>>,
+
     /// Provider that populates the destination connection ID of Initial Packets
     pub(crate) initial_dst_cid_provider: Arc<dyn Fn() -> ConnectionId + Send + Sync>,
 
@@ -1080,6 +1083,7 @@ impl ClientConfig {
         Self {
             transport: Default::default(),
             crypto,
+            token_store: None,
             initial_dst_cid_provider: Arc::new(|| {
                 RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid()
             }),
@@ -1106,6 +1110,19 @@ impl ClientConfig {
     /// Set a custom [`TransportConfig`]
     pub fn transport_config(&mut self, transport: Arc<TransportConfig>) -> &mut Self {
         self.transport = transport;
+        self
+    }
+
+    /// Set a custom [`TokenStore`]
+    ///
+    /// Defaults to a [`TokenMemoryCache`] limited to 256 servers and 2 tokens per server. This
+    /// default is chosen to complement `rustls`'s default [`ClientSessionStore`].
+    ///
+    /// [`ClientSessionStore`]: rustls::client::ClientSessionStore
+    ///
+    /// Setting to `None` disables the use of tokens from NEW_TOKEN frames as a client.
+    pub fn token_store(&mut self, store: Option<Arc<dyn TokenStore>>) -> &mut Self {
+        self.token_store = store;
         self
     }
 
@@ -1140,6 +1157,7 @@ impl fmt::Debug for ClientConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("ClientConfig<T>")
             .field("transport", &self.transport)
+            // token_store not debug
             // crypto not debug
             .field("version", &self.version)
             .finish_non_exhaustive()

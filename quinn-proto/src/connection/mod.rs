@@ -31,9 +31,9 @@ use crate::{
     },
     token::{ResetToken, Token, TokenInner},
     transport_parameters::TransportParameters,
-    Dir, Duration, EndpointConfig, Frame, Instant, Side, StreamId, SystemTime, Transmit,
-    TransportError, TransportErrorCode, VarInt, INITIAL_MTU, MAX_CID_SIZE, MAX_STREAM_COUNT,
-    MIN_INITIAL_SIZE, TIMER_GRANULARITY,
+    Dir, Duration, EndpointConfig, Frame, Instant, Side, StreamId, SystemTime, TokenStore,
+    Transmit, TransportError, TransportErrorCode, VarInt, INITIAL_MTU, MAX_CID_SIZE,
+    MAX_STREAM_COUNT, MIN_INITIAL_SIZE, TIMER_GRANULARITY,
 };
 
 mod ack_frequency;
@@ -190,9 +190,7 @@ pub struct Connection {
     authentication_failures: u64,
     /// Why the connection was lost, if it has been
     error: Option<ConnectionError>,
-    /// Sent in every outgoing Initial packet. Always empty for servers and after Initial keys are
-    /// discarded.
-    retry_token: Bytes,
+
     /// Identifies Data-space packet numbers to skip. Not used in earlier spaces.
     packet_number_filter: PacketNumberFilter,
 
@@ -240,14 +238,20 @@ pub struct Connection {
 
 /// Fields of `Connection` specific to it being client-side or server-side
 enum SideState {
-    Client,
-    Server { server_config: Arc<ServerConfig> },
+    Client {
+        token: Bytes,
+        token_store: Option<Arc<dyn TokenStore>>,
+        server_name: String,
+    },
+    Server {
+        server_config: Arc<ServerConfig>,
+    },
 }
 
 impl SideState {
     fn side(&self) -> Side {
         match *self {
-            SideState::Client => Side::Client,
+            SideState::Client { .. } => Side::Client,
             SideState::Server { .. } => Side::Server,
         }
     }
@@ -255,7 +259,10 @@ impl SideState {
 
 /// Parameters to `Connection::new` specific to it being client-side or server-side
 pub(crate) enum SideArgs {
-    Client,
+    Client {
+        token_store: Option<Arc<dyn TokenStore>>,
+        server_name: String,
+    },
     Server {
         server_config: Arc<ServerConfig>,
         pref_addr_cid: Option<ConnectionId>,
@@ -296,7 +303,21 @@ impl Connection {
         side_args: SideArgs,
     ) -> Self {
         let (side_state, pref_addr_cid, path_validated) = match side_args {
-            SideArgs::Client => (SideState::Client, None, true),
+            SideArgs::Client {
+                token_store,
+                server_name,
+            } => (
+                SideState::Client {
+                    token: token_store
+                        .as_ref()
+                        .and_then(|store| store.take(&server_name))
+                        .unwrap_or_default(),
+                    token_store,
+                    server_name,
+                },
+                None,
+                true,
+            ),
             SideArgs::Server {
                 server_config,
                 pref_addr_cid,
@@ -367,7 +388,6 @@ impl Connection {
             timers: TimerTable::default(),
             authentication_failures: 0,
             error: None,
-            retry_token: Bytes::new(),
             #[cfg(test)]
             packet_number_filter: match config.deterministic_packet_numbers {
                 false => PacketNumberFilter::new(&mut rng),
@@ -1125,7 +1145,7 @@ impl Connection {
                 if remote != self.path.remote
                     && match self.side_state {
                         SideState::Server { ref server_config } => !server_config.migration,
-                        SideState::Client => true,
+                        SideState::Client { .. } => true,
                     }
                 {
                     trace!("discarding packet from unrecognized peer {}", remote);
@@ -2151,7 +2171,9 @@ impl Connection {
         trace!("discarding {:?} keys", space_id);
         if space_id == SpaceId::Initial {
             // No longer needed
-            self.retry_token = Bytes::new();
+            if let SideState::Client { ref mut token, .. } = self.side_state {
+                *token = Bytes::new();
+            }
         }
         let space = &mut self.spaces[space_id];
         space.crypto = None;
@@ -2470,7 +2492,10 @@ impl Connection {
                 self.streams.retransmit_all_for_0rtt();
 
                 let token_len = packet.payload.len() - 16;
-                self.retry_token = packet.payload.freeze().split_to(token_len);
+                let SideState::Client { ref mut token, .. } = self.side_state else {
+                    unreachable!("we already short-circuited if we're server");
+                };
+                *token = packet.payload.freeze().split_to(token_len);
                 self.state = State::Handshake(state::Handshake {
                     expected_token: Bytes::new(),
                     rem_cid_set: false,
@@ -2912,7 +2937,14 @@ impl Connection {
                         return Err(TransportError::FRAME_ENCODING_ERROR("empty token"));
                     }
                     trace!("got new token");
-                    // TODO: Cache, or perhaps forward to user?
+                    if let SideState::Client {
+                        token_store: Some(ref store),
+                        ref server_name,
+                        ..
+                    } = self.side_state
+                    {
+                        store.insert(server_name, token);
+                    }
                 }
                 Frame::Datagram(datagram) => {
                     if self
