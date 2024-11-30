@@ -31,9 +31,9 @@ use crate::{
     },
     token::{ResetToken, Token, TokenInner, ValidationTokenInner},
     transport_parameters::TransportParameters,
-    Dir, Duration, EndpointConfig, Frame, Instant, Side, StreamId, SystemTime, Transmit,
-    TransportError, TransportErrorCode, VarInt, INITIAL_MTU, MAX_CID_SIZE, MAX_STREAM_COUNT,
-    MIN_INITIAL_SIZE, TIMER_GRANULARITY,
+    Dir, Duration, EndpointConfig, Frame, Instant, Side, StreamId, SystemTime, TokenStore,
+    Transmit, TransportError, TransportErrorCode, VarInt, INITIAL_MTU, MAX_CID_SIZE,
+    MAX_STREAM_COUNT, MIN_INITIAL_SIZE, TIMER_GRANULARITY,
 };
 
 mod ack_frequency;
@@ -240,6 +240,8 @@ enum SideState {
     Client {
         /// Sent in every outgoing Initial packet. Always empty after Initial keys are discarded
         token: Bytes,
+        token_store: Option<Arc<dyn TokenStore>>,
+        server_name: String,
     },
     Server {
         server_config: Arc<ServerConfig>,
@@ -257,7 +259,10 @@ impl SideState {
 
 /// Parameters to `Connection::new` specific to it being client-side or server-side
 pub(crate) enum SideArgs {
-    Client,
+    Client {
+        token_store: Option<Arc<dyn TokenStore>>,
+        server_name: String,
+    },
     Server {
         server_config: Arc<ServerConfig>,
         pref_addr_cid: Option<ConnectionId>,
@@ -298,9 +303,17 @@ impl Connection {
         side_args: SideArgs,
     ) -> Self {
         let (side_state, pref_addr_cid, path_validated) = match side_args {
-            SideArgs::Client => (
+            SideArgs::Client {
+                token_store,
+                server_name,
+            } => (
                 SideState::Client {
-                    token: Bytes::new(),
+                    token: token_store
+                        .as_ref()
+                        .and_then(|store| store.take(&server_name))
+                        .unwrap_or_default(),
+                    token_store,
+                    server_name,
                 },
                 None,
                 true,
@@ -2924,7 +2937,14 @@ impl Connection {
                         return Err(TransportError::FRAME_ENCODING_ERROR("empty token"));
                     }
                     trace!("got new token");
-                    // TODO: Cache, or perhaps forward to user?
+                    if let SideState::Client {
+                        token_store: Some(ref store),
+                        ref server_name,
+                        ..
+                    } = self.side_state
+                    {
+                        store.insert(server_name, token);
+                    }
                 }
                 Frame::Datagram(datagram) => {
                     if self
