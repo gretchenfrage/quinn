@@ -11,6 +11,8 @@ use rustls::client::WebPkiServerVerifier;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use thiserror::Error;
 
+#[cfg(feature = "fastbloom")]
+use crate::bloom_token_log::BloomTokenLog;
 #[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
 use crate::crypto::rustls::{configured_provider, QuicServerConfig};
 use crate::{
@@ -234,6 +236,10 @@ impl ServerConfig {
         crypto: Arc<dyn crypto::ServerConfig>,
         token_key: Arc<dyn HandshakeTokenKey>,
     ) -> Self {
+        #[cfg(feature = "fastbloom")]
+        let validation_token_log = Some(Arc::new(BloomTokenLog::default()) as _);
+        #[cfg(not(feature = "fastbloom"))]
+        let validation_token_log = None;
         Self {
             transport: Arc::new(TransportConfig::default()),
             crypto,
@@ -244,7 +250,7 @@ impl ServerConfig {
             migration: true,
 
             validation_token_lifetime: Duration::from_secs(2 * 7 * 24 * 60 * 60),
-            validation_token_log: None,
+            validation_token_log,
             validation_tokens_sent: 2,
 
             preferred_address_v4: None,
@@ -291,7 +297,8 @@ impl ServerConfig {
     /// Setting this to `None` makes the server ignore all address validation tokens (that is,
     /// tokens originating from NEW_TOKEN frames--retry tokens may still be accepted).
     ///
-    /// Defaults to a `None`.
+    /// Defaults to a default [`BloomTokenLog`], unless the `fastbloom` default feature is
+    /// disabled, in which case this defaults to `None`.
     pub fn validation_token_log(&mut self, log: Option<Arc<dyn TokenLog>>) -> &mut Self {
         self.validation_token_log = log;
         self

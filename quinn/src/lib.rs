@@ -61,6 +61,8 @@ mod runtime;
 mod send_stream;
 mod work_limiter;
 
+#[cfg(feature = "fastbloom")]
+pub use proto::BloomTokenLog;
 pub use proto::{
     congestion, crypto, AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ClosedStream,
     ConfigError, ConnectError, ConnectionClose, ConnectionError, ConnectionId,
