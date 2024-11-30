@@ -497,7 +497,7 @@ impl Endpoint {
         let (retry_src_cid, orig_dst_cid) = if header.token.is_empty() {
             (None, header.dst_cid)
         } else {
-            match RetryToken::from_bytes(
+            match RetryToken::decode(
                 &*server_config.token_key,
                 &addresses.remote,
                 &header.dst_cid,

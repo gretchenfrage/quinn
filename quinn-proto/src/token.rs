@@ -38,7 +38,7 @@ impl RetryToken {
         buf
     }
 
-    pub(crate) fn from_bytes(
+    pub(crate) fn decode(
         key: &dyn HandshakeTokenKey,
         address: &SocketAddr,
         retry_src_cid: &ConnectionId,
@@ -220,7 +220,7 @@ mod test {
         };
         let encoded = token.encode(&prk, &addr, &retry_src_cid);
 
-        let decoded = RetryToken::from_bytes(&prk, &addr, &retry_src_cid, &encoded)
+        let decoded = RetryToken::decode(&prk, &addr, &retry_src_cid, &encoded)
             .expect("token didn't validate");
         assert_eq!(token.orig_dst_cid, decoded.orig_dst_cid);
         assert_eq!(token.issued, decoded.issued);
@@ -251,6 +251,6 @@ mod test {
         invalid_token.put_slice(&random_data);
 
         // Assert: garbage sealed data returns err
-        assert!(RetryToken::from_bytes(&prk, &addr, &retry_src_cid, &invalid_token).is_err());
+        assert!(RetryToken::decode(&prk, &addr, &retry_src_cid, &invalid_token).is_err());
     }
 }
