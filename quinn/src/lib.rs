@@ -68,7 +68,7 @@ pub use proto::{
     ConfigError, ConnectError, ConnectionClose, ConnectionError, ConnectionId,
     ConnectionIdGenerator, ConnectionStats, Dir, EcnCodepoint, EndpointConfig, FrameStats,
     FrameType, IdleTimeout, MtuDiscoveryConfig, PathStats, ServerConfig, Side, StreamId, TokenLog,
-    TokenReuseError, Transmit, TransportConfig, TransportErrorCode, UdpStats, VarInt,
+    TokenReuseError, TokenStore, Transmit, TransportConfig, TransportErrorCode, UdpStats, VarInt,
     VarIntBoundsExceeded, Written,
 };
 #[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
