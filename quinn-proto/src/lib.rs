@@ -90,7 +90,7 @@ use token::{ResetToken, Token};
 pub use token::{TokenLog, TokenReuseError};
 
 mod token_store;
-pub use token_store::TokenStore;
+pub use token_store::{TokenMemoryCache, TokenStore};
 
 #[cfg(feature = "fastbloom")]
 mod bloom_token_log;

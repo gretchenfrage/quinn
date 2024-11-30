@@ -19,8 +19,8 @@ use crate::{
     cid_generator::{ConnectionIdGenerator, HashedConnectionIdGenerator},
     crypto::{self, HandshakeTokenKey, HmacKey},
     shared::ConnectionId,
-    Duration, RandomConnectionIdGenerator, TokenLog, TokenStore, VarInt, VarIntBoundsExceeded,
-    DEFAULT_SUPPORTED_VERSIONS, MAX_CID_SIZE,
+    Duration, RandomConnectionIdGenerator, TokenLog, TokenMemoryCache, TokenStore, VarInt,
+    VarIntBoundsExceeded, DEFAULT_SUPPORTED_VERSIONS, MAX_CID_SIZE,
 };
 
 mod transport;
@@ -475,7 +475,7 @@ impl ClientConfig {
         Self {
             transport: Default::default(),
             crypto,
-            token_store: None,
+            token_store: Some(Arc::new(TokenMemoryCache::<2>::default())),
             initial_dst_cid_provider: Arc::new(|| {
                 RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid()
             }),
@@ -507,7 +507,10 @@ impl ClientConfig {
 
     /// Set a custom [`TokenStore`]
     ///
-    /// Defaults to `None`.
+    /// Defaults to a [`TokenMemoryCache`] limited to 256 servers and 2 tokens per server. This
+    /// default is chosen to complement `rustls`'s default [`ClientSessionStore`].
+    ///
+    /// [`ClientSessionStore`]: rustls::client::ClientSessionStore
     ///
     /// Setting to `None` disables the use of tokens from NEW_TOKEN frames as a client.
     pub fn token_store(&mut self, store: Option<Arc<dyn TokenStore>>) -> &mut Self {
