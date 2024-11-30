@@ -29,7 +29,7 @@ use crate::{
         ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
         EndpointEvent, EndpointEventInner, IssuedCid,
     },
-    token::{IncomingTokenState, RetryTokenInner, ValidationError},
+    token::{IncomingTokenState, RetryTokenInner, TokenInner, ValidationError},
     transport_parameters::{PreferredAddress, TransportParameters},
     Duration, Instant, ResetToken, Side, SystemTime, Token, Transmit, TransportConfig,
     TransportError, INITIAL_MTU, MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
@@ -740,9 +740,9 @@ impl Endpoint {
 
     /// Respond with a retry packet, requiring the client to retry with address validation
     ///
-    /// Errors if `incoming.remote_address_validated()` is true.
+    /// Errors if `incoming.may_retry()` is false.
     pub fn retry(&mut self, incoming: Incoming, buf: &mut Vec<u8>) -> Result<Transmit, RetryError> {
-        if incoming.remote_address_validated() {
+        if !incoming.may_retry() {
             return Err(RetryError(incoming));
         }
 
@@ -763,7 +763,7 @@ impl Endpoint {
             orig_dst_cid: incoming.packet.header.dst_cid,
             issued: SystemTime::now(),
         };
-        let token = Token::new(&mut self.rng, token_inner)
+        let token = Token::new(&mut self.rng, TokenInner::Retry(token_inner))
             .encode(&*server_config.token_key, &incoming.addresses.remote);
 
         let header = Header::Retry {
@@ -1202,8 +1202,19 @@ impl Incoming {
     ///
     /// This means that the sender of the initial packet has proved that they can receive traffic
     /// sent to `self.remote_address()`.
+    ///
+    /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
+    /// The inverse is not guaranteed.
     pub fn remote_address_validated(&self) -> bool {
-        self.token_state.retry_src_cid.is_some()
+        self.token_state.validated
+    }
+
+    /// Whether it is legal to respond with a retry packet
+    ///
+    /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
+    /// The inverse is not guaranteed.
+    pub fn may_retry(&self) -> bool {
+        self.token_state.retry_src_cid.is_none()
     }
 
     /// The original destination connection ID sent by the client

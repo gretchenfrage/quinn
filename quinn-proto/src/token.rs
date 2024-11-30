@@ -6,6 +6,7 @@ use std::{
 
 use bytes::{Buf, BufMut};
 use rand::Rng;
+use tracing::*;
 
 use crate::{
     coding::{BufExt, BufMutExt},
@@ -15,11 +16,50 @@ use crate::{
     Duration, ServerConfig, SystemTime, RESET_TOKEN_SIZE, UNIX_EPOCH,
 };
 
+/// Error for when a validation token may have been reused
+pub struct TokenReuseError;
+
+/// Responsible for limiting clients' ability to reuse validation tokens
+///
+/// [_RFC 9000 § 8.1.4:_](https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1.4)
+///
+/// > Attackers could replay tokens to use servers as amplifiers in DDoS attacks. To protect
+/// > against such attacks, servers MUST ensure that replay of tokens is prevented or limited.
+/// > Servers SHOULD ensure that tokens sent in Retry packets are only accepted for a short time,
+/// > as they are returned immediately by clients. Tokens that are provided in NEW_TOKEN frames
+/// > (Section 19.7) need to be valid for longer but SHOULD NOT be accepted multiple times.
+/// > Servers are encouraged to allow tokens to be used only once, if possible; tokens MAY include
+/// > additional information about clients to further narrow applicability or reuse.
+///
+/// `TokenLog` pertains only to tokens provided in NEW_TOKEN frames.
+pub trait TokenLog: Send + Sync {
+    /// Record that the token was used and, ideally, return a token reuse error if the token was
+    /// already used previously
+    ///
+    /// False negatives and false positives are both permissible. Called when a client uses an
+    /// address validation token.
+    ///
+    /// Parameters:
+    /// - `rand`: A server-generated random unique value for the token.
+    /// - `issued`: The time the server issued the token.
+    /// - `lifetime`: The expiration time of address validation tokens sent via NEW_TOKEN frames,
+    ///   as configured by [`ServerConfig::validation_token_lifetime`][1].
+    ///
+    /// [1]: crate::ServerConfig::validation_token_lifetime
+    fn check_and_insert(
+        &self,
+        rand: u128,
+        issued: SystemTime,
+        lifetime: Duration,
+    ) -> Result<(), TokenReuseError>;
+}
+
 /// State in an `Incoming` determined by a token or lack thereof
 #[derive(Debug)]
 pub(crate) struct IncomingTokenState {
     pub(crate) retry_src_cid: Option<ConnectionId>,
     pub(crate) orig_dst_cid: ConnectionId,
+    pub(crate) validated: bool,
 }
 
 impl IncomingTokenState {
@@ -28,6 +68,7 @@ impl IncomingTokenState {
         Self {
             retry_src_cid: None,
             orig_dst_cid: header.dst_cid,
+            validated: false,
         }
     }
 }
@@ -40,12 +81,12 @@ pub(crate) struct Token {
     /// Randomly generated value, which must be unique, and is visible to the client
     pub(crate) rand: u128,
     /// Content which is encrypted from the client
-    pub(crate) inner: RetryTokenInner,
+    pub(crate) inner: TokenInner,
 }
 
 impl Token {
     /// Construct with newly sampled randomness
-    pub(crate) fn new<R: Rng>(rng: &mut R, inner: RetryTokenInner) -> Self {
+    pub(crate) fn new<R: Rng>(rng: &mut R, inner: TokenInner) -> Self {
         Self {
             rand: rng.gen(),
             inner,
@@ -82,7 +123,7 @@ impl Token {
         let encoded = aead_key.open(&mut sealed_inner, &[])?;
 
         let mut cursor = io::Cursor::new(encoded);
-        let inner = RetryTokenInner::decode(&mut cursor, address)?;
+        let inner = TokenInner::decode(&mut cursor, address)?;
         if cursor.has_remaining() {
             return Err(ValidationError::Ignore);
         }
@@ -96,7 +137,51 @@ impl Token {
         header: &InitialHeader,
         server_config: &ServerConfig,
     ) -> Result<IncomingTokenState, ValidationError> {
-        self.inner.validate(header, server_config)
+        self.inner.validate(self.rand, header, server_config)
+    }
+}
+
+/// Content of [`Token`] depending on how token originated that is encrypted from the client
+pub(crate) enum TokenInner {
+    Retry(RetryTokenInner),
+    Validation(ValidationTokenInner),
+}
+
+impl TokenInner {
+    /// Encode without encryption
+    fn encode(&self, buf: &mut Vec<u8>, address: &SocketAddr) {
+        match *self {
+            Self::Retry(ref inner) => {
+                buf.push(0);
+                inner.encode(buf, address);
+            }
+            Self::Validation(ref inner) => {
+                buf.push(1);
+                inner.encode(buf, address);
+            }
+        }
+    }
+
+    /// Try to decode without encryption, but do validate that the address is acceptable
+    fn decode<B: Buf>(buf: &mut B, address: &SocketAddr) -> Result<Self, ValidationError> {
+        match buf.get::<u8>().ok().ok_or(ValidationError::Ignore)? {
+            0 => RetryTokenInner::decode(buf, address).map(Self::Retry),
+            1 => ValidationTokenInner::decode(buf, address).map(Self::Validation),
+            _ => Err(ValidationError::Ignore),
+        }
+    }
+
+    /// Ensure that this token validates an `Incoming`, and construct its token state
+    pub(crate) fn validate(
+        &self,
+        rand: u128,
+        header: &InitialHeader,
+        server_config: &ServerConfig,
+    ) -> Result<IncomingTokenState, ValidationError> {
+        match *self {
+            Self::Retry(ref inner) => inner.validate(header, server_config),
+            Self::Validation(ref inner) => inner.validate(rand, header, server_config),
+        }
     }
 }
 
@@ -140,9 +225,60 @@ impl RetryTokenInner {
             Ok(IncomingTokenState {
                 retry_src_cid: Some(header.dst_cid),
                 orig_dst_cid: self.orig_dst_cid,
+                validated: true,
             })
         } else {
             Err(ValidationError::InvalidRetry)
+        }
+    }
+}
+
+/// Content of [`Token`] originating from NEW_TOKEN frame that is encrypted from the client
+pub(crate) struct ValidationTokenInner {
+    /// The time at which this token was issued
+    pub(crate) issued: SystemTime,
+}
+
+impl ValidationTokenInner {
+    /// Encode without encryption
+    fn encode(&self, buf: &mut Vec<u8>, address: &SocketAddr) {
+        encode_ip_addr(buf, &address.ip());
+        encode_time(buf, self.issued);
+    }
+
+    /// Try to decode without encryption, but do validate that the address is acceptable
+    fn decode<B: Buf>(buf: &mut B, address: &SocketAddr) -> Result<Self, ValidationError> {
+        let token_address = decode_ip_addr(buf).ok_or(ValidationError::Ignore)?;
+        if token_address != address.ip() {
+            return Err(ValidationError::Ignore);
+        }
+        let issued = decode_time(buf).ok_or(ValidationError::Ignore)?;
+        Ok(Self { issued })
+    }
+
+    /// Ensure that this token validates an `Incoming`, and construct its token state
+    pub(crate) fn validate(
+        &self,
+        rand: u128,
+        header: &InitialHeader,
+        server_config: &ServerConfig,
+    ) -> Result<IncomingTokenState, ValidationError> {
+        let Some(ref log) = server_config.validation_token_log else {
+            return Err(ValidationError::Ignore);
+        };
+        let log_result =
+            log.check_and_insert(rand, self.issued, server_config.validation_token_lifetime);
+        if log_result.is_err() {
+            debug!("rejecting token from NEW_TOKEN frame because detected as reuse");
+            Err(ValidationError::Ignore)
+        } else if self.issued + server_config.validation_token_lifetime < SystemTime::now() {
+            Err(ValidationError::Ignore)
+        } else {
+            Ok(IncomingTokenState {
+                retry_src_cid: None,
+                orig_dst_cid: header.dst_cid,
+                validated: true,
+            })
         }
     }
 }
@@ -274,44 +410,64 @@ impl fmt::Display for ResetToken {
 
 #[cfg(all(test, any(feature = "aws-lc-rs", feature = "ring")))]
 mod test {
+    use super::*;
     #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
     use aws_lc_rs::hkdf;
     use rand::prelude::*;
     #[cfg(feature = "ring")]
     use ring::hkdf;
 
-    #[test]
-    fn token_sanity() {
-        use super::*;
+    fn token_round_trip(inner: TokenInner) -> TokenInner {
+        let rng = &mut rand::thread_rng();
+        let token = Token::new(rng, inner);
+        let mut master_key = [0; 64];
+        rng.fill_bytes(&mut master_key);
+        let prk = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
+        let addr = SocketAddr::new(rng.gen::<u128>().to_ne_bytes().into(), rng.gen::<u16>());
+        let encoded = token.encode(&prk, &addr);
+        let decoded = Token::decode(&prk, &addr, &encoded).expect("token didn't decrypt / decode");
+        assert_eq!(token.rand, decoded.rand);
+        decoded.inner
+    }
+
+    fn retry_token_sanity() {
         use crate::cid_generator::{ConnectionIdGenerator, RandomConnectionIdGenerator};
         use crate::MAX_CID_SIZE;
         use crate::{Duration, UNIX_EPOCH};
 
-        use std::net::Ipv6Addr;
-
-        let rng = &mut rand::thread_rng();
-
-        let mut master_key = [0; 64];
-        rng.fill_bytes(&mut master_key);
-
-        let prk = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
-
-        let addr = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 4433);
         let orig_dst_cid_1 = RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid();
         let issued_1 = UNIX_EPOCH + Duration::new(42, 0); // Fractional seconds would be lost
-        let token = Token {
-            rand: rng.gen(),
-            inner: RetryTokenInner {
-                orig_dst_cid: orig_dst_cid_1,
-                issued: issued_1,
-            },
-        };
-        let encoded = token.encode(&prk, &addr);
 
-        let token_2 = Token::decode(&prk, &addr, &encoded).expect("token didn't validate");
-        assert_eq!(token.rand, token_2.rand);
-        assert_eq!(orig_dst_cid_1, token_2.inner.orig_dst_cid);
-        assert_eq!(issued_1, token_2.inner.issued);
+        let inner_1 = TokenInner::Retry(RetryTokenInner {
+            orig_dst_cid: orig_dst_cid_1,
+            issued: issued_1,
+        });
+        let inner_2 = token_round_trip(inner_1);
+        let TokenInner::Retry(RetryTokenInner {
+            orig_dst_cid: orig_dst_cid_2,
+            issued: issued_2,
+        }) = inner_2
+        else {
+            panic!("token decoded as wrong variant")
+        };
+
+        assert_eq!(orig_dst_cid_1, orig_dst_cid_2);
+        assert_eq!(issued_1, issued_2);
+    }
+
+    #[test]
+    fn validation_token_sanity() {
+        use crate::{Duration, UNIX_EPOCH};
+
+        let issued_1 = UNIX_EPOCH + Duration::new(42, 0); // Fractional seconds would be lost
+
+        let inner_1 = TokenInner::Validation(ValidationTokenInner { issued: issued_1 });
+        let inner_2 = token_round_trip(inner_1);
+        let TokenInner::Validation(ValidationTokenInner { issued: issued_2 }) = inner_2 else {
+            panic!("token decoded as wrong variant")
+        };
+
+        assert_eq!(issued_1, issued_2);
     }
 
     #[test]
