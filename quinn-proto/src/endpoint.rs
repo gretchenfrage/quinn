@@ -494,22 +494,20 @@ impl Endpoint {
 
         let server_config = self.server_config.as_ref().unwrap().clone();
 
-        let (retry_src_cid, orig_dst_cid) = if header.token.is_empty() {
-            (None, header.dst_cid)
+        let token_state = if header.token.is_empty() {
+            IncomingTokenState::default(&header)
         } else {
-            match RetryToken::decode(
+            let token = RetryToken::decode(
                 &*server_config.token_key,
                 &addresses.remote,
                 &header.dst_cid,
                 &header.token,
-            ) {
-                Ok(token)
-                    if token.issued + server_config.retry_token_lifetime > SystemTime::now() =>
-                {
-                    (Some(header.dst_cid), token.orig_dst_cid)
-                }
-                Err(ValidationError::Ignore) => (None, header.dst_cid),
-                _ => {
+            );
+            let token_state = token.and_then(|token| token.validate(&header, &server_config));
+            match token_state {
+                Ok(token_state) => token_state,
+                Err(ValidationError::Ignore) => IncomingTokenState::default(&header),
+                Err(ValidationError::InvalidRetry) => {
                     debug!("rejecting invalid retry token");
                     return Some(DatagramEvent::Response(self.initial_close(
                         header.version,
@@ -538,10 +536,7 @@ impl Endpoint {
             },
             rest,
             crypto,
-            token_state: IncomingTokenState {
-                retry_src_cid,
-                orig_dst_cid,
-            },
+            token_state,
             incoming_idx,
             improper_drop_warner: IncomingImproperDropWarner,
         }))
