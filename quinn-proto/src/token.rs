@@ -29,14 +29,9 @@ impl RetryToken {
         let aead_key = key.aead_from_hkdf(retry_src_cid);
 
         let mut buf = Vec::new();
-        encode_addr(&mut buf, address);
+        encode_socket_addr(&mut buf, address);
         self.orig_dst_cid.encode_long(&mut buf);
-        buf.write::<u64>(
-            self.issued
-                .duration_since(UNIX_EPOCH)
-                .map(|x| x.as_secs())
-                .unwrap_or(0),
-        );
+        encode_time(&mut buf, self.issued);
 
         aead_key.seal(&mut buf, &[]).unwrap();
 
@@ -54,19 +49,13 @@ impl RetryToken {
 
         let data = aead_key.open(&mut sealed_token, &[])?;
         let mut reader = io::Cursor::new(data);
-        let token_addr = decode_addr(&mut reader).ok_or(TokenDecodeError::UnknownToken)?;
+        let token_addr = decode_socket_addr(&mut reader).ok_or(TokenDecodeError::UnknownToken)?;
         if token_addr != *address {
             return Err(TokenDecodeError::WrongAddress);
         }
         let orig_dst_cid =
             ConnectionId::decode_long(&mut reader).ok_or(TokenDecodeError::UnknownToken)?;
-        let issued = UNIX_EPOCH
-            + Duration::new(
-                reader
-                    .get::<u64>()
-                    .map_err(|_| TokenDecodeError::UnknownToken)?,
-                0,
-            );
+        let issued = decode_time(&mut reader).ok_or(TokenDecodeError::UnknownToken)?;
 
         Ok(Self {
             orig_dst_cid,
@@ -75,8 +64,13 @@ impl RetryToken {
     }
 }
 
-fn encode_addr(buf: &mut Vec<u8>, address: &SocketAddr) {
-    match address.ip() {
+fn encode_socket_addr(buf: &mut Vec<u8>, address: &SocketAddr) {
+    encode_ip_addr(buf, &address.ip());
+    buf.put_u16(address.port());
+}
+
+fn encode_ip_addr(buf: &mut Vec<u8>, address: &IpAddr) {
+    match address {
         IpAddr::V4(x) => {
             buf.put_u8(0);
             buf.put_slice(&x.octets());
@@ -86,17 +80,32 @@ fn encode_addr(buf: &mut Vec<u8>, address: &SocketAddr) {
             buf.put_slice(&x.octets());
         }
     }
-    buf.put_u16(address.port());
 }
 
-fn decode_addr<B: Buf>(buf: &mut B) -> Option<SocketAddr> {
-    let ip = match buf.get_u8() {
+fn decode_socket_addr<B: Buf>(buf: &mut B) -> Option<SocketAddr> {
+    let ip = decode_ip_addr(buf)?;
+    let port = buf.get::<u16>().ok()?;
+    Some(SocketAddr::new(ip, port))
+}
+
+fn decode_ip_addr<B: Buf>(buf: &mut B) -> Option<IpAddr> {
+    Some(match buf.get::<u8>().ok()? {
         0 => IpAddr::V4(buf.get().ok()?),
         1 => IpAddr::V6(buf.get().ok()?),
         _ => return None,
-    };
-    let port = buf.get_u16();
-    Some(SocketAddr::new(ip, port))
+    })
+}
+
+fn encode_time(buf: &mut Vec<u8>, time: SystemTime) {
+    let unix_secs = time
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    buf.write::<u64>(unix_secs);
+}
+
+fn decode_time<B: Buf>(buf: &mut B) -> Option<SystemTime> {
+    Some(UNIX_EPOCH + Duration::from_secs(buf.get::<u64>().ok()?))
 }
 
 /// Reasons why a retry token might fail to validate a client's address
