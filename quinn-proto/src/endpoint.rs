@@ -29,7 +29,7 @@ use crate::{
         ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
         EndpointEvent, EndpointEventInner, IssuedCid,
     },
-    token::ValidationError,
+    token::{IncomingTokenState, ValidationError},
     transport_parameters::{PreferredAddress, TransportParameters},
     Duration, Instant, ResetToken, RetryToken, Side, SystemTime, Transmit, TransportConfig,
     TransportError, INITIAL_MTU, MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
@@ -538,8 +538,10 @@ impl Endpoint {
             },
             rest,
             crypto,
-            retry_src_cid,
-            orig_dst_cid,
+            token_state: IncomingTokenState {
+                retry_src_cid,
+                orig_dst_cid,
+            },
             incoming_idx,
             improper_drop_warner: IncomingImproperDropWarner,
         }))
@@ -629,8 +631,8 @@ impl Endpoint {
             &mut self.rng,
         );
         params.stateless_reset_token = Some(ResetToken::new(&*self.config.reset_key, &loc_cid));
-        params.original_dst_cid = Some(incoming.orig_dst_cid);
-        params.retry_src_cid = incoming.retry_src_cid;
+        params.original_dst_cid = Some(incoming.token_state.orig_dst_cid);
+        params.retry_src_cid = incoming.token_state.retry_src_cid;
         let mut pref_addr_cid = None;
         if server_config.preferred_address_v4.is_some()
             || server_config.preferred_address_v6.is_some()
@@ -1191,8 +1193,7 @@ pub struct Incoming {
     packet: InitialPacket,
     rest: Option<BytesMut>,
     crypto: Keys,
-    retry_src_cid: Option<ConnectionId>,
-    orig_dst_cid: ConnectionId,
+    token_state: IncomingTokenState,
     incoming_idx: usize,
     improper_drop_warner: IncomingImproperDropWarner,
 }
@@ -1215,12 +1216,12 @@ impl Incoming {
     /// This means that the sender of the initial packet has proved that they can receive traffic
     /// sent to `self.remote_address()`.
     pub fn remote_address_validated(&self) -> bool {
-        self.retry_src_cid.is_some()
+        self.token_state.retry_src_cid.is_some()
     }
 
     /// The original destination connection ID sent by the client
     pub fn orig_dst_cid(&self) -> &ConnectionId {
-        &self.orig_dst_cid
+        &self.token_state.orig_dst_cid
     }
 }
 
@@ -1231,8 +1232,7 @@ impl fmt::Debug for Incoming {
             .field("ecn", &self.ecn)
             // packet doesn't implement debug
             // rest is too big and not meaningful enough
-            .field("retry_src_cid", &self.retry_src_cid)
-            .field("orig_dst_cid", &self.orig_dst_cid)
+            .field("token_state", &self.token_state)
             .field("incoming_idx", &self.incoming_idx)
             // improper drop warner contains no information
             .finish_non_exhaustive()
