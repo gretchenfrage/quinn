@@ -157,7 +157,7 @@ struct FilterConfig {
 /// Period filter within [`State`]
 enum Filter {
     Set(IdentityHashSet),
-    Bloom(FxBloomFilter),
+    Bloom(BloomFilter<512, FxBuildHasher>),
 }
 
 impl Filter {
@@ -196,9 +196,6 @@ impl Filter {
         Ok(())
     }
 }
-
-/// Bloom filter that uses `FxHasher`s
-type FxBloomFilter = BloomFilter<512, FxBuildHasher>;
 
 /// `BuildHasher` of `IdentityHasher`
 #[derive(Default)]
