@@ -61,26 +61,6 @@ impl BloomTokenLog {
     }
 }
 
-fn optimal_k_num(num_bytes: usize, expected_hits: u64) -> u32 {
-    // be more forgiving rather than panickey here. excessively high num_bits may occur if the user
-    // wishes it to be unbounded, so just saturate. expected_hits of 0 would cause divide-by-zero,
-    // so just fudge it up to 1 in that case.
-    let num_bits = (num_bytes as u64).saturating_mul(8);
-    let expected_hits = expected_hits.max(1);
-    (((num_bits as f64 / expected_hits as f64) * LN_2).round() as u32).max(1)
-}
-
-/// Lockable state of [`BloomTokenLog`]
-struct State {
-    config: FilterConfig,
-    // filter_1 covers tokens that expire in the period starting at
-    // UNIX_EPOCH + period_idx_1 * lifetime and extending lifetime after.
-    // filter_2 covers tokens for the next lifetime after that.
-    period_idx_1: u128,
-    filter_1: Filter,
-    filter_2: Filter,
-}
-
 impl TokenLog for BloomTokenLog {
     fn check_and_insert(
         &self,
@@ -126,26 +106,22 @@ impl TokenLog for BloomTokenLog {
     }
 }
 
-/// The token's rand needs to guarantee uniqueness because of the role it plays in the encryption
-/// of the tokens, so it is 128 bits. But since the token log can tolerate both false positives and
-/// false negatives, we trim it down to 64 bits, which would still only have a small collision rate
-/// even at significant amounts of usage, while allowing us to store twice as many in the hash set
-/// variant.
-///
-/// Token rand values are uniformly randomly generated server-side and cryptographically integrity-
-/// checked, so we don't need to employ secure hashing for this, we can simply truncate.
-fn rand_to_fingerprint(rand: u128) -> u64 {
-    (rand & 0xffffffff) as u64
-}
-
-const DEFAULT_MAX_BYTES: usize = 10 << 20;
-const DEFAULT_EXPECTED_HITS: u64 = 1_000_000;
-
 /// Default to 20 MiB max memory consumption and expected one million hits
 impl Default for BloomTokenLog {
     fn default() -> Self {
         Self::new_expected_items(DEFAULT_MAX_BYTES, DEFAULT_EXPECTED_HITS)
     }
+}
+
+/// Lockable state of [`BloomTokenLog`]
+struct State {
+    config: FilterConfig,
+    // filter_1 covers tokens that expire in the period starting at
+    // UNIX_EPOCH + period_idx_1 * lifetime and extending lifetime after.
+    // filter_2 covers tokens for the next lifetime after that.
+    period_idx_1: u128,
+    filter_1: Filter,
+    filter_2: Filter,
 }
 
 /// Unchanging parameters governing [`Filter`] behavior
@@ -156,7 +132,7 @@ struct FilterConfig {
 
 /// Period filter within [`State`]
 enum Filter {
-    Set(IdentityHashSet),
+    Set(HashSet<u64, IdentityBuildHasher>),
     Bloom(BloomFilter<512, FxBuildHasher>),
 }
 
@@ -176,16 +152,18 @@ impl Filter {
                     return Err(TokenReuseError);
                 }
 
-                if hset.capacity() * size_of::<u64>() > config.filter_max_bytes {
-                    // convert to bloom
-                    let mut bloom = BloomFilter::with_num_bits(config.filter_max_bytes * 8)
-                        .hasher(FxBuildHasher)
-                        .hashes(config.k_num);
-                    for item in hset.iter() {
-                        bloom.insert(item);
-                    }
-                    *self = Self::Bloom(bloom);
+                if hset.capacity() * size_of::<u64>() <= config.filter_max_bytes {
+                    return Ok(());
                 }
+
+                // convert to bloom
+                let mut bloom = BloomFilter::with_num_bits(config.filter_max_bytes * 8)
+                    .hasher(FxBuildHasher)
+                    .hashes(config.k_num);
+                for item in hset.iter() {
+                    bloom.insert(item);
+                }
+                *self = Self::Bloom(bloom);
             }
             Self::Bloom(bloom) => {
                 if bloom.insert(&fingerprint) {
@@ -236,9 +214,29 @@ impl Hasher for IdentityHasher {
     }
 }
 
-/// Hash set of `u64` which are assumed to already be uniformly randomly distributed, and thus
-/// effectively pre-hashed
-type IdentityHashSet = HashSet<u64, IdentityBuildHasher>;
+fn optimal_k_num(num_bytes: usize, expected_hits: u64) -> u32 {
+    // be more forgiving rather than panickey here. excessively high num_bits may occur if the user
+    // wishes it to be unbounded, so just saturate. expected_hits of 0 would cause divide-by-zero,
+    // so just fudge it up to 1 in that case.
+    let num_bits = (num_bytes as u64).saturating_mul(8);
+    let expected_hits = expected_hits.max(1);
+    (((num_bits as f64 / expected_hits as f64) * LN_2).round() as u32).max(1)
+}
+
+/// The token's rand needs to guarantee uniqueness because of the role it plays in the encryption
+/// of the tokens, so it is 128 bits. But since the token log can tolerate false positives, we trim
+/// it down to 64 bits, which would still only have a small collision rate even at significant
+/// amounts of usage, while allowing us to store twice as many in the hash set variant.
+///
+/// Token rand values are uniformly randomly generated server-side and cryptographically integrity-
+/// checked, so we don't need to employ secure hashing for this, we can simply truncate.
+fn rand_to_fingerprint(rand: u128) -> u64 {
+    (rand & 0xffffffff) as u64
+}
+
+// remember to change the doc comment for `impl Default for BloomTokenLog` if these ever change
+const DEFAULT_MAX_BYTES: usize = 10 << 20;
+const DEFAULT_EXPECTED_HITS: u64 = 1_000_000;
 
 #[cfg(test)]
 mod test {
