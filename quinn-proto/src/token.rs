@@ -16,9 +16,6 @@ use crate::{
     Duration, ServerConfig, SystemTime, RESET_TOKEN_SIZE, UNIX_EPOCH,
 };
 
-/// Error for when a validation token may have been reused
-pub struct TokenReuseError;
-
 /// Responsible for limiting clients' ability to reuse validation tokens
 ///
 /// [_RFC 9000 § 8.1.4:_](https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1.4)
@@ -53,6 +50,9 @@ pub trait TokenLog: Send + Sync {
         lifetime: Duration,
     ) -> Result<(), TokenReuseError>;
 }
+
+/// Error for when a validation token may have been reused
+pub struct TokenReuseError;
 
 /// An address validation / retry token
 ///
