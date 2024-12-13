@@ -54,25 +54,6 @@ pub trait TokenLog: Send + Sync {
     ) -> Result<(), TokenReuseError>;
 }
 
-/// State in an `Incoming` determined by a token or lack thereof
-#[derive(Debug)]
-pub(crate) struct IncomingToken {
-    pub(crate) retry_src_cid: Option<ConnectionId>,
-    pub(crate) orig_dst_cid: ConnectionId,
-    pub(crate) validated: bool,
-}
-
-impl IncomingToken {
-    /// Construct for an `Incoming` which is not validated by a token
-    pub(crate) fn default(header: &InitialHeader) -> Self {
-        Self {
-            retry_src_cid: None,
-            orig_dst_cid: header.dst_cid,
-            validated: false,
-        }
-    }
-}
-
 /// An address validation / retry token
 ///
 /// The data in this struct is encoded and encrypted in the context of not only a handshake token
@@ -405,6 +386,25 @@ impl fmt::Display for ResetToken {
             write!(f, "{byte:02x}")?;
         }
         Ok(())
+    }
+}
+
+/// State in an `Incoming` determined by a token or lack thereof
+#[derive(Debug)]
+pub(crate) struct IncomingToken {
+    pub(crate) retry_src_cid: Option<ConnectionId>,
+    pub(crate) orig_dst_cid: ConnectionId,
+    pub(crate) validated: bool,
+}
+
+impl IncomingToken {
+    /// Construct for an `Incoming` which is not validated by a token
+    pub(crate) fn default(header: &InitialHeader) -> Self {
+        Self {
+            retry_src_cid: None,
+            orig_dst_cid: header.dst_cid,
+            validated: false,
+        }
     }
 }
 
