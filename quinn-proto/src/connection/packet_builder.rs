@@ -114,8 +114,8 @@ impl PacketBuilder {
             SpaceId::Initial => Header::Initial(InitialHeader {
                 src_cid: conn.handshake_cid,
                 dst_cid,
-                token: match conn.side_state {
-                    SideState::Client { ref token, .. } => token.clone(),
+                token: match &conn.side_state {
+                    SideState::Client { token, .. } => token.clone(),
                     SideState::Server { .. } => Bytes::new(),
                 },
                 number,

@@ -1151,8 +1151,8 @@ impl Connection {
                 // forbids migration, drop the datagram. This could be relaxed to heuristically
                 // permit NAT-rebinding-like migration.
                 if remote != self.path.remote
-                    && match self.side_state {
-                        SideState::Server { ref server_config } => !server_config.migration,
+                    && match &self.side_state {
+                        SideState::Server { server_config } => !server_config.migration,
                         SideState::Client { .. } => true,
                     }
                 {
@@ -2179,7 +2179,7 @@ impl Connection {
         trace!("discarding {:?} keys", space_id);
         if space_id == SpaceId::Initial {
             // No longer needed
-            if let SideState::Client { ref mut token, .. } = self.side_state {
+            if let SideState::Client { token, .. } = &mut self.side_state {
                 *token = Bytes::new();
             }
         }
@@ -2500,7 +2500,7 @@ impl Connection {
                 self.streams.retransmit_all_for_0rtt();
 
                 let token_len = packet.payload.len() - 16;
-                let SideState::Client { ref mut token, .. } = self.side_state else {
+                let SideState::Client { token, .. } = &mut self.side_state else {
                     unreachable!("we already short-circuited if we're server");
                 };
                 *token = packet.payload.freeze().split_to(token_len);
@@ -3028,7 +3028,7 @@ impl Connection {
             && !is_probing_packet
             && number == self.spaces[SpaceId::Data].rx_packet
         {
-            let SideState::Server { ref server_config } = self.side_state else {
+            let SideState::Server { server_config } = &self.side_state else {
                 panic!("packets from unknown remote should be dropped by clients");
             };
             debug_assert!(
