@@ -29,7 +29,7 @@ use crate::{
         ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
         EndpointEvent, EndpointEventInner, IssuedCid,
     },
-    token::{IncomingToken, RetryTokenInner, TokenInner, ValidationError},
+    token::{IncomingToken, InvalidRetryTokenError, RetryTokenInner, TokenInner},
     transport_parameters::{PreferredAddress, TransportParameters},
     Duration, Instant, ResetToken, Side, SystemTime, Token, Transmit, TransportConfig,
     TransportError, INITIAL_MTU, MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
@@ -497,26 +497,18 @@ impl Endpoint {
 
         let server_config = self.server_config.as_ref().unwrap().clone();
 
-        let token_state = if header.token.is_empty() {
-            IncomingToken::default(&header)
-        } else {
-            let token = Token::decode(&*server_config.token_key, &header.token);
-            let token_state =
-                token.and_then(|token| token.validate(&header, &server_config, addresses.remote));
-            match token_state {
-                Ok(token_state) => token_state,
-                Err(ValidationError::Ignore) => IncomingToken::default(&header),
-                Err(ValidationError::InvalidRetry) => {
-                    debug!("rejecting invalid retry token");
-                    return Some(DatagramEvent::Response(self.initial_close(
-                        header.version,
-                        addresses,
-                        &crypto,
-                        &header.src_cid,
-                        TransportError::INVALID_TOKEN(""),
-                        buf,
-                    )));
-                }
+        let token = match IncomingToken::handle_header(&header, &server_config, addresses.remote) {
+            Ok(token) => token,
+            Err(InvalidRetryTokenError) => {
+                debug!("rejecting invalid retry token");
+                return Some(DatagramEvent::Response(self.initial_close(
+                    header.version,
+                    addresses,
+                    &crypto,
+                    &header.src_cid,
+                    TransportError::INVALID_TOKEN(""),
+                    buf,
+                )));
             }
         };
 
@@ -535,7 +527,7 @@ impl Endpoint {
             },
             rest,
             crypto,
-            token: token_state,
+            token,
             incoming_idx,
             improper_drop_warner: IncomingImproperDropWarner,
         }))

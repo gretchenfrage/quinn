@@ -430,7 +430,31 @@ impl IncomingToken {
             validated: false,
         }
     }
+
+    /// Construct for an `Incoming` given the first packet header, or error if the connection
+    /// cannot be established
+    pub(crate) fn handle_header(
+        header: &InitialHeader,
+        server_config: &ServerConfig,
+        address: SocketAddr,
+    ) -> Result<Self, InvalidRetryTokenError> {
+        if header.token.is_empty() {
+            return Ok(Self::default(&header));
+        }
+
+        Token::decode(&*server_config.token_key, &header.token)
+            .and_then(|token| token.validate(&header, &server_config, address))
+            .or_else(|e| match e {
+                ValidationError::Ignore => Ok(Self::default(&header)),
+                ValidationError::InvalidRetry => Err(InvalidRetryTokenError),
+            })
+    }
 }
+
+/// Error for a token being unambiguously from a Retry packet, and not valid
+///
+/// The connection cannot be established.
+pub(crate) struct InvalidRetryTokenError;
 
 #[cfg(all(test, any(feature = "aws-lc-rs", feature = "ring")))]
 mod test {
