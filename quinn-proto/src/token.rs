@@ -264,11 +264,6 @@ impl ValidationTokenInner {
     }
 }
 
-fn encode_addr(buf: &mut Vec<u8>, address: &SocketAddr) {
-    encode_ip(buf, &address.ip());
-    buf.put_u16(address.port());
-}
-
 fn encode_ip(buf: &mut Vec<u8>, address: &IpAddr) {
     match address {
         IpAddr::V4(x) => {
@@ -280,6 +275,10 @@ fn encode_ip(buf: &mut Vec<u8>, address: &IpAddr) {
             buf.put_slice(&x.octets());
         }
     }
+}
+
+fn decode_time<B: Buf>(buf: &mut B) -> Option<SystemTime> {
+    Some(UNIX_EPOCH + Duration::from_secs(buf.get::<u64>().ok()?))
 }
 
 fn decode_addr<B: Buf>(buf: &mut B) -> Option<SocketAddr> {
@@ -304,8 +303,9 @@ fn encode_time(buf: &mut Vec<u8>, time: SystemTime) {
     buf.write::<u64>(unix_secs);
 }
 
-fn decode_time<B: Buf>(buf: &mut B) -> Option<SystemTime> {
-    Some(UNIX_EPOCH + Duration::from_secs(buf.get::<u64>().ok()?))
+fn encode_addr(buf: &mut Vec<u8>, address: &SocketAddr) {
+    encode_ip(buf, &address.ip());
+    buf.put_u16(address.port());
 }
 
 /// Error for a token failing to validate a client's address
