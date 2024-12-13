@@ -177,14 +177,14 @@ pub(crate) struct RetryTokenInner {
 impl RetryTokenInner {
     /// Encode without encryption
     fn encode(&self, buf: &mut Vec<u8>, address: &SocketAddr) {
-        encode_socket_addr(buf, address);
+        encode_addr(buf, address);
         self.orig_dst_cid.encode_long(buf);
         encode_time(buf, self.issued);
     }
 
     /// Try to decode without encryption, but do validate that the address is acceptable
     fn decode<B: Buf>(buf: &mut B, address: &SocketAddr) -> Result<Self, ValidationError> {
-        let token_address = decode_socket_addr(buf).ok_or(ValidationError::Ignore)?;
+        let token_address = decode_addr(buf).ok_or(ValidationError::Ignore)?;
         if token_address != *address {
             return Err(ValidationError::InvalidRetry);
         }
@@ -223,13 +223,13 @@ pub(crate) struct ValidationTokenInner {
 impl ValidationTokenInner {
     /// Encode without encryption
     fn encode(&self, buf: &mut Vec<u8>, address: &SocketAddr) {
-        encode_ip_addr(buf, &address.ip());
+        encode_ip(buf, &address.ip());
         encode_time(buf, self.issued);
     }
 
     /// Try to decode without encryption, but do validate that the address is acceptable
     fn decode<B: Buf>(buf: &mut B, address: &SocketAddr) -> Result<Self, ValidationError> {
-        let token_address = decode_ip_addr(buf).ok_or(ValidationError::Ignore)?;
+        let token_address = decode_ip(buf).ok_or(ValidationError::Ignore)?;
         if token_address != address.ip() {
             return Err(ValidationError::Ignore);
         }
@@ -264,12 +264,12 @@ impl ValidationTokenInner {
     }
 }
 
-fn encode_socket_addr(buf: &mut Vec<u8>, address: &SocketAddr) {
-    encode_ip_addr(buf, &address.ip());
+fn encode_addr(buf: &mut Vec<u8>, address: &SocketAddr) {
+    encode_ip(buf, &address.ip());
     buf.put_u16(address.port());
 }
 
-fn encode_ip_addr(buf: &mut Vec<u8>, address: &IpAddr) {
+fn encode_ip(buf: &mut Vec<u8>, address: &IpAddr) {
     match address {
         IpAddr::V4(x) => {
             buf.put_u8(0);
@@ -282,13 +282,13 @@ fn encode_ip_addr(buf: &mut Vec<u8>, address: &IpAddr) {
     }
 }
 
-fn decode_socket_addr<B: Buf>(buf: &mut B) -> Option<SocketAddr> {
-    let ip = decode_ip_addr(buf)?;
+fn decode_addr<B: Buf>(buf: &mut B) -> Option<SocketAddr> {
+    let ip = decode_ip(buf)?;
     let port = buf.get::<u16>().ok()?;
     Some(SocketAddr::new(ip, port))
 }
 
-fn decode_ip_addr<B: Buf>(buf: &mut B) -> Option<IpAddr> {
+fn decode_ip<B: Buf>(buf: &mut B) -> Option<IpAddr> {
     Some(match buf.get::<u8>().ok()? {
         0 => IpAddr::V4(buf.get().ok()?),
         1 => IpAddr::V6(buf.get().ok()?),
