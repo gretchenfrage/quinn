@@ -87,10 +87,10 @@ pub use crate::cid_generator::{
 
 mod token;
 use token::{ResetToken, Token};
-pub use token::{TokenLog, TokenReuseError};
+pub use token::{TokenLog, TokenReuseError, TokenStore};
 
-mod token_store;
-pub use token_store::{TokenMemoryCache, TokenStore};
+mod token_memory_cache;
+pub use token_memory_cache::TokenMemoryCache;
 
 #[cfg(feature = "fastbloom")]
 mod bloom_token_log;
