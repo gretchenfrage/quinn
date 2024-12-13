@@ -56,13 +56,13 @@ pub trait TokenLog: Send + Sync {
 
 /// State in an `Incoming` determined by a token or lack thereof
 #[derive(Debug)]
-pub(crate) struct IncomingTokenState {
+pub(crate) struct IncomingToken {
     pub(crate) retry_src_cid: Option<ConnectionId>,
     pub(crate) orig_dst_cid: ConnectionId,
     pub(crate) validated: bool,
 }
 
-impl IncomingTokenState {
+impl IncomingToken {
     /// Construct for an `Incoming` which is not validated by a token
     pub(crate) fn default(header: &InitialHeader) -> Self {
         Self {
@@ -136,7 +136,7 @@ impl Token {
         &self,
         header: &InitialHeader,
         server_config: &ServerConfig,
-    ) -> Result<IncomingTokenState, ValidationError> {
+    ) -> Result<IncomingToken, ValidationError> {
         self.inner.validate(self.rand, header, server_config)
     }
 }
@@ -177,7 +177,7 @@ impl TokenInner {
         rand: u128,
         header: &InitialHeader,
         server_config: &ServerConfig,
-    ) -> Result<IncomingTokenState, ValidationError> {
+    ) -> Result<IncomingToken, ValidationError> {
         match *self {
             Self::Retry(ref inner) => inner.validate(header, server_config),
             Self::Validation(ref inner) => inner.validate(rand, header, server_config),
@@ -220,9 +220,9 @@ impl RetryTokenInner {
         &self,
         header: &InitialHeader,
         server_config: &ServerConfig,
-    ) -> Result<IncomingTokenState, ValidationError> {
+    ) -> Result<IncomingToken, ValidationError> {
         if self.issued + server_config.retry_token_lifetime > SystemTime::now() {
-            Ok(IncomingTokenState {
+            Ok(IncomingToken {
                 retry_src_cid: Some(header.dst_cid),
                 orig_dst_cid: self.orig_dst_cid,
                 validated: true,
@@ -262,7 +262,7 @@ impl ValidationTokenInner {
         rand: u128,
         header: &InitialHeader,
         server_config: &ServerConfig,
-    ) -> Result<IncomingTokenState, ValidationError> {
+    ) -> Result<IncomingToken, ValidationError> {
         let Some(ref log) = server_config.validation_token_log else {
             return Err(ValidationError::Ignore);
         };
@@ -274,7 +274,7 @@ impl ValidationTokenInner {
         } else if self.issued + server_config.validation_token_lifetime < SystemTime::now() {
             Err(ValidationError::Ignore)
         } else {
-            Ok(IncomingTokenState {
+            Ok(IncomingToken {
                 retry_src_cid: None,
                 orig_dst_cid: header.dst_cid,
                 validated: true,

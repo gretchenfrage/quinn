@@ -29,7 +29,7 @@ use crate::{
         ConnectionEvent, ConnectionEventInner, ConnectionId, DatagramConnectionEvent, EcnCodepoint,
         EndpointEvent, EndpointEventInner, IssuedCid,
     },
-    token::{IncomingTokenState, RetryTokenInner, TokenInner, ValidationError},
+    token::{IncomingToken, RetryTokenInner, TokenInner, ValidationError},
     transport_parameters::{PreferredAddress, TransportParameters},
     Duration, Instant, ResetToken, Side, SystemTime, Token, Transmit, TransportConfig,
     TransportError, INITIAL_MTU, MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
@@ -498,13 +498,13 @@ impl Endpoint {
         let server_config = self.server_config.as_ref().unwrap().clone();
 
         let token_state = if header.token.is_empty() {
-            IncomingTokenState::default(&header)
+            IncomingToken::default(&header)
         } else {
             let token = Token::decode(&*server_config.token_key, &addresses.remote, &header.token);
             let token_state = token.and_then(|token| token.validate(&header, &server_config));
             match token_state {
                 Ok(token_state) => token_state,
-                Err(ValidationError::Ignore) => IncomingTokenState::default(&header),
+                Err(ValidationError::Ignore) => IncomingToken::default(&header),
                 Err(ValidationError::InvalidRetry) => {
                     debug!("rejecting invalid retry token");
                     return Some(DatagramEvent::Response(self.initial_close(
@@ -534,7 +534,7 @@ impl Endpoint {
             },
             rest,
             crypto,
-            token_state,
+            token: token_state,
             incoming_idx,
             improper_drop_warner: IncomingImproperDropWarner,
         }))
@@ -624,8 +624,8 @@ impl Endpoint {
             &mut self.rng,
         );
         params.stateless_reset_token = Some(ResetToken::new(&*self.config.reset_key, &loc_cid));
-        params.original_dst_cid = Some(incoming.token_state.orig_dst_cid);
-        params.retry_src_cid = incoming.token_state.retry_src_cid;
+        params.original_dst_cid = Some(incoming.token.orig_dst_cid);
+        params.retry_src_cid = incoming.token.retry_src_cid;
         let mut pref_addr_cid = None;
         if server_config.preferred_address_v4.is_some()
             || server_config.preferred_address_v6.is_some()
@@ -1183,7 +1183,7 @@ pub struct Incoming {
     packet: InitialPacket,
     rest: Option<BytesMut>,
     crypto: Keys,
-    token_state: IncomingTokenState,
+    token: IncomingToken,
     incoming_idx: usize,
     improper_drop_warner: IncomingImproperDropWarner,
 }
@@ -1209,7 +1209,7 @@ impl Incoming {
     /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
     /// The inverse is not guaranteed.
     pub fn remote_address_validated(&self) -> bool {
-        self.token_state.validated
+        self.token.validated
     }
 
     /// Whether it is legal to respond with a retry packet
@@ -1217,12 +1217,12 @@ impl Incoming {
     /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
     /// The inverse is not guaranteed.
     pub fn may_retry(&self) -> bool {
-        self.token_state.retry_src_cid.is_none()
+        self.token.retry_src_cid.is_none()
     }
 
     /// The original destination connection ID sent by the client
     pub fn orig_dst_cid(&self) -> &ConnectionId {
-        &self.token_state.orig_dst_cid
+        &self.token.orig_dst_cid
     }
 }
 
@@ -1233,7 +1233,7 @@ impl fmt::Debug for Incoming {
             .field("ecn", &self.ecn)
             // packet doesn't implement debug
             // rest is too big and not meaningful enough
-            .field("token_state", &self.token_state)
+            .field("token_state", &self.token)
             .field("incoming_idx", &self.incoming_idx)
             // improper drop warner contains no information
             .finish_non_exhaustive()
