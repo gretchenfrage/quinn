@@ -265,34 +265,6 @@ impl SideState {
     }
 }
 
-/// Parameters to `Connection::new` specific to it being client-side or server-side
-pub(crate) enum SideArgs {
-    Client {
-        token_store: Option<Arc<dyn TokenStore>>,
-        server_name: String,
-    },
-    Server {
-        server_config: Arc<ServerConfig>,
-        pref_addr_cid: Option<ConnectionId>,
-        path_validated: bool,
-    },
-}
-
-impl SideArgs {
-    pub(crate) fn side(&self) -> Side {
-        match *self {
-            Self::Client { .. } => Side::Client,
-            Self::Server { .. } => Side::Server,
-        }
-    }
-    pub(crate) fn pref_addr_cid(&self) -> Option<ConnectionId> {
-        match *self {
-            Self::Client { .. } => None,
-            Self::Server { pref_addr_cid, .. } => pref_addr_cid,
-        }
-    }
-}
-
 impl Connection {
     pub(crate) fn new(
         endpoint_config: Arc<EndpointConfig>,
@@ -3750,6 +3722,35 @@ impl fmt::Debug for Connection {
         f.debug_struct("Connection")
             .field("handshake_cid", &self.handshake_cid)
             .finish()
+    }
+}
+
+/// Parameters to `Connection::new` specific to it being client-side or server-side
+pub(crate) enum SideArgs {
+    Client {
+        token_store: Option<Arc<dyn TokenStore>>,
+        server_name: String,
+    },
+    Server {
+        server_config: Arc<ServerConfig>,
+        pref_addr_cid: Option<ConnectionId>,
+        path_validated: bool,
+    },
+}
+
+impl SideArgs {
+    pub(crate) fn side(&self) -> Side {
+        match *self {
+            Self::Client { .. } => Side::Client,
+            Self::Server { .. } => Side::Server,
+        }
+    }
+
+    pub(crate) fn pref_addr_cid(&self) -> Option<ConnectionId> {
+        match *self {
+            Self::Client { .. } => None,
+            Self::Server { pref_addr_cid, .. } => pref_addr_cid,
+        }
     }
 }
 
