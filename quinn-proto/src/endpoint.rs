@@ -500,8 +500,9 @@ impl Endpoint {
         let token_state = if header.token.is_empty() {
             IncomingToken::default(&header)
         } else {
-            let token = Token::decode(&*server_config.token_key, &addresses.remote, &header.token);
-            let token_state = token.and_then(|token| token.validate(&header, &server_config));
+            let token = Token::decode(&*server_config.token_key, &header.token);
+            let token_state =
+                token.and_then(|token| token.validate(&header, &server_config, addresses.remote));
             match token_state {
                 Ok(token_state) => token_state,
                 Err(ValidationError::Ignore) => IncomingToken::default(&header),
@@ -763,11 +764,12 @@ impl Endpoint {
         let loc_cid = self.local_cid_generator.generate_cid();
 
         let token_inner = RetryTokenInner {
+            address: incoming.addresses.remote,
             orig_dst_cid: incoming.packet.header.dst_cid,
             issued: SystemTime::now(),
         };
         let token = Token::new(&mut self.rng, TokenInner::Retry(token_inner))
-            .encode(&*server_config.token_key, &incoming.addresses.remote);
+            .encode(&*server_config.token_key);
 
         let header = Header::Retry {
             src_cid: loc_cid,

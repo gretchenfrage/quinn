@@ -92,10 +92,10 @@ impl Token {
     }
 
     /// Encode and encrypt
-    pub(crate) fn encode(&self, key: &dyn HandshakeTokenKey, address: &SocketAddr) -> Vec<u8> {
+    pub(crate) fn encode(&self, key: &dyn HandshakeTokenKey) -> Vec<u8> {
         let mut buf = Vec::new();
 
-        self.inner.encode(&mut buf, address);
+        self.inner.encode(&mut buf);
         let aead_key = key.aead_from_hkdf(&self.rand.to_le_bytes());
         aead_key.seal(&mut buf, &[]).unwrap();
 
@@ -105,7 +105,6 @@ impl Token {
 
     pub(crate) fn decode(
         key: &dyn HandshakeTokenKey,
-        address: &SocketAddr,
         raw_token_bytes: &[u8],
     ) -> Result<Self, ValidationError> {
         let rand_slice_start = raw_token_bytes
@@ -121,7 +120,7 @@ impl Token {
         let encoded = aead_key.open(&mut sealed_inner, &[])?;
 
         let mut cursor = io::Cursor::new(encoded);
-        let inner = TokenInner::decode(&mut cursor, address)?;
+        let inner = TokenInner::decode(&mut cursor)?;
         if cursor.has_remaining() {
             return Err(ValidationError::Ignore);
         }
@@ -134,8 +133,10 @@ impl Token {
         &self,
         header: &InitialHeader,
         server_config: &ServerConfig,
+        address: SocketAddr,
     ) -> Result<IncomingToken, ValidationError> {
-        self.inner.validate(self.rand, header, server_config)
+        self.inner
+            .validate(self.rand, header, server_config, address)
     }
 }
 
@@ -147,24 +148,24 @@ pub(crate) enum TokenInner {
 
 impl TokenInner {
     /// Encode without encryption
-    fn encode(&self, buf: &mut Vec<u8>, address: &SocketAddr) {
+    fn encode(&self, buf: &mut Vec<u8>) {
         match *self {
             Self::Retry(ref inner) => {
                 buf.push(0);
-                inner.encode(buf, address);
+                inner.encode(buf);
             }
             Self::Validation(ref inner) => {
                 buf.push(1);
-                inner.encode(buf, address);
+                inner.encode(buf);
             }
         }
     }
 
     /// Try to decode without encryption, but do validate that the address is acceptable
-    fn decode<B: Buf>(buf: &mut B, address: &SocketAddr) -> Result<Self, ValidationError> {
+    fn decode<B: Buf>(buf: &mut B) -> Result<Self, ValidationError> {
         match buf.get::<u8>().ok().ok_or(ValidationError::Ignore)? {
-            0 => RetryTokenInner::decode(buf, address).map(Self::Retry),
-            1 => ValidationTokenInner::decode(buf, address).map(Self::Validation),
+            0 => RetryTokenInner::decode(buf).map(Self::Retry),
+            1 => ValidationTokenInner::decode(buf).map(Self::Validation),
             _ => Err(ValidationError::Ignore),
         }
     }
@@ -175,16 +176,19 @@ impl TokenInner {
         rand: u128,
         header: &InitialHeader,
         server_config: &ServerConfig,
+        address: SocketAddr,
     ) -> Result<IncomingToken, ValidationError> {
         match *self {
-            Self::Retry(ref inner) => inner.validate(header, server_config),
-            Self::Validation(ref inner) => inner.validate(rand, header, server_config),
+            Self::Retry(ref inner) => inner.validate(header, server_config, address),
+            Self::Validation(ref inner) => inner.validate(rand, header, server_config, address),
         }
     }
 }
 
 /// Content of [`Token`] originating from Retry packet that is encrypted from the client
 pub(crate) struct RetryTokenInner {
+    /// The client address
+    pub(crate) address: SocketAddr,
     /// The destination connection ID set in the very first packet from the client
     pub(crate) orig_dst_cid: ConnectionId,
     /// The time at which this token was issued
@@ -193,21 +197,19 @@ pub(crate) struct RetryTokenInner {
 
 impl RetryTokenInner {
     /// Encode without encryption
-    fn encode(&self, buf: &mut Vec<u8>, address: &SocketAddr) {
-        encode_addr(buf, address);
+    fn encode(&self, buf: &mut Vec<u8>) {
+        encode_addr(buf, self.address);
         self.orig_dst_cid.encode_long(buf);
         encode_time(buf, self.issued);
     }
 
     /// Try to decode without encryption, but do validate that the address is acceptable
-    fn decode<B: Buf>(buf: &mut B, address: &SocketAddr) -> Result<Self, ValidationError> {
-        let token_address = decode_addr(buf).ok_or(ValidationError::Ignore)?;
-        if token_address != *address {
-            return Err(ValidationError::InvalidRetry);
-        }
+    fn decode<B: Buf>(buf: &mut B) -> Result<Self, ValidationError> {
+        let address = decode_addr(buf).ok_or(ValidationError::Ignore)?;
         let orig_dst_cid = ConnectionId::decode_long(buf).ok_or(ValidationError::Ignore)?;
         let issued = decode_time(buf).ok_or(ValidationError::Ignore)?;
         Ok(Self {
+            address,
             orig_dst_cid,
             issued,
         })
@@ -218,7 +220,11 @@ impl RetryTokenInner {
         &self,
         header: &InitialHeader,
         server_config: &ServerConfig,
+        address: SocketAddr,
     ) -> Result<IncomingToken, ValidationError> {
+        if self.address != address {
+            return Err(ValidationError::InvalidRetry);
+        }
         if self.issued + server_config.retry_token_lifetime < SystemTime::now() {
             return Err(ValidationError::InvalidRetry);
         }
@@ -232,25 +238,24 @@ impl RetryTokenInner {
 
 /// Content of [`Token`] originating from NEW_TOKEN frame that is encrypted from the client
 pub(crate) struct ValidationTokenInner {
+    /// The client address
+    pub(crate) ip: IpAddr,
     /// The time at which this token was issued
     pub(crate) issued: SystemTime,
 }
 
 impl ValidationTokenInner {
     /// Encode without encryption
-    fn encode(&self, buf: &mut Vec<u8>, address: &SocketAddr) {
-        encode_ip(buf, &address.ip());
+    fn encode(&self, buf: &mut Vec<u8>) {
+        encode_ip(buf, self.ip);
         encode_time(buf, self.issued);
     }
 
     /// Try to decode without encryption, but do validate that the address is acceptable
-    fn decode<B: Buf>(buf: &mut B, address: &SocketAddr) -> Result<Self, ValidationError> {
-        let token_address = decode_ip(buf).ok_or(ValidationError::Ignore)?;
-        if token_address != address.ip() {
-            return Err(ValidationError::Ignore);
-        }
+    fn decode<B: Buf>(buf: &mut B) -> Result<Self, ValidationError> {
+        let ip = decode_ip(buf).ok_or(ValidationError::Ignore)?;
         let issued = decode_time(buf).ok_or(ValidationError::Ignore)?;
-        Ok(Self { issued })
+        Ok(Self { ip, issued })
     }
 
     /// Ensure that this token validates an `Incoming`, and construct its token state
@@ -259,7 +264,11 @@ impl ValidationTokenInner {
         rand: u128,
         header: &InitialHeader,
         server_config: &ServerConfig,
+        address: SocketAddr,
     ) -> Result<IncomingToken, ValidationError> {
+        if self.ip != address.ip() {
+            return Err(ValidationError::Ignore);
+        }
         let Some(ref log) = server_config.validation_token_log else {
             return Err(ValidationError::Ignore);
         };
@@ -279,7 +288,7 @@ impl ValidationTokenInner {
     }
 }
 
-fn encode_ip(buf: &mut Vec<u8>, address: &IpAddr) {
+fn encode_ip(buf: &mut Vec<u8>, address: IpAddr) {
     match address {
         IpAddr::V4(x) => {
             buf.put_u8(0);
@@ -292,22 +301,9 @@ fn encode_ip(buf: &mut Vec<u8>, address: &IpAddr) {
     }
 }
 
-fn decode_time<B: Buf>(buf: &mut B) -> Option<SystemTime> {
-    Some(UNIX_EPOCH + Duration::from_secs(buf.get::<u64>().ok()?))
-}
-
-fn decode_addr<B: Buf>(buf: &mut B) -> Option<SocketAddr> {
-    let ip = decode_ip(buf)?;
-    let port = buf.get::<u16>().ok()?;
-    Some(SocketAddr::new(ip, port))
-}
-
-fn decode_ip<B: Buf>(buf: &mut B) -> Option<IpAddr> {
-    Some(match buf.get::<u8>().ok()? {
-        0 => IpAddr::V4(buf.get().ok()?),
-        1 => IpAddr::V6(buf.get().ok()?),
-        _ => return None,
-    })
+fn encode_addr(buf: &mut Vec<u8>, address: SocketAddr) {
+    encode_ip(buf, address.ip());
+    buf.put_u16(address.port());
 }
 
 fn encode_time(buf: &mut Vec<u8>, time: SystemTime) {
@@ -318,9 +314,22 @@ fn encode_time(buf: &mut Vec<u8>, time: SystemTime) {
     buf.write::<u64>(unix_secs);
 }
 
-fn encode_addr(buf: &mut Vec<u8>, address: &SocketAddr) {
-    encode_ip(buf, &address.ip());
-    buf.put_u16(address.port());
+fn decode_ip<B: Buf>(buf: &mut B) -> Option<IpAddr> {
+    Some(match buf.get::<u8>().ok()? {
+        0 => IpAddr::V4(buf.get().ok()?),
+        1 => IpAddr::V6(buf.get().ok()?),
+        _ => return None,
+    })
+}
+
+fn decode_addr<B: Buf>(buf: &mut B) -> Option<SocketAddr> {
+    let ip = decode_ip(buf)?;
+    let port = buf.get::<u16>().ok()?;
+    Some(SocketAddr::new(ip, port))
+}
+
+fn decode_time<B: Buf>(buf: &mut B) -> Option<SystemTime> {
+    Some(UNIX_EPOCH + Duration::from_secs(buf.get::<u64>().ok()?))
 }
 
 /// Error for a token failing to validate a client's address
@@ -438,9 +447,8 @@ mod test {
         let mut master_key = [0; 64];
         rng.fill_bytes(&mut master_key);
         let prk = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
-        let addr = SocketAddr::new(rng.gen::<u128>().to_ne_bytes().into(), rng.gen::<u16>());
-        let encoded = token.encode(&prk, &addr);
-        let decoded = Token::decode(&prk, &addr, &encoded).expect("token didn't decrypt / decode");
+        let encoded = token.encode(&prk);
+        let decoded = Token::decode(&prk, &encoded).expect("token didn't decrypt / decode");
         assert_eq!(token.rand, decoded.rand);
         decoded.inner
     }
@@ -450,15 +458,20 @@ mod test {
         use crate::MAX_CID_SIZE;
         use crate::{Duration, UNIX_EPOCH};
 
+        let rng = &mut rand::thread_rng();
+
+        let addr_1 = SocketAddr::new(rng.gen::<u128>().to_ne_bytes().into(), rng.gen::<u16>());
         let orig_dst_cid_1 = RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid();
         let issued_1 = UNIX_EPOCH + Duration::new(42, 0); // Fractional seconds would be lost
 
         let inner_1 = TokenInner::Retry(RetryTokenInner {
+            address: addr_1,
             orig_dst_cid: orig_dst_cid_1,
             issued: issued_1,
         });
         let inner_2 = token_round_trip(inner_1);
         let TokenInner::Retry(RetryTokenInner {
+            address: addr_2,
             orig_dst_cid: orig_dst_cid_2,
             issued: issued_2,
         }) = inner_2
@@ -466,6 +479,7 @@ mod test {
             panic!("token decoded as wrong variant")
         };
 
+        assert_eq!(addr_1, addr_2);
         assert_eq!(orig_dst_cid_1, orig_dst_cid_2);
         assert_eq!(issued_1, issued_2);
     }
@@ -474,14 +488,25 @@ mod test {
     fn validation_token_sanity() {
         use crate::{Duration, UNIX_EPOCH};
 
+        let rng = &mut rand::thread_rng();
+
+        let ip_1 = rng.gen::<u128>().to_ne_bytes().into();
         let issued_1 = UNIX_EPOCH + Duration::new(42, 0); // Fractional seconds would be lost
 
-        let inner_1 = TokenInner::Validation(ValidationTokenInner { issued: issued_1 });
+        let inner_1 = TokenInner::Validation(ValidationTokenInner {
+            ip: ip_1,
+            issued: issued_1,
+        });
         let inner_2 = token_round_trip(inner_1);
-        let TokenInner::Validation(ValidationTokenInner { issued: issued_2 }) = inner_2 else {
+        let TokenInner::Validation(ValidationTokenInner {
+            ip: ip_2,
+            issued: issued_2,
+        }) = inner_2
+        else {
             panic!("token decoded as wrong variant")
         };
 
+        assert_eq!(ip_1, ip_2);
         assert_eq!(issued_1, issued_2);
     }
 
@@ -489,7 +514,6 @@ mod test {
     fn invalid_token_returns_err() {
         use super::*;
         use rand::RngCore;
-        use std::net::Ipv6Addr;
 
         let rng = &mut rand::thread_rng();
 
@@ -498,8 +522,6 @@ mod test {
 
         let prk = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
 
-        let addr = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 4433);
-
         let mut invalid_token = Vec::new();
 
         let mut random_data = [0; 32];
@@ -507,6 +529,6 @@ mod test {
         invalid_token.put_slice(&random_data);
 
         // Assert: garbage sealed data returns err
-        assert!(Token::decode(&prk, &addr, &invalid_token).is_err());
+        assert!(Token::decode(&prk, &invalid_token).is_err());
     }
 }

@@ -3321,10 +3321,10 @@ impl Connection {
             }
 
             let token_inner = TokenInner::Validation(ValidationTokenInner {
+                ip: self.path.remote.ip(),
                 issued: SystemTime::now(),
             });
-            let token = Token::new(&mut self.rng, token_inner)
-                .encode(&*server_config.token_key, &self.path.remote);
+            let token = Token::new(&mut self.rng, token_inner).encode(&*server_config.token_key);
             let new_token = NewToken {
                 token: token.into(),
             };
