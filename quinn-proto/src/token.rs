@@ -202,15 +202,14 @@ impl RetryTokenInner {
         header: &InitialHeader,
         server_config: &ServerConfig,
     ) -> Result<IncomingToken, ValidationError> {
-        if self.issued + server_config.retry_token_lifetime > SystemTime::now() {
-            Ok(IncomingToken {
-                retry_src_cid: Some(header.dst_cid),
-                orig_dst_cid: self.orig_dst_cid,
-                validated: true,
-            })
-        } else {
-            Err(ValidationError::InvalidRetry)
+        if self.issued + server_config.retry_token_lifetime < SystemTime::now() {
+            return Err(ValidationError::InvalidRetry);
         }
+        Ok(IncomingToken {
+            retry_src_cid: Some(header.dst_cid),
+            orig_dst_cid: self.orig_dst_cid,
+            validated: true,
+        })
     }
 }
 
@@ -251,16 +250,15 @@ impl ValidationTokenInner {
             log.check_and_insert(rand, self.issued, server_config.validation_token_lifetime);
         if log_result.is_err() {
             debug!("rejecting token from NEW_TOKEN frame because detected as reuse");
-            Err(ValidationError::Ignore)
+            return Err(ValidationError::Ignore);
         } else if self.issued + server_config.validation_token_lifetime < SystemTime::now() {
-            Err(ValidationError::Ignore)
-        } else {
-            Ok(IncomingToken {
-                retry_src_cid: None,
-                orig_dst_cid: header.dst_cid,
-                validated: true,
-            })
+            return Err(ValidationError::Ignore);
         }
+        Ok(IncomingToken {
+            retry_src_cid: None,
+            orig_dst_cid: header.dst_cid,
+            validated: true,
+        })
     }
 }
 
