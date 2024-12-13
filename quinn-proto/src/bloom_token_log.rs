@@ -170,8 +170,8 @@ impl Filter {
         fingerprint: u64,
         config: &FilterConfig,
     ) -> Result<(), TokenReuseError> {
-        match *self {
-            Self::Set(ref mut hset) => {
+        match self {
+            Self::Set(hset) => {
                 if !hset.insert(fingerprint) {
                     return Err(TokenReuseError);
                 }
@@ -187,7 +187,7 @@ impl Filter {
                     *self = Self::Bloom(bloom);
                 }
             }
-            Self::Bloom(ref mut bloom) => {
+            Self::Bloom(bloom) => {
                 if bloom.insert(&fingerprint) {
                     return Err(TokenReuseError);
                 }
