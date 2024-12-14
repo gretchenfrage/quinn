@@ -1887,7 +1887,7 @@ impl Connection {
             self.timers.stop(Timer::Idle);
             return;
         }
-        let dt = cmp::max(timeout, 3 * self.pto(space));
+        let dt = cmp::max(timeout, self.pto(space) * 3);
         self.timers.set(Timer::Idle, now + dt);
     }
 
@@ -2990,7 +2990,7 @@ impl Connection {
 
         self.timers.set(
             Timer::PathValidation,
-            now + 3 * cmp::max(self.pto(SpaceId::Data), prev_pto),
+            now + cmp::max(self.pto(SpaceId::Data), prev_pto) * 3,
         );
     }
 
@@ -3306,7 +3306,7 @@ impl Connection {
 
     fn set_close_timer(&mut self, now: Instant) {
         self.timers
-            .set(Timer::Close, now + 3 * self.pto(self.highest_space));
+            .set(Timer::Close, now + self.pto(self.highest_space) * 3);
     }
 
     /// Handle transport parameters received from the peer

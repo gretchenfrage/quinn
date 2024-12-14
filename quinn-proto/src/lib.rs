@@ -90,11 +90,8 @@ use token::{ResetToken, RetryToken};
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 
-// Deal with time
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-pub(crate) use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-pub(crate) use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+pub mod time;
+pub(crate) use crate::time::{Clock, Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[doc(hidden)]
 #[cfg(fuzzing)]

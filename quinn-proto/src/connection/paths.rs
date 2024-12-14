@@ -201,7 +201,7 @@ impl RttEstimator {
 
     // PTO computed as described in RFC9002#6.2.1
     pub(crate) fn pto_base(&self) -> Duration {
-        self.get() + cmp::max(4 * self.var, TIMER_GRANULARITY)
+        self.get() + cmp::max(self.var * 4, TIMER_GRANULARITY)
     }
 
     pub(crate) fn update(&mut self, ack_delay: Duration, rtt: Duration) {
@@ -220,8 +220,8 @@ impl RttEstimator {
             } else {
                 adjusted_rtt - smoothed
             };
-            self.var = (3 * self.var + var_sample) / 4;
-            self.smoothed = Some((7 * smoothed + adjusted_rtt) / 8);
+            self.var = (self.var * 3 + var_sample) / 4;
+            self.smoothed = Some((smoothed * 7 + adjusted_rtt) / 8);
         } else {
             self.smoothed = Some(self.latest);
             self.var = self.latest / 2;

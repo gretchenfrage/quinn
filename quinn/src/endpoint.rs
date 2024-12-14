@@ -9,7 +9,6 @@ use std::{
     str,
     sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
-    time::Instant,
 };
 
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
@@ -21,8 +20,8 @@ use crate::{
 use bytes::{Bytes, BytesMut};
 use pin_project_lite::pin_project;
 use proto::{
-    self as proto, ClientConfig, ConnectError, ConnectionError, ConnectionHandle, DatagramEvent,
-    EndpointEvent, ServerConfig,
+    self as proto, time::Instant, ClientConfig, ConnectError, ConnectionError, ConnectionHandle,
+    DatagramEvent, EndpointEvent, ServerConfig,
 };
 use rustc_hash::FxHashMap;
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]

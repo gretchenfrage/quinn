@@ -1573,7 +1573,7 @@ fn cid_rotation() {
 
     let mut round: u64 = 1;
     let mut stop = pair.time;
-    let end = pair.time + 5 * CID_TIMEOUT;
+    let end = pair.time + CID_TIMEOUT * 5;
 
     use crate::cid_queue::CidQueue;
     use crate::LOC_CID_COUNT;

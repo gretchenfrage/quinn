@@ -315,7 +315,7 @@ impl TestEndpoint {
         let socket = if env::var_os("SSLKEYLOGFILE").is_some() {
             let socket = UdpSocket::bind(addr).expect("failed to bind UDP socket");
             socket
-                .set_read_timeout(Some(Duration::new(0, 10_000_000)))
+                .set_read_timeout(Some(Duration::new(0, 10_000_000).into_platform_specific()))
                 .unwrap();
             Some(socket)
         } else {
