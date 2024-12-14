@@ -364,9 +364,8 @@ impl Future for EndpointDriver {
         }
 
         let now = endpoint.runtime.now();
-        let system_now = endpoint.runtime.system_now();
         let mut keep_going = false;
-        keep_going |= endpoint.drive_recv(cx, now, system_now)?;
+        keep_going |= endpoint.drive_recv(cx, now)?;
         keep_going |= endpoint.handle_events(cx, &self.0.shared);
 
         if !endpoint.recv_state.incoming.is_empty() {
@@ -484,12 +483,7 @@ pub(crate) struct Shared {
 }
 
 impl State {
-    fn drive_recv(
-        &mut self,
-        cx: &mut Context,
-        now: Instant,
-        system_now: SystemTime,
-    ) -> Result<bool, io::Error> {
+    fn drive_recv(&mut self, cx: &mut Context, now: Instant) -> Result<bool, io::Error> {
         let get_time = || self.runtime.now();
         self.recv_state.recv_limiter.start_cycle(get_time);
         if let Some(socket) = &self.prev_socket {
@@ -500,7 +494,7 @@ impl State {
                 &**socket,
                 &*self.runtime,
                 now,
-                system_now,
+                || self.runtime.system_now(),
             );
             if poll_res.is_err() {
                 self.prev_socket = None;
@@ -512,7 +506,7 @@ impl State {
             &*self.socket,
             &*self.runtime,
             now,
-            system_now,
+            || self.runtime.system_now(),
         );
         self.recv_state.recv_limiter.finish_cycle(get_time);
         let poll_res = poll_res?;
@@ -782,7 +776,7 @@ impl RecvState {
         socket: &dyn AsyncUdpSocket,
         runtime: &dyn Runtime,
         now: Instant,
-        system_now: SystemTime,
+        system_now: impl Fn() -> SystemTime,
     ) -> Result<PollProgress, io::Error> {
         let mut received_connection_packet = false;
         let mut metas = [RecvMeta::default(); BATCH_SIZE];
@@ -808,7 +802,7 @@ impl RecvState {
                             let mut response_buffer = Vec::new();
                             match endpoint.handle(
                                 now,
-                                system_now,
+                                || system_now(),
                                 meta.addr,
                                 meta.dst_ip,
                                 meta.ecn.map(proto_ecn),

@@ -140,7 +140,7 @@ impl Endpoint {
     pub fn handle(
         &mut self,
         now: Instant,
-        system_now: SystemTime,
+        system_now: impl FnOnce() -> SystemTime,
         remote: SocketAddr,
         local_ip: Option<IpAddr>,
         ecn: Option<EcnCodepoint>,
@@ -285,7 +285,14 @@ impl Endpoint {
 
             return match first_decode.finish(Some(&*crypto.header.remote)) {
                 Ok(packet) => self.handle_first_packet(
-                    addresses, ecn, packet, remaining, crypto, buf, now, system_now,
+                    addresses,
+                    ecn,
+                    packet,
+                    remaining,
+                    crypto,
+                    buf,
+                    now,
+                    system_now(),
                 ),
                 Err(e) => {
                     trace!("unable to decode initial packet: {}", e);

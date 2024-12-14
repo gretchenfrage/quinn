@@ -360,10 +360,9 @@ impl TestEndpoint {
 
         while self.inbound.front().is_some_and(|x| x.0 <= now) {
             let (recv_time, ecn, packet) = self.inbound.pop_front().unwrap();
-            let recv_system_time = self.time_converter.convert(recv_time);
             if let Some(event) = self.endpoint.handle(
                 recv_time,
-                recv_system_time,
+                || self.time_converter.convert(recv_time),
                 remote,
                 None,
                 ecn,

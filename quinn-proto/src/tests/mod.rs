@@ -58,7 +58,7 @@ fn version_negotiate_server() {
     let mut buf = Vec::with_capacity(server.config().get_max_udp_payload_size() as usize);
     let event = server.handle(
         now,
-        system_now,
+        || system_now,
         client_addr,
         None,
         None,
@@ -102,7 +102,7 @@ fn version_negotiate_client() {
     let mut buf = Vec::with_capacity(client.config().get_max_udp_payload_size() as usize);
     let opt_event = client.handle(
         now,
-        system_now,
+        || system_now,
         server_addr,
         None,
         None,
@@ -286,7 +286,7 @@ fn stateless_reset_limit() {
     let mut buf = Vec::new();
     let event = endpoint.handle(
         time,
-        system_time,
+        || system_time,
         remote,
         None,
         None,
@@ -296,7 +296,7 @@ fn stateless_reset_limit() {
     assert!(matches!(event, Some(DatagramEvent::Response(_))));
     let event = endpoint.handle(
         time,
-        system_time,
+        || system_time,
         remote,
         None,
         None,
@@ -306,7 +306,7 @@ fn stateless_reset_limit() {
     assert!(event.is_none());
     let event = endpoint.handle(
         time + endpoint_config.min_reset_interval - Duration::from_nanos(1),
-        system_time + endpoint_config.min_reset_interval - Duration::from_nanos(1),
+        || system_time + endpoint_config.min_reset_interval - Duration::from_nanos(1),
         remote,
         None,
         None,
@@ -316,7 +316,7 @@ fn stateless_reset_limit() {
     assert!(event.is_none());
     let event = endpoint.handle(
         time + endpoint_config.min_reset_interval,
-        system_time + endpoint_config.min_reset_interval,
+        || system_time + endpoint_config.min_reset_interval,
         remote,
         None,
         None,
@@ -2184,7 +2184,7 @@ fn malformed_token_len() {
     let mut buf = Vec::with_capacity(server.config().get_max_udp_payload_size() as usize);
     server.handle(
         Instant::now(),
-        SystemTime::now(),
+        || SystemTime::now(),
         client_addr,
         None,
         None,
@@ -3225,7 +3225,15 @@ fn reject_short_idcid() {
     // Initial header that has an empty DCID but is otherwise well-formed
     let mut initial = BytesMut::from(hex!("c4 00000001 00 00 00 3f").as_ref());
     initial.resize(MIN_INITIAL_SIZE.into(), 0);
-    let event = server.handle(now, system_now, client_addr, None, None, initial, &mut buf);
+    let event = server.handle(
+        now,
+        || system_now,
+        client_addr,
+        None,
+        None,
+        initial,
+        &mut buf,
+    );
     let Some(DatagramEvent::Response(Transmit { .. })) = event else {
         panic!("expected an initial close");
     };
