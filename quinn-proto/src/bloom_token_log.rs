@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     f64::consts::LN_2,
     hash::{BuildHasher, Hasher},
-    mem::{size_of, swap},
+    mem::{size_of, take},
     sync::Mutex,
 };
 
@@ -54,9 +54,9 @@ impl BloomTokenLog {
                 filter_max_bytes: max_bytes / 2,
                 k_num,
             },
-            period_idx_1: 0,
-            filter_1: Filter::new(),
-            filter_2: Filter::new(),
+            period_1_start: UNIX_EPOCH,
+            filter_1: Filter::default(),
+            filter_2: Filter::default(),
         }))
     }
 }
@@ -73,33 +73,34 @@ impl TokenLog for BloomTokenLog {
         let state = &mut *guard;
         let fingerprint = rand_to_fingerprint(rand);
 
-        // calculate period index for token
-        let period_idx = (issued + lifetime)
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-            / lifetime.as_nanos();
-
-        // get relevant filter
-        let filter = if period_idx < state.period_idx_1 {
+        // calculate how many periods past period 1 the token expires
+        let expires_at = issued + lifetime;
+        let Ok(periods_forward) = expires_at
+            .duration_since(state.period_1_start)
+            .map(|duration| duration.as_nanos() / lifetime.as_nanos())
+        else {
             // shouldn't happen unless time travels backwards or new_token_lifetime changes
             warn!("BloomTokenLog presented with token too far in past");
             return Err(TokenReuseError);
-        } else if period_idx == state.period_idx_1 {
-            &mut state.filter_1
-        } else if period_idx == state.period_idx_1 + 1 {
-            &mut state.filter_2
-        } else {
-            // turn over filters
-            if period_idx == state.period_idx_1 + 2 {
-                swap(&mut state.filter_1, &mut state.filter_2);
-            } else {
-                state.filter_1 = Filter::new();
-            }
-            state.filter_2 = Filter::new();
-            state.period_idx_1 = period_idx - 1;
+        };
 
-            &mut state.filter_2
+        // get relevant filter
+        let filter = match periods_forward {
+            0 => &mut state.filter_1,
+            1 => &mut state.filter_2,
+            2 => {
+                // turn over filter 1
+                state.filter_1 = take(&mut state.filter_2);
+                state.period_1_start += lifetime;
+                &mut state.filter_2
+            }
+            _ => {
+                // turn over both filters
+                state.filter_1 = Filter::default();
+                state.filter_2 = Filter::default();
+                state.period_1_start = expires_at;
+                &mut state.filter_1
+            }
         };
 
         filter.check_and_insert(fingerprint, &state.config)
@@ -116,10 +117,9 @@ impl Default for BloomTokenLog {
 /// Lockable state of [`BloomTokenLog`]
 struct State {
     config: FilterConfig,
-    // filter_1 covers tokens that expire in the period starting at
-    // UNIX_EPOCH + period_idx_1 * lifetime and extending lifetime after.
-    // filter_2 covers tokens for the next lifetime after that.
-    period_idx_1: u128,
+    // filter_1 covers tokens that expire in the period starting at period_1_start and extending
+    // lifetime after. filter_2 covers tokens for the next lifetime after that.
+    period_1_start: SystemTime,
     filter_1: Filter,
     filter_2: Filter,
 }
@@ -137,10 +137,6 @@ enum Filter {
 }
 
 impl Filter {
-    fn new() -> Self {
-        Self::Set(HashSet::default())
-    }
-
     fn check_and_insert(
         &mut self,
         fingerprint: u64,
@@ -172,6 +168,12 @@ impl Filter {
             }
         }
         Ok(())
+    }
+}
+
+impl Default for Filter {
+    fn default() -> Self {
+        Self::Set(HashSet::default())
     }
 }
 
