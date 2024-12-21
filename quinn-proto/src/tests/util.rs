@@ -358,9 +358,9 @@ impl TestEndpoint {
 
         while self.inbound.front().is_some_and(|x| x.0 <= now) {
             let (recv_time, ecn, packet) = self.inbound.pop_front().unwrap();
-            if let Some(event) = self
-                .endpoint
-                .handle(recv_time, remote, None, ecn, packet, &mut buf)
+            if let Some(event) =
+                self.endpoint
+                    .handle(recv_time, remote.into(), ecn, packet, &mut buf)
             {
                 match event {
                     DatagramEvent::NewConnection(incoming) => {

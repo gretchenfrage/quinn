@@ -140,8 +140,7 @@ impl Endpoint {
     pub fn handle(
         &mut self,
         now: Instant,
-        remote: SocketAddr,
-        local_ip: Option<IpAddr>,
+        addresses: FourTuple,
         ecn: Option<EcnCodepoint>,
         data: BytesMut,
         buf: &mut Vec<u8>,
@@ -181,11 +180,11 @@ impl Endpoint {
                     buf.write(version);
                 }
                 return Some(DatagramEvent::Response(Transmit {
-                    destination: remote,
+                    destination: addresses.remote,
                     ecn: None,
                     size: buf.len(),
                     segment_size: None,
-                    src_ip: local_ip,
+                    src_ip: addresses.local_ip,
                 }));
             }
             Err(e) => {
@@ -198,7 +197,6 @@ impl Endpoint {
         // Handle packet on existing connection, if any
         //
 
-        let addresses = FourTuple { remote, local_ip };
         if let Some(route_to) = self.index.get(&addresses, &first_decode) {
             let event = DatagramConnectionEvent {
                 now,
@@ -423,10 +421,7 @@ impl Endpoint {
             remote_id,
             loc_cid,
             remote_id,
-            FourTuple {
-                remote,
-                local_ip: None,
-            },
+            remote.into(),
             now,
             tls,
             config.transport,
@@ -1331,8 +1326,21 @@ impl ResetTokenTable {
 /// Including the local ensures good behavior when the host has multiple IP addresses on the same
 /// subnet and zero-length connection IDs are in use.
 #[derive(Hash, Eq, PartialEq, Debug, Copy, Clone)]
-struct FourTuple {
+pub struct FourTuple {
     remote: SocketAddr,
     // A single socket can only listen on a single port, so no need to store it explicitly
     local_ip: Option<IpAddr>,
+}
+
+impl FourTuple {
+    /// Construct with the given remote and local addresses
+    pub fn new(remote: SocketAddr, local_ip: Option<IpAddr>) -> Self {
+        FourTuple { remote, local_ip }
+    }
+}
+
+impl From<SocketAddr> for FourTuple {
+    fn from(remote: SocketAddr) -> Self {
+        Self::new(remote, None)
+    }
 }

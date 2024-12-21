@@ -23,7 +23,7 @@ use bytes::{Bytes, BytesMut};
 use pin_project_lite::pin_project;
 use proto::{
     self as proto, ClientConfig, ConnectError, ConnectionError, ConnectionHandle, DatagramEvent,
-    EndpointEvent, ServerConfig,
+    EndpointEvent, FourTuple, ServerConfig,
 };
 use rustc_hash::FxHashMap;
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
@@ -792,8 +792,7 @@ impl RecvState {
                             let mut response_buffer = Vec::new();
                             match endpoint.handle(
                                 now,
-                                meta.addr,
-                                meta.dst_ip,
+                                FourTuple::new(meta.addr, meta.dst_ip),
                                 meta.ecn.map(proto_ecn),
                                 buf,
                                 &mut response_buffer,

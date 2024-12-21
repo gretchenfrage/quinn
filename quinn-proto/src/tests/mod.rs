@@ -46,7 +46,7 @@ use wasm_bindgen_test::wasm_bindgen_test as test;
 #[test]
 fn version_negotiate_server() {
     let _guard = subscribe();
-    let client_addr = "[::2]:7890".parse().unwrap();
+    let client_addr: SocketAddr = "[::2]:7890".parse().unwrap();
     let mut server = Endpoint::new(
         Default::default(),
         Some(Arc::new(server_config())),
@@ -57,8 +57,7 @@ fn version_negotiate_server() {
     let mut buf = Vec::with_capacity(server.config().get_max_udp_payload_size() as usize);
     let event = server.handle(
         now,
-        client_addr,
-        None,
+        client_addr.into(),
         None,
         // Long-header packet with reserved version number
         hex!("80 0a1a2a3a 04 00000000 04 00000000 00")[..].into(),
@@ -99,8 +98,7 @@ fn version_negotiate_client() {
     let mut buf = Vec::with_capacity(client.config().get_max_udp_payload_size() as usize);
     let opt_event = client.handle(
         now,
-        server_addr,
-        None,
+        server_addr.into(),
         None,
         // Version negotiation packet for reserved version, with empty DCID
         hex!(
@@ -279,14 +277,13 @@ fn stateless_reset_limit() {
     );
     let time = Instant::now();
     let mut buf = Vec::new();
-    let event = endpoint.handle(time, remote, None, None, [0u8; 1024][..].into(), &mut buf);
+    let event = endpoint.handle(time, remote.into(), None, [0u8; 1024][..].into(), &mut buf);
     assert!(matches!(event, Some(DatagramEvent::Response(_))));
-    let event = endpoint.handle(time, remote, None, None, [0u8; 1024][..].into(), &mut buf);
+    let event = endpoint.handle(time, remote.into(), None, [0u8; 1024][..].into(), &mut buf);
     assert!(event.is_none());
     let event = endpoint.handle(
         time + endpoint_config.min_reset_interval - Duration::from_nanos(1),
-        remote,
-        None,
+        remote.into(),
         None,
         [0u8; 1024][..].into(),
         &mut buf,
@@ -294,8 +291,7 @@ fn stateless_reset_limit() {
     assert!(event.is_none());
     let event = endpoint.handle(
         time + endpoint_config.min_reset_interval,
-        remote,
-        None,
+        remote.into(),
         None,
         [0u8; 1024][..].into(),
         &mut buf,
@@ -2151,7 +2147,7 @@ fn big_cert_and_key() -> (CertificateDer<'static>, PrivateKeyDer<'static>) {
 #[test]
 fn malformed_token_len() {
     let _guard = subscribe();
-    let client_addr = "[::2]:7890".parse().unwrap();
+    let client_addr: SocketAddr = "[::2]:7890".parse().unwrap();
     let mut server = Endpoint::new(
         Default::default(),
         Some(Arc::new(server_config())),
@@ -2161,8 +2157,7 @@ fn malformed_token_len() {
     let mut buf = Vec::with_capacity(server.config().get_max_udp_payload_size() as usize);
     server.handle(
         Instant::now(),
-        client_addr,
-        None,
+        client_addr.into(),
         None,
         hex!("8900 0000 0101 0000 1b1b 841b 0000 0000 3f00")[..].into(),
         &mut buf,
@@ -3188,7 +3183,7 @@ fn voluntary_ack_with_large_datagrams() {
 #[test]
 fn reject_short_idcid() {
     let _guard = subscribe();
-    let client_addr = "[::2]:7890".parse().unwrap();
+    let client_addr: SocketAddr = "[::2]:7890".parse().unwrap();
     let mut server = Endpoint::new(
         Default::default(),
         Some(Arc::new(server_config())),
@@ -3200,7 +3195,7 @@ fn reject_short_idcid() {
     // Initial header that has an empty DCID but is otherwise well-formed
     let mut initial = BytesMut::from(hex!("c4 00000001 00 00 00 3f").as_ref());
     initial.resize(MIN_INITIAL_SIZE.into(), 0);
-    let event = server.handle(now, client_addr, None, None, initial, &mut buf);
+    let event = server.handle(now, client_addr.into(), None, initial, &mut buf);
     let Some(DatagramEvent::Response(Transmit { .. })) = event else {
         panic!("expected an initial close");
     };
