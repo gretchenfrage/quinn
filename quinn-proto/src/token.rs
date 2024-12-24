@@ -52,21 +52,26 @@ impl IncomingToken {
             return Ok(unvalidated);
         };
 
-        // Validate token
-        if retry.payload.address != remote_address {
-            return Err(InvalidRetryTokenError);
-        }
-        if retry.payload.issued + server_config.retry_token_lifetime
-            < server_config.time_source.now()
-        {
-            return Err(InvalidRetryTokenError);
-        }
+        // Validate token, then convert into Self
+        match retry.payload {
+            TokenPayload::Retry {
+                address,
+                orig_dst_cid,
+                issued,
+            } => {
+                if address != remote_address {
+                    return Err(InvalidRetryTokenError);
+                }
+                if issued + server_config.retry_token_lifetime < server_config.time_source.now() {
+                    return Err(InvalidRetryTokenError);
+                }
 
-        // Convert token into Self
-        Ok(Self {
-            retry_src_cid: Some(header.dst_cid),
-            orig_dst_cid: retry.payload.orig_dst_cid,
-        })
+                Ok(Self {
+                    retry_src_cid: Some(header.dst_cid),
+                    orig_dst_cid,
+                })
+            }
+        }
     }
 }
 
@@ -97,9 +102,18 @@ impl Token {
         let mut buf = Vec::new();
 
         // Encode payload
-        encode_addr(&mut buf, self.payload.address);
-        self.payload.orig_dst_cid.encode_long(&mut buf);
-        encode_unix_secs(&mut buf, self.payload.issued);
+        match self.payload {
+            TokenPayload::Retry {
+                address,
+                orig_dst_cid,
+                issued,
+            } => {
+                buf.put_u8(0);
+                encode_addr(&mut buf, address);
+                orig_dst_cid.encode_long(&mut buf);
+                encode_unix_secs(&mut buf, issued);
+            }
+        }
 
         // Encrypt
         let aead_key = key.aead_from_hkdf(&self.rand.to_le_bytes());
@@ -124,34 +138,35 @@ impl Token {
 
         // Decode payload
         let mut reader = &data[..];
-        let address = decode_addr(&mut reader)?;
-        let orig_dst_cid = ConnectionId::decode_long(&mut reader)?;
-        let issued = decode_unix_secs(&mut reader)?;
+        let payload = match (&mut reader).get::<u8>().ok()? {
+            0 => TokenPayload::Retry {
+                address: decode_addr(&mut reader)?,
+                orig_dst_cid: ConnectionId::decode_long(&mut reader)?,
+                issued: decode_unix_secs(&mut reader)?,
+            },
+            _ => return None,
+        };
 
         if !reader.is_empty() {
             // Consider extra bytes a decoding error (it may be from an incompatible endpoint)
             return None;
         }
 
-        Some(Self {
-            rand,
-            payload: TokenPayload {
-                address,
-                orig_dst_cid,
-                issued,
-            },
-        })
+        Some(Self { rand, payload })
     }
 }
 
 /// Content of a [`Token`] that is encrypted from the client
-pub(crate) struct TokenPayload {
-    /// The client's address
-    pub(crate) address: SocketAddr,
-    /// The destination connection ID set in the very first packet from the client
-    pub(crate) orig_dst_cid: ConnectionId,
-    /// The time at which this token was issued
-    pub(crate) issued: SystemTime,
+pub(crate) enum TokenPayload {
+    /// Token originating from a Retry packet
+    Retry {
+        /// The client's address
+        address: SocketAddr,
+        /// The destination connection ID set in the very first packet from the client
+        orig_dst_cid: ConnectionId,
+        /// The time at which this token was issued
+        issued: SystemTime,
+    },
 }
 
 fn encode_addr(buf: &mut Vec<u8>, address: SocketAddr) {
@@ -263,28 +278,35 @@ mod test {
         use rand::RngCore;
         use std::net::Ipv6Addr;
 
-        let rng = &mut rand::thread_rng();
+        let mut rng = &mut rand::thread_rng();
 
         let mut master_key = [0; 64];
         rng.fill_bytes(&mut master_key);
 
         let prk = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
 
-        let address = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 4433);
-        let token = Token {
-            rand: rng.gen(),
-            payload: TokenPayload {
-                address,
-                orig_dst_cid: RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid(),
-                issued: UNIX_EPOCH + Duration::new(42, 0), // Fractional seconds would be lost
-            },
-        };
-        let encoded = token.encode(&prk);
+        let address_1 = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 4433);
+        let orig_dst_cid_1 = RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid();
+        let issued_1 = UNIX_EPOCH + Duration::new(42, 0); // Fractional seconds would be lost
 
-        let decoded = Token::decode(&prk, &encoded).expect("token didn't validate");
-        assert_eq!(token.payload.address, decoded.payload.address);
-        assert_eq!(token.payload.orig_dst_cid, decoded.payload.orig_dst_cid);
-        assert_eq!(token.payload.issued, decoded.payload.issued);
+        let payload_1 = TokenPayload::Retry {
+            address: address_1,
+            orig_dst_cid: orig_dst_cid_1,
+            issued: issued_1,
+        };
+        let token_1 = Token::new(payload_1, &mut rng);
+        let encoded = token_1.encode(&prk);
+        let token_2 = Token::decode(&prk, &encoded).expect("token didn't decode");
+        assert_eq!(token_1.rand, token_2.rand);
+        let TokenPayload::Retry {
+            address: address_2,
+            orig_dst_cid: orig_dst_cid_2,
+            issued: issued_2,
+        } = token_2.payload;
+
+        assert_eq!(address_1, address_2);
+        assert_eq!(orig_dst_cid_1, orig_dst_cid_2);
+        assert_eq!(issued_1, issued_2);
     }
 
     #[test]
