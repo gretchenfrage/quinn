@@ -11,6 +11,7 @@ use std::{
 };
 
 use bytes::{BufMut, Bytes, BytesMut};
+use crossbeam_queue::SegQueue;
 use rand::prelude::*;
 use rustc_hash::FxHashMap;
 use slab::Slab;
@@ -239,7 +240,7 @@ impl Endpoint {
     }
 
     fn route_datagram(
-        &mut self,
+        &self,
         datagram_len: usize,
         event: DatagramConnectionEvent,
         route_to: RouteDatagramTo,
@@ -255,7 +256,7 @@ impl Endpoint {
             }
         };
 
-        let incoming_buffer = &mut self.incoming_buffers[incoming_idx];
+        let incoming_buffer = &self.incoming_buffers[incoming_idx];
         let config = &self.server_config.as_ref().unwrap();
 
         // Optimistically claim buffer capacity in a lock-free way
@@ -1014,7 +1015,7 @@ impl fmt::Debug for Endpoint {
 /// Buffered Initial and 0-RTT messages for a pending incoming connection
 #[derive(Default)]
 struct IncomingBuffer {
-    datagrams: Vec<DatagramConnectionEvent>,
+    datagrams: SegQueue<DatagramConnectionEvent>,
     total_bytes: AtomicU64,
 }
 
