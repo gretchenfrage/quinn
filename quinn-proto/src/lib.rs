@@ -48,10 +48,12 @@ pub use crate::connection::{
 #[cfg(feature = "rustls")]
 pub use rustls;
 
+pub use rand;
+
 mod config;
 pub use config::{
     AckFrequencyConfig, ClientConfig, ConfigError, EndpointConfig, IdleTimeout, MtuDiscoveryConfig,
-    ServerConfig, StdSystemTime, TimeSource, TransportConfig,
+    RngSeeder, ServerConfig, StdSystemTime, ThreadRngSeeder, TimeSource, TransportConfig,
 };
 
 pub mod crypto;

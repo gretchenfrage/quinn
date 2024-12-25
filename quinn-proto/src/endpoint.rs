@@ -8,7 +8,7 @@ use std::{
 };
 
 use bytes::{BufMut, Bytes, BytesMut};
-use rand::{rngs::StdRng, Rng, RngCore, SeedableRng};
+use rand::prelude::*;
 use rustc_hash::FxHashMap;
 use slab::Slab;
 use thiserror::Error;
@@ -40,7 +40,6 @@ use crate::{
 /// This object performs no I/O whatsoever. Instead, it consumes incoming packets and
 /// connection-generated events via `handle` and `handle_event`.
 pub struct Endpoint {
-    rng: StdRng,
     index: ConnectionIndex,
     connections: Slab<ConnectionMeta>,
     local_cid_generator: Box<dyn ConnectionIdGenerator>,
@@ -70,11 +69,8 @@ impl Endpoint {
         config: Arc<EndpointConfig>,
         server_config: Option<Arc<ServerConfig>>,
         allow_mtud: bool,
-        rng_seed: Option<[u8; 32]>,
     ) -> Self {
-        let rng_seed = rng_seed.or(config.rng_seed);
         Self {
-            rng: rng_seed.map_or(StdRng::from_entropy(), StdRng::from_seed),
             index: ConnectionIndex::default(),
             connections: Slab::new(),
             local_cid_generator: (config.connection_id_generator_factory.as_ref())(),
@@ -147,7 +143,10 @@ impl Endpoint {
         buf: &mut Vec<u8>,
     ) -> Option<DatagramEvent> {
         // Partially decode packet or short-circuit if unable
+
         let datagram_len = data.len();
+        let mut rng = StdRng::from_seed(self.config.rng_seeder.seed());
+
         let event = match PartialDecode::new(
             data,
             &FixedLengthConnectionIdParser::new(self.local_cid_generator.cid_len()),
@@ -173,7 +172,7 @@ impl Endpoint {
                 trace!("sending version negotiation");
                 // Negotiate versions
                 Header::VersionNegotiate {
-                    random: self.rng.gen::<u8>() | 0x40,
+                    random: rng.gen::<u8>() | 0x40,
                     src_cid: dst_cid,
                     dst_cid: src_cid,
                 }
@@ -209,7 +208,7 @@ impl Endpoint {
         } else if event.first_decode.initial_header().is_some() {
             // Potentially create a new connection
 
-            self.handle_first_packet(datagram_len, event, addresses, buf)
+            self.handle_first_packet(datagram_len, event, addresses, buf, &mut rng)
         } else if event.first_decode.has_long_header() {
             debug!(
                 "ignoring non-initial packet for unknown connection {}",
@@ -228,7 +227,7 @@ impl Endpoint {
             trace!("dropping unrecognized short packet without ID");
             None
         } else {
-            self.stateless_reset(now, datagram_len, addresses, *dst_cid, buf)
+            self.stateless_reset(now, datagram_len, addresses, *dst_cid, buf, &mut rng)
                 .map(DatagramEvent::Response)
         }
     }
@@ -277,6 +276,7 @@ impl Endpoint {
         addresses: FourTuple,
         dst_cid: ConnectionId,
         buf: &mut Vec<u8>,
+        rng: &mut impl RngCore,
     ) -> Option<Transmit> {
         if self
             .last_stateless_reset
@@ -309,11 +309,11 @@ impl Endpoint {
         let padding_len = if max_padding_len <= IDEAL_MIN_PADDING_LEN {
             max_padding_len
         } else {
-            self.rng.gen_range(IDEAL_MIN_PADDING_LEN..max_padding_len)
+            rng.gen_range(IDEAL_MIN_PADDING_LEN..max_padding_len)
         };
         buf.reserve(padding_len + RESET_TOKEN_SIZE);
         buf.resize(padding_len, 0);
-        self.rng.fill_bytes(&mut buf[0..padding_len]);
+        rng.fill_bytes(&mut buf[0..padding_len]);
         buf[0] = 0b0100_0000 | buf[0] >> 2;
         buf.extend_from_slice(&ResetToken::new(&*self.config.reset_key, dst_cid));
 
@@ -336,6 +336,8 @@ impl Endpoint {
         remote: SocketAddr,
         server_name: &str,
     ) -> Result<(ConnectionHandle, Connection), ConnectError> {
+        let mut rng = StdRng::from_seed(self.config.rng_seeder.seed());
+
         if self.cids_exhausted() {
             return Err(ConnectError::CidsExhausted);
         }
@@ -357,7 +359,7 @@ impl Endpoint {
             self.local_cid_generator.as_ref(),
             loc_cid,
             None,
-            &mut self.rng,
+            &mut rng,
         );
         let tls = config
             .crypto
@@ -425,6 +427,7 @@ impl Endpoint {
         event: DatagramConnectionEvent,
         addresses: FourTuple,
         buf: &mut Vec<u8>,
+        rng: &mut impl RngCore,
     ) -> Option<DatagramEvent> {
         let dst_cid = event.first_decode.dst_cid();
         let header = event.first_decode.initial_header().unwrap();
@@ -432,7 +435,7 @@ impl Endpoint {
         let Some(server_config) = &self.server_config else {
             debug!("packet for unrecognized connection {}", dst_cid);
             return self
-                .stateless_reset(event.now, datagram_len, addresses, *dst_cid, buf)
+                .stateless_reset(event.now, datagram_len, addresses, *dst_cid, buf, rng)
                 .map(DatagramEvent::Response);
         };
 
@@ -595,13 +598,14 @@ impl Endpoint {
 
         let ch = ConnectionHandle(self.connections.vacant_key());
         let loc_cid = self.new_cid(ch);
+        let mut rng = StdRng::from_seed(self.config.rng_seeder.seed());
         let mut params = TransportParameters::new(
             &server_config.transport,
             &self.config,
             self.local_cid_generator.as_ref(),
             loc_cid,
             Some(&server_config),
-            &mut self.rng,
+            &mut rng,
         );
         params.stateless_reset_token = Some(ResetToken::new(&*self.config.reset_key, loc_cid));
         params.original_dst_cid = Some(incoming.token.orig_dst_cid);
@@ -802,8 +806,7 @@ impl Endpoint {
         transport_config: Arc<TransportConfig>,
         side_args: SideArgs,
     ) -> Connection {
-        let mut rng_seed = [0; 32];
-        self.rng.fill_bytes(&mut rng_seed);
+        let rng_seed = self.config.rng_seeder.seed();
         let side = side_args.side();
         let pref_addr_cid = side_args.pref_addr_cid();
         let conn = Connection::new(
@@ -936,7 +939,6 @@ impl Endpoint {
 impl fmt::Debug for Endpoint {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("Endpoint")
-            .field("rng", &self.rng)
             .field("index", &self.index)
             .field("connections", &self.connections)
             .field("config", &self.config)

@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use rand::prelude::*;
 #[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
 use rustls::client::WebPkiServerVerifier;
 #[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
@@ -40,8 +41,8 @@ pub struct EndpointConfig {
     pub(crate) grease_quic_bit: bool,
     /// Minimum interval between outgoing stateless reset packets
     pub(crate) min_reset_interval: Duration,
-    /// Optional seed to be used internally for random number generation
-    pub(crate) rng_seed: Option<[u8; 32]>,
+    /// Object to get a [`StdRng`](rand::StdRng)
+    pub(crate) rng_seeder: Arc<dyn RngSeeder>,
 }
 
 impl EndpointConfig {
@@ -56,7 +57,7 @@ impl EndpointConfig {
             supported_versions: DEFAULT_SUPPORTED_VERSIONS.to_vec(),
             grease_quic_bit: true,
             min_reset_interval: Duration::from_millis(20),
-            rng_seed: None,
+            rng_seeder: Arc::new(ThreadRngSeeder),
         }
     }
 
@@ -143,14 +144,12 @@ impl EndpointConfig {
         self
     }
 
-    /// Optional seed to be used internally for random number generation
+    /// Object to get random seeds for constructing new random number generators
     ///
-    /// By default, quinn will initialize an endpoint's rng using a platform entropy source.
-    /// However, you can seed the rng yourself through this method (e.g. if you need to run quinn
-    /// deterministically or if you are using quinn in an environment that doesn't have a source of
-    /// entropy available).
-    pub fn rng_seed(&mut self, seed: Option<[u8; 32]>) -> &mut Self {
-        self.rng_seed = seed;
+    /// Defaults to [`ThreadRngSeeder`], which uses a thread-local random number generator to
+    /// generate new seeds.
+    pub fn rng_seeder(&mut self, rng_seeder: Arc<dyn RngSeeder>) -> &mut Self {
+        self.rng_seeder = rng_seeder;
         self
     }
 }
@@ -163,7 +162,7 @@ impl fmt::Debug for EndpointConfig {
             // cid_generator_factory not debug
             .field("supported_versions", &self.supported_versions)
             .field("grease_quic_bit", &self.grease_quic_bit)
-            .field("rng_seed", &self.rng_seed)
+            // rng_seeder not debug
             .finish_non_exhaustive()
     }
 }
@@ -534,5 +533,27 @@ pub struct StdSystemTime;
 impl TimeSource for StdSystemTime {
     fn now(&self) -> SystemTime {
         SystemTime::now()
+    }
+}
+
+/// Object to get random seeds for constructing new random number generators
+pub trait RngSeeder: Send + Sync {
+    /// Randomly generate a new seed
+    ///
+    /// If this returned the same value twice, it would cause severe security vulnerabilities.
+    fn seed(&self) -> [u8; 32];
+}
+
+/// Default implementation of [`RngSource`]
+///
+/// Implements `seed` by getting a thread-local generator with [`rand::thread_rng`] and using it to
+/// generate a seed
+pub struct ThreadRngSeeder;
+
+impl RngSeeder for ThreadRngSeeder {
+    fn seed(&self) -> [u8; 32] {
+        let mut seed = [0; 32];
+        thread_rng().fill(&mut seed[..]);
+        seed
     }
 }
