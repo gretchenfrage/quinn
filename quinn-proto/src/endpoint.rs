@@ -4,7 +4,10 @@ use std::{
     fmt, mem,
     net::{IpAddr, SocketAddr},
     ops::{Index, IndexMut},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering::Relaxed},
+        Arc,
+    },
 };
 
 use bytes::{BufMut, Bytes, BytesMut};
@@ -51,7 +54,7 @@ pub struct Endpoint {
     last_stateless_reset: Option<Instant>,
     /// Buffered Initial and 0-RTT messages for pending incoming connections
     incoming_buffers: Slab<IncomingBuffer>,
-    all_incoming_buffers_total_bytes: u64,
+    all_incoming_buffers_total_bytes: AtomicU64,
 }
 
 impl Endpoint {
@@ -79,7 +82,7 @@ impl Endpoint {
             allow_mtud,
             last_stateless_reset: None,
             incoming_buffers: Slab::new(),
-            all_incoming_buffers_total_bytes: 0,
+            all_incoming_buffers_total_bytes: 0.into(),
         }
     }
 
@@ -207,7 +210,6 @@ impl Endpoint {
             return self.route_datagram(datagram_len, event, route_to);
         } else if event.first_decode.initial_header().is_some() {
             // Potentially create a new connection
-
             self.handle_first_packet(datagram_len, event, addresses, buf, &mut rng)
         } else if event.first_decode.has_long_header() {
             debug!(
@@ -252,18 +254,32 @@ impl Endpoint {
         let incoming_buffer = &mut self.incoming_buffers[incoming_idx];
         let config = &self.server_config.as_ref().unwrap();
 
-        if incoming_buffer
+        // Optimistically claim buffer capacity in a lock-free way
+
+        // Overflow safety: even if the RAM cost of a datagram event averages one
+        // thousandth the size of its packet, it would require 18.45 TB of RAM to
+        // overflow this.
+        let new_buffer_size = incoming_buffer
             .total_bytes
+            .fetch_add(datagram_len as u64, Relaxed)
             .checked_add(datagram_len as u64)
-            .is_some_and(|n| n <= config.incoming_buffer_size)
-            && self
-                .all_incoming_buffers_total_bytes
-                .checked_add(datagram_len as u64)
-                .is_some_and(|n| n <= config.incoming_buffer_size_total)
+            .expect("total_bytes overflowed");
+        let new_buffer_size_total = self
+            .all_incoming_buffers_total_bytes
+            .fetch_add(datagram_len as u64, Relaxed)
+            .checked_add(datagram_len as u64)
+            .expect("total_bytes overflowed");
+        if new_buffer_size <= config.incoming_buffer_size
+            && new_buffer_size_total <= config.incoming_buffer_size_total
         {
             incoming_buffer.datagrams.push(event);
-            incoming_buffer.total_bytes += datagram_len as u64;
-            self.all_incoming_buffers_total_bytes += datagram_len as u64;
+        } else {
+            // If our claiming of buffer capacity was over-optimistic, un-claim it
+            incoming_buffer
+                .total_bytes
+                .fetch_sub(datagram_len as u64, Relaxed);
+            self.all_incoming_buffers_total_bytes
+                .fetch_sub(datagram_len as u64, Relaxed);
         }
 
         None
@@ -534,7 +550,11 @@ impl Endpoint {
         let remote_address_validated = incoming.remote_address_validated();
         incoming.improper_drop_warner.dismiss();
         let incoming_buffer = self.incoming_buffers.remove(incoming.incoming_idx);
-        self.all_incoming_buffers_total_bytes -= incoming_buffer.total_bytes;
+        let incoming_bytes = incoming_buffer.total_bytes.into_inner();
+        let old_total_bytes = self
+            .all_incoming_buffers_total_bytes
+            .fetch_sub(incoming_bytes, Relaxed);
+        debug_assert!(old_total_bytes >= incoming_bytes, "unexpected underflow");
 
         let packet_number = incoming.packet.header.number.expand(0);
         let InitialHeader {
@@ -790,7 +810,11 @@ impl Endpoint {
     fn clean_up_incoming(&mut self, incoming: &Incoming) {
         self.index.remove_initial(incoming.packet.header.dst_cid);
         let incoming_buffer = self.incoming_buffers.remove(incoming.incoming_idx);
-        self.all_incoming_buffers_total_bytes -= incoming_buffer.total_bytes;
+        let incoming_bytes = incoming_buffer.total_bytes.into_inner();
+        let old_total_bytes = self
+            .all_incoming_buffers_total_bytes
+            .fetch_sub(incoming_bytes, Relaxed);
+        debug_assert!(old_total_bytes >= incoming_bytes, "unexpected underflow");
     }
 
     fn add_connection(
@@ -903,7 +927,7 @@ impl Endpoint {
     /// Counter for the number of bytes currently used
     /// in the buffers for Initial and 0-RTT messages for pending incoming connections
     pub fn incoming_buffer_bytes(&self) -> u64 {
-        self.all_incoming_buffers_total_bytes
+        self.all_incoming_buffers_total_bytes.load(Relaxed)
     }
 
     #[cfg(test)]
@@ -957,7 +981,7 @@ impl fmt::Debug for Endpoint {
 #[derive(Default)]
 struct IncomingBuffer {
     datagrams: Vec<DatagramConnectionEvent>,
-    total_bytes: u64,
+    total_bytes: AtomicU64,
 }
 
 /// Part of protocol state incoming datagrams can be routed to
