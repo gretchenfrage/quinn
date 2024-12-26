@@ -56,8 +56,7 @@ pub struct Endpoint {
     /// Nanoseconds after `first_stateless_reset` the last stateless reset was sent, or 0 if a
     /// stateless reset has never been sent
     last_stateless_reset_nanos: AtomicU64,
-    /// Buffered Initial and 0-RTT messages for pending incoming connections
-    incoming_buffers: Slab<IncomingBuffer>,
+    num_incoming: AtomicU64,
     all_incoming_buffers_total_bytes: AtomicU64,
 }
 
@@ -86,7 +85,7 @@ impl Endpoint {
             allow_mtud,
             first_stateless_reset: OnceLock::new(),
             last_stateless_reset_nanos: 0.into(),
-            incoming_buffers: Slab::new(),
+            num_incoming: 0.into(),
             all_incoming_buffers_total_bytes: 0.into(),
         }
     }
@@ -100,7 +99,7 @@ impl Endpoint {
     ///
     /// In turn, processing this event may return a `ConnectionEvent` for the same `Connection`.
     pub fn handle_event(
-        &mut self,
+        &self,
         ch: ConnectionHandle,
         event: EndpointEvent,
     ) -> Option<ConnectionEvent> {
@@ -246,8 +245,8 @@ impl Endpoint {
         route_to: RouteDatagramTo,
     ) -> Option<DatagramEvent> {
         // Short-circuit in simple case of routing to connection
-        let incoming_idx = match route_to {
-            RouteDatagramTo::Incoming(incoming_idx) => incoming_idx,
+        let incoming_buffer = match route_to {
+            RouteDatagramTo::Incoming(incoming_buffer) => incoming_buffer,
             RouteDatagramTo::Connection(ch) => {
                 return Some(DatagramEvent::ConnectionEvent(
                     ch,
@@ -256,7 +255,6 @@ impl Endpoint {
             }
         };
 
-        let incoming_buffer = &self.incoming_buffers[incoming_idx];
         let config = &self.server_config.as_ref().unwrap();
 
         // Optimistically claim buffer capacity in a lock-free way
@@ -457,7 +455,7 @@ impl Endpoint {
     }
 
     /// Generate a connection ID for `ch`
-    fn new_cid(&mut self, ch: ConnectionHandle) -> ConnectionId {
+    fn new_cid(&self, ch: ConnectionHandle) -> ConnectionId {
         loop {
             let cid = self.local_cid_generator.generate_cid();
             if cid.len() == 0 {
@@ -473,7 +471,7 @@ impl Endpoint {
     }
 
     fn handle_first_packet(
-        &mut self,
+        &self,
         datagram_len: usize,
         event: DatagramConnectionEvent,
         addresses: FourTuple,
@@ -553,11 +551,11 @@ impl Endpoint {
             }
         };
 
-        let incoming_idx = self.incoming_buffers.insert(IncomingBuffer::default());
-        self.index
-            .insert_initial_incoming(header.dst_cid, incoming_idx);
+        let buffer = Arc::new(IncomingBuffer::default());
+        self.index.insert_initial_incoming(header.dst_cid, &buffer);
 
         Some(DatagramEvent::NewConnection(Incoming {
+            buffer, // TODO make this weak
             received_at: event.now,
             addresses,
             ecn: event.ecn,
@@ -569,7 +567,6 @@ impl Endpoint {
             rest: event.remaining,
             crypto,
             token,
-            incoming_idx,
             improper_drop_warner: IncomingImproperDropWarner,
         }))
     }
@@ -584,12 +581,13 @@ impl Endpoint {
     ) -> Result<(ConnectionHandle, Connection), AcceptError> {
         let remote_address_validated = incoming.remote_address_validated();
         incoming.improper_drop_warner.dismiss();
-        let incoming_buffer = self.incoming_buffers.remove(incoming.incoming_idx);
-        let incoming_bytes = incoming_buffer.total_bytes.into_inner();
+        let incoming_bytes = incoming.buffer.total_bytes.load(Relaxed);
         let old_total_bytes = self
             .all_incoming_buffers_total_bytes
             .fetch_sub(incoming_bytes, Relaxed);
-        debug_assert!(old_total_bytes >= incoming_bytes, "unexpected underflow");
+        debug_assert!(old_total_bytes >= incoming_bytes, "unexpected underflow"); // TODO nuh we need to do this @ da end. in case of race!
+
+        // TODO: note that this means handle may return a ConnectionId before does the thing that returns the thing that even creates it is done
 
         let packet_number = incoming.packet.header.number.expand(0);
         let InitialHeader {
@@ -699,6 +697,10 @@ impl Endpoint {
         );
         self.index.insert_initial(dst_cid, ch);
 
+        // Panic safety: the `insert_initial` call removed all other Arc references
+        let incoming_buffer =
+            Arc::try_unwrap(incoming.buffer).expect("try_unwrap incoming.buffer failure");
+
         match conn.handle_first_packet(
             incoming.received_at,
             incoming.addresses.remote,
@@ -737,11 +739,13 @@ impl Endpoint {
 
     /// Check if we should refuse a connection attempt regardless of the packet's contents
     fn early_validate_first_packet(
-        &mut self,
+        &self,
         header: &ProtectedInitialHeader,
     ) -> Result<(), TransportError> {
         let config = &self.server_config.as_ref().unwrap();
-        if self.cids_exhausted() || self.incoming_buffers.len() >= config.max_incoming {
+        if self.cids_exhausted()
+        /*|| self.incoming_buffers.len() >= config.max_incoming*/
+        {
             return Err(TransportError::CONNECTION_REFUSED(""));
         }
 
@@ -843,9 +847,9 @@ impl Endpoint {
 
     /// Clean up endpoint data structures associated with an `Incoming`.
     fn clean_up_incoming(&mut self, incoming: &Incoming) {
+        // TODO: don't buffer incoming if IDCID length 0 oir?
         self.index.remove_initial(incoming.packet.header.dst_cid);
-        let incoming_buffer = self.incoming_buffers.remove(incoming.incoming_idx);
-        let incoming_bytes = incoming_buffer.total_bytes.into_inner();
+        let incoming_bytes = incoming.buffer.total_bytes.load(Relaxed);
         let old_total_bytes = self
             .all_incoming_buffers_total_bytes
             .fetch_sub(incoming_bytes, Relaxed);
@@ -913,7 +917,7 @@ impl Endpoint {
     }
 
     fn initial_close(
-        &mut self,
+        &self,
         version: u32,
         addresses: FourTuple,
         crypto: &Keys,
@@ -1002,8 +1006,6 @@ impl fmt::Debug for Endpoint {
             .field("connections", &self.connections)
             .field("config", &self.config)
             .field("server_config", &self.server_config)
-            // incoming_buffers too large
-            .field("incoming_buffers.len", &self.incoming_buffers.len())
             .field(
                 "all_incoming_buffers_total_bytes",
                 &self.all_incoming_buffers_total_bytes,
@@ -1019,11 +1021,48 @@ struct IncomingBuffer {
     total_bytes: AtomicU64,
 }
 
-/// Part of protocol state incoming datagrams can be routed to
-#[derive(Copy, Clone, Debug)]
-enum RouteDatagramTo {
-    Incoming(usize),
+impl fmt::Debug for IncomingBuffer {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("IncomingBuffer")
+            // datagrams too large
+            .field("total_bytes", &self.total_bytes)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug)]
+enum InitialCidIndexEntry {
+    Incoming(Arc<IncomingBuffer>),
     Connection(ConnectionHandle),
+}
+
+/// Part of protocol state incoming datagrams can be routed to
+enum RouteDatagramTo<'a> {
+    Incoming(
+        dashmap::mapref::one::MappedRef<'a, ConnectionId, InitialCidIndexEntry, IncomingBuffer>,
+    ),
+    Connection(ConnectionHandle),
+}
+
+impl<'a> From<dashmap::mapref::one::Ref<'a, ConnectionId, InitialCidIndexEntry>>
+    for RouteDatagramTo<'a>
+{
+    fn from(r: dashmap::mapref::one::Ref<'a, ConnectionId, InitialCidIndexEntry>) -> Self {
+        if let InitialCidIndexEntry::Connection(ch) = *r.value() {
+            Self::Connection(ch)
+        } else {
+            Self::Incoming(r.map(|entry| match entry {
+                InitialCidIndexEntry::Incoming(incoming_buffer) => &**incoming_buffer,
+                _ => unreachable!(),
+            }))
+        }
+    }
+}
+
+impl<'a> From<ConnectionHandle> for RouteDatagramTo<'a> {
+    fn from(ch: ConnectionHandle) -> Self {
+        Self::Connection(ch)
+    }
 }
 
 /// Maps packets to existing connections
@@ -1034,7 +1073,7 @@ struct ConnectionIndex {
     /// Uses a standard hash function to protect against hash collision attacks.
     ///
     /// Used by the server, not the client.
-    connection_ids_initial: DashMap<ConnectionId, RouteDatagramTo>,
+    connection_ids_initial: DashMap<ConnectionId, InitialCidIndexEntry>,
     /// Identifies connections based on locally created CIDs
     ///
     /// Uses a cheaper hash function since keys are locally created
@@ -1061,16 +1100,18 @@ struct ConnectionIndex {
 
 impl ConnectionIndex {
     /// Associate an incoming connection with its initial destination CID
-    fn insert_initial_incoming(&mut self, dst_cid: ConnectionId, incoming_key: usize) {
+    fn insert_initial_incoming(&self, dst_cid: ConnectionId, incoming: &Arc<IncomingBuffer>) {
         if dst_cid.len() == 0 {
             return;
         }
-        self.connection_ids_initial
-            .insert(dst_cid, RouteDatagramTo::Incoming(incoming_key));
+        self.connection_ids_initial.insert(
+            dst_cid,
+            InitialCidIndexEntry::Incoming(Arc::clone(&incoming)),
+        );
     }
 
     /// Remove an association with an initial destination CID
-    fn remove_initial(&mut self, dst_cid: ConnectionId) {
+    fn remove_initial(&self, dst_cid: ConnectionId) {
         if dst_cid.len() == 0 {
             return;
         }
@@ -1079,18 +1120,18 @@ impl ConnectionIndex {
     }
 
     /// Associate a connection with its initial destination CID
-    fn insert_initial(&mut self, dst_cid: ConnectionId, connection: ConnectionHandle) {
+    fn insert_initial(&self, dst_cid: ConnectionId, connection: ConnectionHandle) {
         if dst_cid.len() == 0 {
             return;
         }
         self.connection_ids_initial
-            .insert(dst_cid, RouteDatagramTo::Connection(connection));
+            .insert(dst_cid, InitialCidIndexEntry::Connection(connection));
     }
 
     /// Associate a connection with its first locally-chosen destination CID if used, or otherwise
     /// its current 4-tuple
     fn insert_conn(
-        &mut self,
+        &self,
         addresses: FourTuple,
         dst_cid: ConnectionId,
         connection: ConnectionHandle,
@@ -1114,12 +1155,12 @@ impl ConnectionIndex {
     }
 
     /// Discard a connection ID
-    fn retire(&mut self, dst_cid: ConnectionId) {
+    fn retire(&self, dst_cid: ConnectionId) {
         self.connection_ids.remove(&dst_cid);
     }
 
     /// Remove all references to a connection
-    fn remove(&mut self, conn: &ConnectionMeta) {
+    fn remove(&self, conn: &ConnectionMeta) {
         if conn.side.is_server() {
             self.remove_initial(conn.init_cid);
         }
@@ -1143,7 +1184,7 @@ impl ConnectionIndex {
         }
         if datagram.is_initial() || datagram.is_0rtt() {
             if let Some(ch) = self.connection_ids_initial.get(datagram.dst_cid()) {
-                return Some(*ch);
+                return Some(ch.into());
             }
         }
         if datagram.dst_cid().len() == 0 {
@@ -1216,6 +1257,7 @@ pub enum DatagramEvent {
 
 /// An incoming connection for which the server has not yet begun its part of the handshake.
 pub struct Incoming {
+    buffer: Arc<IncomingBuffer>, // TODO have server drop these immediately
     received_at: Instant,
     addresses: FourTuple,
     ecn: Option<EcnCodepoint>,
@@ -1223,7 +1265,6 @@ pub struct Incoming {
     rest: Option<BytesMut>,
     crypto: Keys,
     token: IncomingToken,
-    incoming_idx: usize,
     improper_drop_warner: IncomingImproperDropWarner,
 }
 
@@ -1262,7 +1303,6 @@ impl fmt::Debug for Incoming {
             // packet doesn't implement debug
             // rest is too big and not meaningful enough
             .field("token", &self.token)
-            .field("incoming_idx", &self.incoming_idx)
             // improper drop warner contains no information
             .finish_non_exhaustive()
     }
@@ -1345,7 +1385,7 @@ impl RetryError {
 struct ResetTokenTable(DashMap<SocketAddr, DashMap<ResetToken, ConnectionHandle>>);
 
 impl ResetTokenTable {
-    fn insert(&mut self, remote: SocketAddr, token: ResetToken, ch: ConnectionHandle) -> bool {
+    fn insert(&self, remote: SocketAddr, token: ResetToken, ch: ConnectionHandle) -> bool {
         self.0
             .entry(remote)
             .or_default()
@@ -1353,7 +1393,7 @@ impl ResetTokenTable {
             .is_some()
     }
 
-    fn remove(&mut self, remote: SocketAddr, token: ResetToken) {
+    fn remove(&self, remote: SocketAddr, token: ResetToken) {
         match self.0.entry(remote) {
             dashmap::Entry::Vacant(_) => {}
             dashmap::Entry::Occupied(mut e) => {
