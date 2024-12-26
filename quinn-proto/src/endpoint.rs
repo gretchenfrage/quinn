@@ -205,32 +205,7 @@ impl Endpoint {
 
         if let Some(route_to) = self.index.get(&addresses, &event.first_decode) {
             // Handle packet on existing connection
-            match route_to {
-                RouteDatagramTo::Incoming(incoming_idx) => {
-                    let incoming_buffer = &mut self.incoming_buffers[incoming_idx];
-                    let config = &self.server_config.as_ref().unwrap();
-
-                    if incoming_buffer
-                        .total_bytes
-                        .checked_add(datagram_len as u64)
-                        .is_some_and(|n| n <= config.incoming_buffer_size)
-                        && self
-                            .all_incoming_buffers_total_bytes
-                            .checked_add(datagram_len as u64)
-                            .is_some_and(|n| n <= config.incoming_buffer_size_total)
-                    {
-                        incoming_buffer.datagrams.push(event);
-                        incoming_buffer.total_bytes += datagram_len as u64;
-                        self.all_incoming_buffers_total_bytes += datagram_len as u64;
-                    }
-
-                    None
-                }
-                RouteDatagramTo::Connection(ch) => Some(DatagramEvent::ConnectionEvent(
-                    ch,
-                    ConnectionEvent(ConnectionEventInner::Datagram(event)),
-                )),
-            }
+            return self.route_datagram(datagram_len, event, route_to);
         } else if event.first_decode.initial_header().is_some() {
             // Potentially create a new connection
 
@@ -255,6 +230,40 @@ impl Endpoint {
         } else {
             self.stateless_reset(now, datagram_len, addresses, *dst_cid, buf)
                 .map(DatagramEvent::Response)
+        }
+    }
+
+    fn route_datagram(
+        &mut self,
+        datagram_len: usize,
+        event: DatagramConnectionEvent,
+        route_to: RouteDatagramTo,
+    ) -> Option<DatagramEvent> {
+        match route_to {
+            RouteDatagramTo::Incoming(incoming_idx) => {
+                let incoming_buffer = &mut self.incoming_buffers[incoming_idx];
+                let config = &self.server_config.as_ref().unwrap();
+
+                if incoming_buffer
+                    .total_bytes
+                    .checked_add(datagram_len as u64)
+                    .is_some_and(|n| n <= config.incoming_buffer_size)
+                    && self
+                        .all_incoming_buffers_total_bytes
+                        .checked_add(datagram_len as u64)
+                        .is_some_and(|n| n <= config.incoming_buffer_size_total)
+                {
+                    incoming_buffer.datagrams.push(event);
+                    incoming_buffer.total_bytes += datagram_len as u64;
+                    self.all_incoming_buffers_total_bytes += datagram_len as u64;
+                }
+
+                None
+            }
+            RouteDatagramTo::Connection(ch) => Some(DatagramEvent::ConnectionEvent(
+                ch,
+                ConnectionEvent(ConnectionEventInner::Datagram(event)),
+            )),
         }
     }
 
