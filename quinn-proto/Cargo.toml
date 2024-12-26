@@ -35,6 +35,7 @@ arbitrary = { workspace = true, optional = true }
 aws-lc-rs = { workspace = true, optional = true }
 bytes = { workspace = true }
 crossbeam-queue = { workspace = true }
+dashmap = { workspace = true }
 rustc-hash = { workspace = true }
 rand = { workspace = true }
 ring = { workspace = true, optional = true }

@@ -1,5 +1,4 @@
 use std::{
-    collections::{hash_map, HashMap},
     convert::TryFrom,
     fmt, mem,
     net::{IpAddr, SocketAddr},
@@ -12,8 +11,9 @@ use std::{
 
 use bytes::{BufMut, Bytes, BytesMut};
 use crossbeam_queue::SegQueue;
+use dashmap::DashMap;
 use rand::prelude::*;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use slab::Slab;
 use thiserror::Error;
 use tracing::{debug, error, trace, warn};
@@ -465,7 +465,7 @@ impl Endpoint {
                 debug_assert_eq!(self.local_cid_generator.cid_len(), 0);
                 return cid;
             }
-            if let hash_map::Entry::Vacant(e) = self.index.connection_ids.entry(cid) {
+            if let dashmap::Entry::Vacant(e) = self.index.connection_ids.entry(cid) {
                 e.insert(ch);
                 break cid;
             }
@@ -1031,18 +1031,18 @@ enum RouteDatagramTo {
 struct ConnectionIndex {
     /// Identifies connections based on the initial DCID the peer utilized
     ///
-    /// Uses a standard `HashMap` to protect against hash collision attacks.
+    /// Uses a standard hash function to protect against hash collision attacks.
     ///
     /// Used by the server, not the client.
-    connection_ids_initial: HashMap<ConnectionId, RouteDatagramTo>,
+    connection_ids_initial: DashMap<ConnectionId, RouteDatagramTo>,
     /// Identifies connections based on locally created CIDs
     ///
     /// Uses a cheaper hash function since keys are locally created
-    connection_ids: FxHashMap<ConnectionId, ConnectionHandle>,
+    connection_ids: DashMap<ConnectionId, ConnectionHandle, FxBuildHasher>,
     /// Identifies incoming connections with zero-length CIDs
     ///
-    /// Uses a standard `HashMap` to protect against hash collision attacks.
-    incoming_connection_remotes: HashMap<FourTuple, ConnectionHandle>,
+    /// Uses a standard hash function to protect against hash collision attacks.
+    incoming_connection_remotes: DashMap<FourTuple, ConnectionHandle>,
     /// Identifies outgoing connections with zero-length CIDs
     ///
     /// We don't yet support explicit source addresses for client connections, and zero-length CIDs
@@ -1050,8 +1050,8 @@ struct ConnectionIndex {
     /// may be established per remote. We must omit the local address from the key because we don't
     /// necessarily know what address we're sending from, and hence receiving at.
     ///
-    /// Uses a standard `HashMap` to protect against hash collision attacks.
-    outgoing_connection_remotes: HashMap<SocketAddr, ConnectionHandle>,
+    /// Uses a standard hash function to protect against hash collision attacks.
+    outgoing_connection_remotes: DashMap<SocketAddr, ConnectionHandle>,
     /// Reset tokens provided by the peer for the CID each connection is currently sending to
     ///
     /// Incoming stateless resets do not have correct CIDs, so we need this to identify the correct
@@ -1137,21 +1137,21 @@ impl ConnectionIndex {
     /// Find the existing connection that `datagram` should be routed to, if any
     fn get(&self, addresses: &FourTuple, datagram: &PartialDecode) -> Option<RouteDatagramTo> {
         if datagram.dst_cid().len() != 0 {
-            if let Some(&ch) = self.connection_ids.get(datagram.dst_cid()) {
-                return Some(RouteDatagramTo::Connection(ch));
+            if let Some(ch) = self.connection_ids.get(datagram.dst_cid()) {
+                return Some(RouteDatagramTo::Connection(*ch));
             }
         }
         if datagram.is_initial() || datagram.is_0rtt() {
-            if let Some(&ch) = self.connection_ids_initial.get(datagram.dst_cid()) {
-                return Some(ch);
+            if let Some(ch) = self.connection_ids_initial.get(datagram.dst_cid()) {
+                return Some(*ch);
             }
         }
         if datagram.dst_cid().len() == 0 {
-            if let Some(&ch) = self.incoming_connection_remotes.get(addresses) {
-                return Some(RouteDatagramTo::Connection(ch));
+            if let Some(ch) = self.incoming_connection_remotes.get(addresses) {
+                return Some(RouteDatagramTo::Connection(*ch));
             }
-            if let Some(&ch) = self.outgoing_connection_remotes.get(&addresses.remote) {
-                return Some(RouteDatagramTo::Connection(ch));
+            if let Some(ch) = self.outgoing_connection_remotes.get(&addresses.remote) {
+                return Some(RouteDatagramTo::Connection(*ch));
             }
         }
         let data = datagram.data();
@@ -1160,7 +1160,6 @@ impl ConnectionIndex {
         }
         self.connection_reset_tokens
             .get(addresses.remote, &data[data.len() - RESET_TOKEN_SIZE..])
-            .cloned()
             .map(RouteDatagramTo::Connection)
     }
 }
@@ -1340,10 +1339,10 @@ impl RetryError {
 
 /// Reset Tokens which are associated with peer socket addresses
 ///
-/// The standard `HashMap` is used since both `SocketAddr` and `ResetToken` are
-/// peer generated and might be usable for hash collision attacks.
+/// The standard hash function is used since both `SocketAddr` and `ResetToken` are peer generated
+/// and might be usable for hash collision attacks.
 #[derive(Default, Debug)]
-struct ResetTokenTable(HashMap<SocketAddr, HashMap<ResetToken, ConnectionHandle>>);
+struct ResetTokenTable(DashMap<SocketAddr, DashMap<ResetToken, ConnectionHandle>>);
 
 impl ResetTokenTable {
     fn insert(&mut self, remote: SocketAddr, token: ResetToken, ch: ConnectionHandle) -> bool {
@@ -1355,10 +1354,9 @@ impl ResetTokenTable {
     }
 
     fn remove(&mut self, remote: SocketAddr, token: ResetToken) {
-        use std::collections::hash_map::Entry;
         match self.0.entry(remote) {
-            Entry::Vacant(_) => {}
-            Entry::Occupied(mut e) => {
+            dashmap::Entry::Vacant(_) => {}
+            dashmap::Entry::Occupied(mut e) => {
                 e.get_mut().remove(&token);
                 if e.get().is_empty() {
                     e.remove_entry();
@@ -1367,9 +1365,9 @@ impl ResetTokenTable {
         }
     }
 
-    fn get(&self, remote: SocketAddr, token: &[u8]) -> Option<&ConnectionHandle> {
+    fn get(&self, remote: SocketAddr, token: &[u8]) -> Option<ConnectionHandle> {
         let token = ResetToken::from(<[u8; RESET_TOKEN_SIZE]>::try_from(token).ok()?);
-        self.0.get(&remote)?.get(&token)
+        self.0.get(&remote)?.get(&token).map(|ch| *ch)
     }
 }
 
