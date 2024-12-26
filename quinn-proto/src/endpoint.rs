@@ -6,7 +6,7 @@ use std::{
     ops::{Index, IndexMut},
     sync::{
         atomic::{AtomicU64, Ordering::Relaxed},
-        Arc,
+        Arc, OnceLock,
     },
 };
 
@@ -50,8 +50,11 @@ pub struct Endpoint {
     server_config: Option<Arc<ServerConfig>>,
     /// Whether the underlying UDP socket promises not to fragment packets
     allow_mtud: bool,
-    /// Time at which a stateless reset was most recently sent
-    last_stateless_reset: Option<Instant>,
+    /// Instant the first ever stateless reset was sent
+    first_stateless_reset: OnceLock<Instant>,
+    /// Nanoseconds after `first_stateless_reset` the last stateless reset was sent, or 0 if a
+    /// stateless reset has never been sent
+    last_stateless_reset_nanos: AtomicU64,
     /// Buffered Initial and 0-RTT messages for pending incoming connections
     incoming_buffers: Slab<IncomingBuffer>,
     all_incoming_buffers_total_bytes: AtomicU64,
@@ -80,7 +83,8 @@ impl Endpoint {
             config,
             server_config,
             allow_mtud,
-            last_stateless_reset: None,
+            first_stateless_reset: OnceLock::new(),
+            last_stateless_reset_nanos: 0.into(),
             incoming_buffers: Slab::new(),
             all_incoming_buffers_total_bytes: 0.into(),
         }
@@ -286,7 +290,7 @@ impl Endpoint {
     }
 
     fn stateless_reset(
-        &mut self,
+        &self,
         now: Instant,
         inciting_dgram_len: usize,
         addresses: FourTuple,
@@ -294,14 +298,6 @@ impl Endpoint {
         buf: &mut Vec<u8>,
         rng: &mut impl RngCore,
     ) -> Option<Transmit> {
-        if self
-            .last_stateless_reset
-            .is_some_and(|last| last + self.config.min_reset_interval > now)
-        {
-            debug!("ignoring unexpected packet within minimum stateless reset interval");
-            return None;
-        }
-
         /// Minimum amount of padding for the stateless reset to look like a short-header packet
         const MIN_PADDING_LEN: usize = 5;
 
@@ -315,11 +311,49 @@ impl Endpoint {
             }
         };
 
+        // Attempt to claim the next stateless reset in a lock-free way
+
+        // 1. If we initialize first_stateless_reset, we successfully claim it
+        let claimed = self.first_stateless_reset.set(now).is_ok() || {
+            let first_reset = *self.first_stateless_reset.get().unwrap();
+            let last_reset_ns = self.last_stateless_reset_nanos.load(Relaxed);
+            let now_ns = now
+                .checked_duration_since(first_reset)
+                .ok_or_else(|| warn!("time ran backwards (now versus first reset)"))
+                .unwrap_or_default()
+                .as_nanos()
+                .try_into()
+                .map_err(|_| warn!("span between instants exceeded 584.9 years (u64::MAX nanos)"))
+                .unwrap_or(u64::MAX);
+            let ns_since_last_reset = now_ns
+                .checked_sub(last_reset_ns)
+                .ok_or_else(|| warn!("time ran backwards (now versus last reset)"))
+                .unwrap_or_default();
+            // 2. If the cooldown period has elapsed, we may attempt to claim it
+            ns_since_last_reset
+                >= self
+                    .config
+                    .min_reset_interval
+                    .as_nanos()
+                    .try_into()
+                    .unwrap_or(u64::MAX)
+                // 3. To succeed in claiming it, the CAS must succeed
+                && self
+                    .last_stateless_reset_nanos
+                    .compare_exchange(last_reset_ns, now_ns, Relaxed, Relaxed)
+                    .is_ok()
+        };
+        if !claimed {
+            debug!("ignoring unexpected packet within minimum stateless reset interval");
+            return None;
+        }
+
+        // If we reached this point, we will not short-circuit
+
         debug!(
             "sending stateless reset for {} to {}",
             dst_cid, addresses.remote
         );
-        self.last_stateless_reset = Some(now);
         // Resets with at least this much padding can't possibly be distinguished from real packets
         const IDEAL_MIN_PADDING_LEN: usize = MIN_PADDING_LEN + MAX_CID_SIZE;
         let padding_len = if max_padding_len <= IDEAL_MIN_PADDING_LEN {
