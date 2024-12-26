@@ -63,6 +63,15 @@ pub trait TokenLog: Send + Sync {
     ) -> Result<(), TokenReuseError>;
 }
 
+/// Null implementation of [`TokenLog`], which never accepts tokens
+pub struct NoneTokenLog;
+
+impl TokenLog for NoneTokenLog {
+    fn check_and_insert(&self, _: u128, _: SystemTime, _: Duration) -> Result<(), TokenReuseError> {
+        Err(TokenReuseError)
+    }
+}
+
 /// Error for when a validation token may have been reused
 pub struct TokenReuseError;
 
@@ -81,6 +90,17 @@ pub trait TokenStore: Send + Sync {
     ///
     /// Called when trying to connect to a server. It is always ok for this to return `None`.
     fn take(&self, server_name: &str) -> Option<Bytes>;
+}
+
+/// Null implementation of [`TokenStore`], which does not store any tokens
+pub struct NoneTokenStore;
+
+impl TokenStore for NoneTokenStore {
+    fn insert(&self, _: &str, _: Bytes) {}
+
+    fn take(&self, _: &str) -> Option<Bytes> {
+        None
+    }
 }
 
 /// State in an `Incoming` determined by a token or lack thereof
@@ -152,10 +172,8 @@ impl IncomingToken {
                 {
                     return Ok(unvalidated);
                 }
-                let Some(log) = &server_config.validation_token_log else {
-                    return Ok(unvalidated);
-                };
-                if log
+                if server_config
+                    .validation_token_log
                     .check_and_insert(retry.rand, issued, server_config.validation_token_lifetime)
                     .is_err()
                 {

@@ -17,6 +17,7 @@ use crate::{
     cid_generator::{ConnectionIdGenerator, HashedConnectionIdGenerator},
     crypto::{self, HandshakeTokenKey, HmacKey},
     shared::ConnectionId,
+    token::{NoneTokenLog, NoneTokenStore},
     Duration, RandomConnectionIdGenerator, SystemTime, TokenLog, TokenStore, VarInt,
     VarIntBoundsExceeded, DEFAULT_SUPPORTED_VERSIONS, MAX_CID_SIZE,
 };
@@ -210,7 +211,7 @@ pub struct ServerConfig {
     pub(crate) migration: bool,
 
     pub(crate) validation_token_lifetime: Duration,
-    pub(crate) validation_token_log: Option<Arc<dyn TokenLog>>,
+    pub(crate) validation_token_log: Arc<dyn TokenLog>,
     pub(crate) validation_tokens_sent: u32,
 
     pub(crate) preferred_address_v4: Option<SocketAddrV4>,
@@ -239,7 +240,7 @@ impl ServerConfig {
             migration: true,
 
             validation_token_lifetime: Duration::from_secs(2 * 7 * 24 * 60 * 60),
-            validation_token_log: None,
+            validation_token_log: Arc::new(NoneTokenLog),
             validation_tokens_sent: 0,
 
             preferred_address_v4: None,
@@ -294,11 +295,9 @@ impl ServerConfig {
 
     /// Set a custom [`TokenLog`]
     ///
-    /// Setting this to `None` makes the server ignore all address validation tokens (that is,
-    /// tokens originating from NEW_TOKEN frames--retry tokens may still be accepted).
-    ///
-    /// Defaults to `None`.
-    pub fn validation_token_log(&mut self, log: Option<Arc<dyn TokenLog>>) -> &mut Self {
+    /// Defaults to [`NoneTokenLog`], which makes the server ignore all address validation tokens
+    /// (that is, tokens originating from NEW_TOKEN frames--retry tokens may still be accepted).
+    pub fn validation_token_log(&mut self, log: Arc<dyn TokenLog>) -> &mut Self {
         self.validation_token_log = log;
         self
     }
@@ -461,7 +460,7 @@ pub struct ClientConfig {
     pub(crate) crypto: Arc<dyn crypto::ClientConfig>,
 
     /// Validation token store to use
-    pub(crate) token_store: Option<Arc<dyn TokenStore>>,
+    pub(crate) token_store: Arc<dyn TokenStore>,
 
     /// Provider that populates the destination connection ID of Initial Packets
     pub(crate) initial_dst_cid_provider: Arc<dyn Fn() -> ConnectionId + Send + Sync>,
@@ -476,7 +475,7 @@ impl ClientConfig {
         Self {
             transport: Default::default(),
             crypto,
-            token_store: None,
+            token_store: Arc::new(NoneTokenStore),
             initial_dst_cid_provider: Arc::new(|| {
                 RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid()
             }),
@@ -508,10 +507,9 @@ impl ClientConfig {
 
     /// Set a custom [`TokenStore`]
     ///
-    /// Defaults to `None`.
-    ///
-    /// Setting to `None` disables the use of tokens from NEW_TOKEN frames as a client.
-    pub fn token_store(&mut self, store: Option<Arc<dyn TokenStore>>) -> &mut Self {
+    /// Defaults to [`NoneTokenStore`], which disables the use of tokens from NEW_TOKEN frames as a
+    /// client.
+    pub fn token_store(&mut self, store: Arc<dyn TokenStore>) -> &mut Self {
         self.token_store = store;
         self
     }

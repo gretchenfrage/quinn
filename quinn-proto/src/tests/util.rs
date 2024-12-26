@@ -563,7 +563,7 @@ pub(super) fn server_config() -> ServerConfig {
     let mut config = ServerConfig::with_crypto(Arc::new(server_crypto()));
     config
         .validation_tokens_sent(2)
-        .validation_token_log(Some(Arc::new(SimpleTokenLog::default())));
+        .validation_token_log(Arc::new(SimpleTokenLog::default()));
     config
 }
 
@@ -574,7 +574,7 @@ pub(super) fn server_config_with_cert(
     let mut config = ServerConfig::with_crypto(Arc::new(server_crypto_with_cert(cert, key)));
     config
         .validation_tokens_sent(2)
-        .validation_token_log(Some(Arc::new(SimpleTokenLog::default())));
+        .validation_token_log(Arc::new(SimpleTokenLog::default()));
     config
 }
 
@@ -614,7 +614,7 @@ fn server_crypto_inner(
 
 pub(super) fn client_config() -> ClientConfig {
     let mut config = ClientConfig::new(Arc::new(client_crypto()));
-    config.token_store(Some(Arc::new(SimpleTokenStore::default())));
+    config.token_store(Arc::new(SimpleTokenStore::default()));
     config
 }
 

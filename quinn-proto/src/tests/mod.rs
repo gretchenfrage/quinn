@@ -345,7 +345,7 @@ fn use_same_token_twice() {
     let _guard = subscribe();
     let mut pair = Pair::default();
     let mut client_config = client_config();
-    client_config.token_store(Some(Arc::new(EvilTokenStore::default())));
+    client_config.token_store(Arc::new(EvilTokenStore::default()));
     let (client_ch, _server_ch) = pair.connect_with(client_config.clone());
     pair.client
         .connections
