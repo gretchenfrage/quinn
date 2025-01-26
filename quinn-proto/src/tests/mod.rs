@@ -1293,13 +1293,10 @@ fn migration() {
 
 fn test_flow_control(config: TransportConfig, window_size: usize) {
     let _guard = subscribe();
-    let mut pair = Pair::new(
-        Default::default(),
-        ServerConfig {
-            transport: Arc::new(config),
-            ..server_config()
-        },
-    );
+    let mut pair = Pair::new(Default::default(), ServerConfig {
+        transport: Arc::new(config),
+        ..server_config()
+    });
     let (client_ch, server_ch) = pair.connect();
     let msg = vec![0xAB; window_size + 10];
 

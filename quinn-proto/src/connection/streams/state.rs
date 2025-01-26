@@ -1522,17 +1522,15 @@ mod tests {
             if fair {
                 // When fairness is enabled, if we run out of buffer space to write out a stream,
                 // the stream is re-queued after all the streams with the same priority.
-                assert_eq!(
-                    stream_ids,
-                    vec![id_a, id_b, id_c, id_a, id_b, id_c, id_a, id_b, id_c]
-                );
+                assert_eq!(stream_ids, vec![
+                    id_a, id_b, id_c, id_a, id_b, id_c, id_a, id_b, id_c
+                ]);
             } else {
                 // When fairness is disabled the stream is re-queued before all the other streams
                 // with the same priority.
-                assert_eq!(
-                    stream_ids,
-                    vec![id_a, id_a, id_a, id_b, id_b, id_b, id_c, id_c, id_c]
-                );
+                assert_eq!(stream_ids, vec![
+                    id_a, id_a, id_a, id_b, id_b, id_b, id_c, id_c, id_c
+                ]);
             }
         }
     }

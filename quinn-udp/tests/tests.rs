@@ -18,17 +18,13 @@ fn basic() {
         .or_else(|_| UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)))
         .unwrap();
     let dst_addr = recv.local_addr().unwrap();
-    test_send_recv(
-        &send.into(),
-        &recv.into(),
-        Transmit {
-            destination: dst_addr,
-            ecn: None,
-            contents: b"hello",
-            segment_size: None,
-            src_ip: None,
-        },
-    );
+    test_send_recv(&send.into(), &recv.into(), Transmit {
+        destination: dst_addr,
+        ecn: None,
+        contents: b"hello",
+        segment_size: None,
+        src_ip: None,
+    });
 }
 
 #[test]
@@ -36,17 +32,13 @@ fn ecn_v6() {
     let send = Socket::from(UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).unwrap());
     let recv = Socket::from(UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).unwrap());
     for codepoint in [EcnCodepoint::Ect0, EcnCodepoint::Ect1] {
-        test_send_recv(
-            &send,
-            &recv,
-            Transmit {
-                destination: recv.local_addr().unwrap().as_socket().unwrap(),
-                ecn: Some(codepoint),
-                contents: b"hello",
-                segment_size: None,
-                src_ip: None,
-            },
-        );
+        test_send_recv(&send, &recv, Transmit {
+            destination: recv.local_addr().unwrap().as_socket().unwrap(),
+            ecn: Some(codepoint),
+            contents: b"hello",
+            segment_size: None,
+            src_ip: None,
+        });
     }
 }
 
@@ -56,17 +48,13 @@ fn ecn_v4() {
     let send = Socket::from(UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap());
     let recv = Socket::from(UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap());
     for codepoint in [EcnCodepoint::Ect0, EcnCodepoint::Ect1] {
-        test_send_recv(
-            &send,
-            &recv,
-            Transmit {
-                destination: recv.local_addr().unwrap().as_socket().unwrap(),
-                ecn: Some(codepoint),
-                contents: b"hello",
-                segment_size: None,
-                src_ip: None,
-            },
-        );
+        test_send_recv(&send, &recv, Transmit {
+            destination: recv.local_addr().unwrap().as_socket().unwrap(),
+            ecn: Some(codepoint),
+            contents: b"hello",
+            segment_size: None,
+            src_ip: None,
+        });
     }
 }
 
@@ -101,17 +89,13 @@ fn ecn_v6_dualstack() {
         let send = UdpSocket::bind(src).unwrap();
         let send = Socket::from(send);
         for codepoint in [EcnCodepoint::Ect0, EcnCodepoint::Ect1] {
-            test_send_recv(
-                &send,
-                &recv,
-                Transmit {
-                    destination: dst,
-                    ecn: Some(codepoint),
-                    contents: b"hello",
-                    segment_size: None,
-                    src_ip: None,
-                },
-            );
+            test_send_recv(&send, &recv, Transmit {
+                destination: dst,
+                ecn: Some(codepoint),
+                contents: b"hello",
+                segment_size: None,
+                src_ip: None,
+            });
         }
     }
 }
@@ -141,17 +125,13 @@ fn ecn_v4_mapped_v6() {
     ));
 
     for codepoint in [EcnCodepoint::Ect0, EcnCodepoint::Ect1] {
-        test_send_recv(
-            &send,
-            &recv,
-            Transmit {
-                destination: recv_v4_mapped_v6,
-                ecn: Some(codepoint),
-                contents: b"hello",
-                segment_size: None,
-                src_ip: None,
-            },
-        );
+        test_send_recv(&send, &recv, Transmit {
+            destination: recv_v4_mapped_v6,
+            ecn: Some(codepoint),
+            contents: b"hello",
+            segment_size: None,
+            src_ip: None,
+        });
     }
 }
 
@@ -173,17 +153,13 @@ fn gso() {
     let dst_addr = recv.local_addr().unwrap();
     const SEGMENT_SIZE: usize = 128;
     let msg = vec![0xAB; SEGMENT_SIZE * max_segments];
-    test_send_recv(
-        &send.into(),
-        &recv.into(),
-        Transmit {
-            destination: dst_addr,
-            ecn: None,
-            contents: &msg,
-            segment_size: Some(SEGMENT_SIZE),
-            src_ip: None,
-        },
-    );
+    test_send_recv(&send.into(), &recv.into(), Transmit {
+        destination: dst_addr,
+        ecn: None,
+        contents: &msg,
+        segment_size: Some(SEGMENT_SIZE),
+        src_ip: None,
+    });
 }
 
 #[test]
@@ -246,17 +222,13 @@ fn socket_buffers() {
         );
     }
 
-    test_send_recv(
-        &send,
-        &recv,
-        Transmit {
-            destination: recv.local_addr().unwrap().as_socket().unwrap(),
-            ecn: None,
-            contents: b"hello",
-            segment_size: None,
-            src_ip: None,
-        },
-    );
+    test_send_recv(&send, &recv, Transmit {
+        destination: recv.local_addr().unwrap().as_socket().unwrap(),
+        ecn: None,
+        contents: b"hello",
+        segment_size: None,
+        src_ip: None,
+    });
 }
 
 fn test_send_recv(send: &Socket, recv: &Socket, transmit: Transmit) {

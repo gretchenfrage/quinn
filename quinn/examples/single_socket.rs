@@ -22,10 +22,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     let server2_cert = run_server(addr2)?;
     let server3_cert = run_server(addr3)?;
 
-    let client = make_client_endpoint(
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
-        &[&server1_cert, &server2_cert, &server3_cert],
-    )?;
+    let client = make_client_endpoint(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0), &[
+        &server1_cert,
+        &server2_cert,
+        &server3_cert,
+    ])?;
 
     // connect to multiple endpoints using the same socket/endpoint
     tokio::join!(

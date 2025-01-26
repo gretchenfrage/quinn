@@ -427,13 +427,10 @@ impl Header {
     }
 
     pub(crate) fn is_0rtt(&self) -> bool {
-        matches!(
-            *self,
-            Self::Long {
-                ty: LongType::ZeroRtt,
-                ..
-            }
-        )
+        matches!(*self, Self::Long {
+            ty: LongType::ZeroRtt,
+            ..
+        })
     }
 
     pub(crate) fn dst_cid(&self) -> ConnectionId {
