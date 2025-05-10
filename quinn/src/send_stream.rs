@@ -1,5 +1,5 @@
 use std::{
-    future::Future,
+    future::{Future, poll_fn},
     io,
     pin::Pin,
     task::{Context, Poll, ready},
@@ -91,6 +91,28 @@ impl SendStream {
             bufs,
             offset: 0,
         }
+        .await
+    }
+
+    /// Send data on the given stream
+    ///
+    /// The `source` callback is invoked with the number of bytes that can be written immediately,
+    /// as well as an initially empty `&mut Vec<Bytes>` to which it can push bytes to write. If the
+    /// callback pushes a total number of bytes less than or equal to the provided limit, it is
+    /// guaranteed they will all be written. If it provides more bytes than this, it is guaranteed
+    /// that a prefix of the provided cumulative bytes will be written equal in length to the
+    /// provided limit.
+
+    pub async fn write_source<T>(
+        &mut self,
+        source: impl FnOnce(usize, &mut Vec<Bytes>) -> T,
+    ) -> Result<T, WriteError> {
+        let mut source = Some(source);
+        poll_fn(move |cx| {
+            self.execute_poll(cx, |s| {
+                s.write_source(|limit, chunks| (source.take().unwrap())(limit, chunks))
+            })
+        })
         .await
     }
 
