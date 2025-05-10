@@ -79,8 +79,7 @@ impl SendStream {
     ///
     /// This operation is *not* cancel-safe.
     pub async fn write_chunk(&mut self, buf: Bytes) -> Result<(), WriteError> {
-        self.write_chunks(&mut [buf]).await?;
-        Ok(())
+        self.write_all_chunks(&mut [buf]).await
     }
 
     /// Convenience method to write an entire list of chunks to the stream
