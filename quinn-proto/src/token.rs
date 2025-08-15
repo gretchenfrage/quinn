@@ -138,12 +138,12 @@ impl IncomingToken {
         //
         // > If the token is invalid, then the server SHOULD proceed as if the client did not have
         // > a validated address, including potentially sending a Retry packet.
-        let Some(retry) = Token::decode(&*server_config.token_key, &header.token) else {
+        let Some(token) = Token::decode(&*server_config.token_key, &header.token) else {
             return Ok(unvalidated);
         };
 
         // Validate token, then convert into Self
-        match retry.payload {
+        match token.payload {
             TokenPayload::Retry {
                 address,
                 orig_dst_cid,
@@ -174,7 +174,7 @@ impl IncomingToken {
                 if server_config
                     .validation_token
                     .log
-                    .check_and_insert(retry.nonce, issued, server_config.validation_token.lifetime)
+                    .check_and_insert(token.nonce, issued, server_config.validation_token.lifetime)
                     .is_err()
                 {
                     return Ok(unvalidated);
