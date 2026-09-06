@@ -12,6 +12,7 @@ use thiserror::Error;
 use crate::{
     VarInt,
     connection::{ConnectionRef, State},
+    mutex::MutexGuard,
 };
 
 /// A stream that can only be used to send data
@@ -142,7 +143,6 @@ impl SendStream {
     where
         F: FnOnce(&mut proto::SendStream<'_>) -> Result<R, proto::WriteError>,
     {
-        use proto::WriteError::*;
         let mut conn = self.conn.state.lock("SendStream::poll_write");
         if self.is_0rtt {
             conn.check_0rtt()
@@ -152,17 +152,14 @@ impl SendStream {
             return Poll::Ready(Err(WriteError::ConnectionLost(x.clone())));
         }
 
-        let result = match write_fn(&mut conn.inner.send_stream(self.stream)) {
+        let result = match write_fn(&mut conn.inner.send_stream(self.stream))
+            .map_err(map_proto_write_error)
+        {
             Ok(result) => result,
-            Err(Blocked) => {
+            Err(Some(e)) => return Poll::Ready(Err(e)),
+            Err(None) => {
                 conn.blocked_writers.insert(self.stream, cx.waker().clone());
                 return Poll::Pending;
-            }
-            Err(Stopped(error_code)) => {
-                return Poll::Ready(Err(WriteError::Stopped(error_code)));
-            }
-            Err(ClosedStream) => {
-                return Poll::Ready(Err(WriteError::ClosedStream));
             }
         };
 
@@ -293,6 +290,92 @@ impl SendStream {
         buf: &[u8],
     ) -> Poll<Result<usize, WriteError>> {
         pin!(self.get_mut().write(buf)).as_mut().poll(cx)
+    }
+
+    /// Wait until this stream can be written to, then return a [`SendLock`] freezing the
+    /// connection in that state
+    ///
+    /// This is a low-level primitive which represents a mutex lock on the entire connection's
+    /// ability to process events, and thus should be used with caution.
+    ///
+    /// The resolved [`SendLock`] will begin with a [`write_limit`](SendLock::write_limit) greater
+    /// than 0, because this method only resolves once the stream is unblocked.
+    pub async fn send_lock(&mut self) -> Result<SendLock<'_>, WriteError> {
+        poll_fn(|cx| {
+            let mut conn = self.conn.state.lock("SendStream::poll_write");
+            if self.is_0rtt {
+                conn.check_0rtt()
+                    .map_err(|()| WriteError::ZeroRttRejected)?;
+            }
+            if let Some(ref x) = conn.error {
+                return Poll::Ready(Err(WriteError::ConnectionLost(x.clone())));
+            }
+
+            let write_limit = match conn
+                .inner
+                .send_stream(self.stream)
+                .write_limit_or_mark_blocked()
+                .map_err(map_proto_write_error)
+            {
+                Ok(write_limit) => write_limit,
+                Err(Some(e)) => return Poll::Ready(Err(e)),
+                Err(None) => {
+                    conn.blocked_writers.insert(self.stream, cx.waker().clone());
+                    return Poll::Pending;
+                }
+            };
+
+            Poll::Ready(Ok(SendLock {
+                conn,
+                stream: self.stream,
+                write_limit,
+            }))
+        })
+        .await
+    }
+}
+
+/// Represents a [`SendStream`] which some number of bytes can currently be written to, and an
+/// actively held mutex lock on all connection-level state that affects that number
+///
+/// This is a low-level primitive which prevents the entire connection from processing events until
+/// this `SendLock` is dropped, and thus should be used with caution.
+pub struct SendLock<'a> {
+    conn: MutexGuard<'a, State>,
+    stream: StreamId,
+    write_limit: usize,
+}
+
+impl SendLock<'_> {
+    /// The number of bytes that can be written to this stream immediately without blocking
+    pub fn write_limit(&self) -> usize {
+        self.write_limit
+    }
+
+    /// Immediately write the entirety of `chunk` to this stream, or panic if unable
+    ///
+    /// Panics if `self.write_limit()` is less than `chunk.len()`.
+    ///
+    /// Assuming this does not panic, `self.write_limit()` is decremented by exactly `chunk.len()`.
+    pub fn write(&mut self, chunk: Bytes) {
+        let chunk_len = chunk.len();
+        self.conn
+            .inner
+            .send_stream(self.stream)
+            .write_immediate(chunk);
+        // Underflow safety: write_immediate would have panicked if this underflows
+        self.write_limit -= chunk_len;
+        self.conn.wake();
+    }
+}
+
+/// Convert a `proto::WriteError` to a `quinn::WriteError` or return `None` if the error is
+/// `Blocked`.
+fn map_proto_write_error(e: proto::WriteError) -> Option<WriteError> {
+    match e {
+        proto::WriteError::Blocked => None,
+        proto::WriteError::Stopped(error_code) => Some(WriteError::Stopped(error_code)),
+        proto::WriteError::ClosedStream => Some(WriteError::ClosedStream),
     }
 }
 

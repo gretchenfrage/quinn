@@ -250,7 +250,7 @@ impl<'a> SendStream<'a> {
     /// Get how many bytes could be written immediately
     ///
     /// Always returns `Ok(0)` if blocked, never returns `WriteError::Blocked`.
-    fn write_limit(&self) -> Result<usize, WriteError> {
+    pub fn write_limit(&self) -> Result<usize, WriteError> {
         if self.conn_state.is_closed() {
             return Err(WriteError::Blocked);
         }
@@ -274,12 +274,12 @@ impl<'a> SendStream<'a> {
     /// Ensure that a [`StreamEvent::Writable`][1] event is emitted once [`write_limit`][2]
     /// transitions from `Ok(0)` to a non-zero value
     ///
-    /// It is invalid to call this if `self.write_limit() != Ok(0)`.
+    /// Panics if `self.write_limit() != Ok(0)`.
     ///
     /// [1]: crate::StreamEvent::Writable
     /// [2]: Self::write_limit
-    fn mark_blocked(&mut self) {
-        debug_assert_eq!(
+    pub fn mark_blocked(&mut self) {
+        assert_eq!(
             self.write_limit(),
             Ok(0),
             "Called mark_blocked when write_limit is not Ok(0)"
@@ -328,12 +328,12 @@ impl<'a> SendStream<'a> {
 
     /// Immediately write the entirety of `chunk` on the given stream, or panic if unable
     ///
-    /// Invalid to call if `self.write_limit()` is `Err` or less than `chunk.len()`.
-    fn write_immediate(&mut self, chunk: Bytes) {
+    /// Panics if `self.write_limit()` is `Err` or less than `chunk.len()`.
+    pub fn write_immediate(&mut self, chunk: Bytes) {
         let limit = self
             .write_limit()
             .expect("Called write_immediate when write_limit is Err");
-        debug_assert!(
+        assert!(
             limit >= chunk.len(),
             "Called write_immediate with too large of a chunk"
         );
