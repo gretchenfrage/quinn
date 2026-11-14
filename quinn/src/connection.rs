@@ -32,8 +32,9 @@ use crate::{
     udp_transmit,
 };
 use proto::{
-    ConnectionError, ConnectionHandle, ConnectionStats, Dir, EndpointEvent, Side, StreamEvent,
-    StreamId, TransportError, TransportErrorCode, congestion::Controller,
+    BasicDatagramProvider, ConnectionError, ConnectionHandle, ConnectionStats, DatagramProvider,
+    Dir, EndpointEvent, Side, StreamEvent, StreamId, TransportError, TransportErrorCode,
+    congestion::Controller,
 };
 
 /// In-progress connection attempt future
@@ -532,36 +533,20 @@ impl Connection {
     /// Previously queued datagrams which are still unsent may be discarded to make space for this
     /// datagram, in order of oldest to newest.
     pub fn send_datagram(&self, data: Bytes) -> Result<(), SendDatagramError> {
-        self.send_datagram_inner(data, None)
+        self.send_datagram_provider(Box::new(BasicDatagramProvider(data)))
     }
 
-    /// Transmit a datagram with an expiration time.
-    ///
-    /// Like [`send_datagram`](Self::send_datagram), but the datagram is discarded if its deadline
-    /// has been reached at the time sampled for packet generation. Expiration is checked when
-    /// the connection next attempts transmission, not by a dedicated timer.
-    ///
-    /// Already generated packets are not canceled, so this does not guarantee a deadline for
-    /// UDP transmission or delivery. Success does not imply that the datagram will be sent.
-    pub fn send_datagram_with_deadline(
+    /// TODO docs
+    pub fn send_datagram_provider(
         &self,
-        data: Bytes,
-        deadline: Instant,
-    ) -> Result<(), SendDatagramError> {
-        self.send_datagram_inner(data, Some(deadline))
-    }
-
-    fn send_datagram_inner(
-        &self,
-        data: Bytes,
-        deadline: Option<Instant>,
+        provider: Box<dyn DatagramProvider>,
     ) -> Result<(), SendDatagramError> {
         let conn = &mut *self.0.state.lock("send_datagram");
         if let Some(x) = &conn.error {
             return Err(SendDatagramError::ConnectionLost(x.clone()));
         }
         use proto::SendDatagramError::*;
-        match conn.inner.datagrams().send(data, true, deadline) {
+        match conn.inner.datagrams().send_provider(provider, true) {
             Ok(()) => {
                 conn.wake();
                 Ok(())
@@ -584,9 +569,17 @@ impl Connection {
     ///
     /// [`send_datagram()`]: Connection::send_datagram
     pub fn send_datagram_wait(&self, data: Bytes) -> SendDatagram<'_> {
+        self.send_datagram_wait_provider(Box::new(BasicDatagramProvider(data)))
+    }
+
+    /// TODO docs
+    pub fn send_datagram_wait_provider(
+        &self,
+        provider: Box<dyn DatagramProvider>,
+    ) -> SendDatagram<'_> {
         SendDatagram {
             conn: &self.0,
-            data: Some(data),
+            data: Some(provider),
             notify: self.0.shared.datagrams_unblocked.notified(),
         }
     }
@@ -1047,7 +1040,7 @@ pin_project! {
     /// Future produced by [`Connection::send_datagram_wait`]
     pub struct SendDatagram<'a> {
         conn: &'a ConnectionRef,
-        data: Option<Bytes>,
+        data: Option<Box<dyn DatagramProvider>>,
         #[pin]
         notify: Notified<'a>,
     }
@@ -1065,7 +1058,7 @@ impl Future for SendDatagram<'_> {
         match state
             .inner
             .datagrams()
-            .send(this.data.take().unwrap(), false, None)
+            .send_provider(this.data.take().unwrap(), false)
         {
             Ok(()) => {
                 state.wake();
@@ -1073,7 +1066,8 @@ impl Future for SendDatagram<'_> {
             }
             Err(e) => Poll::Ready(Err(match e {
                 Blocked(data) => {
-                    this.data.replace(data);
+                    #[allow(unreachable_code)] // TODO
+                    this.data.replace(todo!());
                     loop {
                         match this.notify.as_mut().poll(ctx) {
                             Poll::Pending => return Poll::Pending,

@@ -48,7 +48,7 @@ use cid_state::CidState;
 
 mod datagrams;
 use datagrams::DatagramState;
-pub use datagrams::{Datagrams, SendDatagramError};
+pub use datagrams::{BasicDatagramProvider, DatagramProvider, Datagrams, SendDatagramError};
 
 mod mtud;
 mod pacing;
@@ -470,7 +470,7 @@ impl Connection {
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
         assert!(max_datagrams != 0);
-        if self.datagrams.outgoing.drop_expired(now) && self.datagrams.send_blocked {
+        if self.datagrams.send_blocked {
             self.datagrams.send_blocked = false;
             self.events.push_back(Event::DatagramsUnblocked);
         }
@@ -3522,20 +3522,20 @@ impl Connection {
         }
 
         // DATAGRAM
-        let mut sent_datagrams = false;
-        while buf.len() + Datagram::SIZE_BOUND < max_size && space_id == SpaceId::Data {
-            match self.datagrams.outgoing.write(buf, max_size) {
-                true => {
-                    sent_datagrams = true;
-                    sent.non_retransmits = true;
-                    self.stats.frame_tx.datagram += 1;
-                }
-                false => break,
+        if buf.len() + Datagram::SIZE_BOUND < max_size && space_id == SpaceId::Data {
+            let num_frames = self
+                .datagrams
+                .outgoing
+                .write(buf, max_size, self.config.datagram_send_buffer_size)
+                .expect("TODO");
+            self.stats.frame_tx.datagram += num_frames;
+            if num_frames > 0 {
+                sent.non_retransmits = true;
             }
-        }
-        if self.datagrams.send_blocked && sent_datagrams {
-            self.events.push_back(Event::DatagramsUnblocked);
-            self.datagrams.send_blocked = false;
+            if self.datagrams.send_blocked && num_frames > 0 {
+                self.events.push_back(Event::DatagramsUnblocked);
+                self.datagrams.send_blocked = false;
+            }
         }
 
         // NEW_TOKEN

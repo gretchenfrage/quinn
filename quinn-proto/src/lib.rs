@@ -44,10 +44,10 @@ pub use bloom_token_log::BloomTokenLog;
 
 mod connection;
 pub use crate::connection::{
-    Chunk, Chunks, ClosedStream, Connection, ConnectionError, ConnectionStats, Datagrams, Event,
-    FinishError, FrameStats, PathStats, ReadError, ReadableError, RecvStream, RttEstimator,
-    SendDatagramError, SendStream, ShouldTransmit, StreamEvent, Streams, UdpStats, WriteError,
-    Written,
+    BasicDatagramProvider, Chunk, Chunks, ClosedStream, Connection, ConnectionError,
+    ConnectionStats, DatagramProvider, Datagrams, Event, FinishError, FrameStats, PathStats,
+    ReadError, ReadableError, RecvStream, RttEstimator, SendDatagramError, SendStream,
+    ShouldTransmit, StreamEvent, Streams, UdpStats, WriteError, Written,
 };
 #[cfg(feature = "qlog")]
 pub use connection::qlog::QlogStream;
@@ -67,7 +67,7 @@ pub mod crypto;
 
 mod frame;
 use crate::frame::Frame;
-pub use crate::frame::{ApplicationClose, ConnectionClose, Datagram, FrameType};
+pub use crate::frame::{ApplicationClose, ConnectionClose, Datagram, FrameType, datagram_overhead};
 
 mod endpoint;
 pub use crate::endpoint::{

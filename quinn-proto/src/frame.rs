@@ -913,22 +913,19 @@ impl FrameStruct for Datagram {
 }
 
 impl Datagram {
-    pub(crate) fn encode(&self, length: bool, out: &mut Vec<u8>) {
-        out.write(FrameType(*DATAGRAM_TYS.start() | u64::from(length))); // 1 byte
-        if length {
-            // Safe to unwrap because we check length sanity before queueing datagrams
-            out.write(VarInt::from_u64(self.data.len() as u64).unwrap()); // <= 8 bytes
-        }
+    pub(crate) fn encode(&self, out: &mut Vec<u8>) {
+        out.write(FrameType(*DATAGRAM_TYS.start() | 1)); // 1 byte
+        // Safe to unwrap because we check length sanity before queueing datagrams
+        out.write(VarInt::from_u64(self.data.len() as u64).unwrap()); // <= 8 bytes
         out.extend_from_slice(&self.data);
     }
+}
 
-    pub(crate) fn size(&self, length: bool) -> usize {
-        1 + if length {
-            VarInt::from_u64(self.data.len() as u64).unwrap().size()
-        } else {
-            0
-        } + self.data.len()
-    }
+/// Byte overhead for sending an unreliable datagram of the given lenth
+pub fn datagram_overhead(length: usize) -> usize {
+    1 + VarInt::from_u64(length as u64)
+        .unwrap_or(VarInt::MAX)
+        .size()
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
